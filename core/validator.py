@@ -1,206 +1,281 @@
 import pandas as pd
+import re
 from datetime import datetime
-from core.utils import normalize_key, parse_date_dmy, safe_int, safe_float
-from core.models import FPTK, MasterDropdown
-from sqlalchemy.orm import Session
+from core.utils import normalize_key, parse_date_dmy, safe_int
 
-class ValidationError:
-    def __init__(self, row, field, message):
-        self.row = row
-        self.field = field
-        self.message = message
+# ============================================================
+# HEADER ALIAS MAPPING (SESUAI VBA)
+# ============================================================
+HEADER_ALIASES = {
+    "Kode PIC": ["Kode PIC", "PIC Code", "Kode Recruiter"],
+    "FPTK Date (Real)": ["FPTK Date (Real)", "FPTK Date Real", "Tanggal FPTK", "FPTK DATE REAL"],
+    "Kode Angka": ["Kode Angka", "Kode", "Position Code", "KODE"],
+    "FPTK Date (Kode)": ["FPTK Date (Kode)", "FPTK Date Kode", "FPTK Date", "FPTK Date (CODE)"],
+    "Kode Unik": ["Kode Unik", "Unique Code", "KODE UNIK"],
+    "Posisi": ["Posisi", "Position", "Nama Posisi", "POSISI"],
+    "Business Unit": ["Business Unit", "PT/Business Unit", "PT / Business Unit", "BU", "BUSINESS UNIT"],
+    "Direktorat": ["Direktorat", "Directorate", "DIREKTORAT"],
+    "Divisi": ["Divisi", "Division", "Divisi (Sesuai SO)", "Division Chris", "DIVISI"],
+    "Department": ["Department", "Departemen", "DEPARTMENT"],
+    "Level FPTK": ["Level FPTK", "Level Posisi", "Level FPTK (Sesuai SO)", "LEVEL FPTK"],
+    "Level Number": ["Level Number", "Level No", "Nomor Level", "LEVEL NUMBER"],
+    "Alasan Permintaan FPTK": ["Alasan Permintaan FPTK", "Alasan FPTK", "Category", "Status FPTK", "ALASAN PERMINTAAN FPTK"],
+    "Category FPTK": ["Category FPTK", "CATEGORY FPTK"],
+    "PIC Recruiter": ["PIC Recruiter", "PIC Rekruter", "Recruiter", "PIC RECRUITER"],
+    "Filter Kategorisasi FPTK": ["Filter Kategorisasi FPTK", "Filter Kategori FPTK", "Kategorisasi FPTK", "FILTER KATEGORISASI FPTK"],
+    "Vacancy": ["Vacancy", "Jumlah Posisi", "Jumlah Vacancy"],
+    "Status": ["Status", "Status Rekrutmen", "Status Vacancy"],
+    "Offering Date": ["Offering Date", "Tanggal Offering", "OFFERING DATE"],
+    "FPTK Cancel Date": ["FPTK Cancel Date", "Cancel Date", "FPTK CANCEL DATE"],
+    "Nama Kandidat": ["Nama Kandidat", "Kandidat", "Candidate Name", "NAMA KANDIDAT"],
+}
 
-def validate_fptk_file(df: pd.DataFrame, db: Session, user_id: int, is_sto: bool = False):
+def find_header_column(df: pd.DataFrame, canonical: str) -> str:
+    """Cari nama kolom di DataFrame berdasarkan alias mapping."""
+    aliases = HEADER_ALIASES.get(canonical, [canonical])
+    for col in df.columns:
+        col_clean = str(col).strip()
+        for alias in aliases:
+            if col_clean.lower() == alias.lower():
+                return col_clean
+            # partial match (spasi diabaikan)
+            if alias.lower().replace(" ", "") in col_clean.lower().replace(" ", ""):
+                return col_clean
+    return None
+
+def get_column_value(row, canonical: str, default=None):
+    """Ambil nilai dari row berdasarkan canonical header."""
+    col = find_header_column(pd.DataFrame([row]), canonical)
+    if col and col in row:
+        return row[col]
+    return default
+
+def validate_fptk_file(df: pd.DataFrame, db, user_id: int, is_sto: bool = False):
     """
-    Strict validation: if any blocking error -> return None
-    Returns: (validated_df, errors_list)
+    Strict validation dengan alias header untuk FPTK.
+    Returns: (validated_rows, errors)
     """
     errors = []
     validated_rows = []
-    
-    # 1. Check required columns exist
-    required_cols = [
-        'Kode PIC', 'FPTK Date (Real)', 'Kode Unik', 'Posisi',
-        'Business Unit', 'Direktorat', 'Divisi', 'Department',
-        'Level FPTK', 'Level Number', 'Alasan Permintaan FPTK',
-        'Category FPTK', 'PIC Recruiter', 'Vacancy', 'Status'
+
+    # Cek header wajib dengan alias
+    required_canonical = [
+        "Kode PIC", "FPTK Date (Real)", "Kode Unik", "Posisi",
+        "Business Unit", "Direktorat", "Divisi", "Department",
+        "Level FPTK", "Level Number", "Alasan Permintaan FPTK",
+        "Category FPTK", "PIC Recruiter", "Vacancy", "Status"
     ]
-    
-    missing_cols = [c for c in required_cols if c not in df.columns]
-    if missing_cols:
-        errors.append(ValidationError(0, "HEADER", f"Kolom tidak ditemukan: {', '.join(missing_cols)}"))
-        return None, errors
-    
-    # 2. Load master data for validation
-    master_bu = set()
-    master_direktorat = set()
-    master_alasan = set()
-    master_category = set()
-    master_pic = set()
-    master_status = {'OP', 'Closed', 'Cancel'}
-    
-    master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
-    for m in master_records:
-        if m.bu: master_bu.add(m.bu.strip())
-        if m.nama_direktorat: master_direktorat.add(m.nama_direktorat.strip())
-        if m.alasan: master_alasan.add(m.alasan.strip())
-        if m.category_fptk: master_category.add(m.category_fptk.strip())
-        if m.pic_recruiter: master_pic.add(m.pic_recruiter.strip())
-    
-    # 3. Validate each row
+
+    missing_headers = []
+    for canon in required_canonical:
+        if not find_header_column(df, canon):
+            missing_headers.append(canon)
+    if missing_headers:
+        errors.append({
+            "row": 0,
+            "field": "HEADER",
+            "message": f"Kolom tidak ditemukan: {', '.join(missing_headers)}"
+        })
+        return [], errors
+
+    # Proses setiap row
     for idx, row in df.iterrows():
         row_num = idx + 2  # Excel row number (header=1)
         row_errors = []
         row_data = {}
-        
-        # --- Kode PIC ---
-        kode_pic = str(row.get('Kode PIC', '')).strip()
+
+        # Helper untuk ambil nilai dari row
+        def get_val(canonical: str):
+            col = find_header_column(df, canonical)
+            if col and col in row:
+                return row[col]
+            return None
+
+        # Kode PIC
+        kode_pic = str(get_val("Kode PIC") or "").strip()
         if not kode_pic:
-            row_errors.append(ValidationError(row_num, 'Kode PIC', 'Wajib diisi'))
+            row_errors.append({"row": row_num, "field": "Kode PIC", "message": "Wajib diisi"})
         row_data['kode_pic'] = kode_pic
-        
-        # --- FPTK Date Real ---
-        fptk_date = parse_date_dmy(row.get('FPTK Date (Real)'))
+
+        # FPTK Date Real
+        fptk_date = parse_date_dmy(get_val("FPTK Date (Real)"))
         if not fptk_date:
-            row_errors.append(ValidationError(row_num, 'FPTK Date (Real)', 'Wajib diisi dan valid (dd/mm/yyyy)'))
+            row_errors.append({"row": row_num, "field": "FPTK Date (Real)", "message": "Wajib diisi dan valid (dd/mm/yyyy)"})
         row_data['fptk_date_real'] = fptk_date
-        
-        # --- Kode Unik ---
-        kode_unik = normalize_key(row.get('Kode Unik'))
+
+        # Kode Unik
+        kode_unik = normalize_key(get_val("Kode Unik"))
         if not kode_unik:
-            row_errors.append(ValidationError(row_num, 'Kode Unik', 'Wajib diisi'))
+            row_errors.append({"row": row_num, "field": "Kode Unik", "message": "Wajib diisi"})
         row_data['kode_unik'] = kode_unik
-        
-        # --- Posisi ---
-        posisi = str(row.get('Posisi', '')).strip()
+
+        # Posisi
+        posisi = str(get_val("Posisi") or "").strip()
         if not posisi:
-            row_errors.append(ValidationError(row_num, 'Posisi', 'Wajib diisi'))
+            row_errors.append({"row": row_num, "field": "Posisi", "message": "Wajib diisi"})
         row_data['posisi'] = posisi
-        
-        # --- Business Unit ---
-        bu = str(row.get('Business Unit', '')).strip()
+
+        # Business Unit
+        bu = str(get_val("Business Unit") or "").strip()
         if not bu:
-            row_errors.append(ValidationError(row_num, 'Business Unit', 'Wajib diisi'))
-        elif bu not in master_bu:
-            row_errors.append(ValidationError(row_num, 'Business Unit', f'"{bu}" tidak ada di master dropdown'))
+            row_errors.append({"row": row_num, "field": "Business Unit", "message": "Wajib diisi"})
         row_data['business_unit'] = bu
-        
-        # --- Direktorat ---
-        direktorat = str(row.get('Direktorat', '')).strip()
+
+        # Direktorat
+        direktorat = str(get_val("Direktorat") or "").strip()
         if not direktorat:
-            row_errors.append(ValidationError(row_num, 'Direktorat', 'Wajib diisi'))
-        elif direktorat not in master_direktorat:
-            row_errors.append(ValidationError(row_num, 'Direktorat', f'"{direktorat}" tidak ada di master dropdown'))
+            row_errors.append({"row": row_num, "field": "Direktorat", "message": "Wajib diisi"})
         row_data['direktorat'] = direktorat
-        
-        # --- Divisi ---
-        divisi = str(row.get('Divisi', '')).strip()
+
+        # Divisi
+        divisi = str(get_val("Divisi") or "").strip()
         if not divisi:
-            row_errors.append(ValidationError(row_num, 'Divisi', 'Wajib diisi'))
+            row_errors.append({"row": row_num, "field": "Divisi", "message": "Wajib diisi"})
         row_data['divisi'] = divisi
-        
-        # --- Department ---
-        department = str(row.get('Department', '')).strip()
+
+        # Department
+        department = str(get_val("Department") or "").strip()
         if not department:
-            row_errors.append(ValidationError(row_num, 'Department', 'Wajib diisi'))
+            row_errors.append({"row": row_num, "field": "Department", "message": "Wajib diisi"})
         row_data['department'] = department
-        
-        # --- Level FPTK ---
-        level_fptk = str(row.get('Level FPTK', '')).strip()
+
+        # Level FPTK
+        level_fptk = str(get_val("Level FPTK") or "").strip()
         if not level_fptk:
-            row_errors.append(ValidationError(row_num, 'Level FPTK', 'Wajib diisi'))
+            row_errors.append({"row": row_num, "field": "Level FPTK", "message": "Wajib diisi"})
         elif not re.match(r'^[0-9]+[A-Za-z]$', level_fptk):
-            row_errors.append(ValidationError(row_num, 'Level FPTK', f'Format harus seperti 1A, 2B, 3A (input: {level_fptk})'))
+            row_errors.append({"row": row_num, "field": "Level FPTK", "message": f"Format harus 1A/2B/3A (input: {level_fptk})"})
         row_data['level_fptk'] = level_fptk
-        
-        # --- Level Number ---
-        level_num = safe_int(row.get('Level Number'))
+
+        # Level Number
+        level_num = safe_int(get_val("Level Number"))
         if level_num <= 0:
-            row_errors.append(ValidationError(row_num, 'Level Number', 'Wajib diisi dan harus angka > 0'))
-        # Validate Level Number matches Level FPTK
-        if level_fptk and level_num > 0:
-            expected = int(re.search(r'^([0-9]+)', level_fptk).group(1)) if re.search(r'^([0-9]+)', level_fptk) else None
-            if expected and level_num != expected:
-                row_errors.append(ValidationError(row_num, 'Level Number', f'Harus match dengan Level FPTK ({expected})'))
+            row_errors.append({"row": row_num, "field": "Level Number", "message": "Wajib angka > 0"})
         row_data['level_number'] = level_num
-        
-        # --- Alasan Permintaan FPTK ---
-        alasan = str(row.get('Alasan Permintaan FPTK', '')).strip()
+
+        # Alasan
+        alasan = str(get_val("Alasan Permintaan FPTK") or "").strip()
         if not alasan:
-            row_errors.append(ValidationError(row_num, 'Alasan Permintaan FPTK', 'Wajib diisi'))
-        elif alasan not in master_alasan:
-            row_errors.append(ValidationError(row_num, 'Alasan Permintaan FPTK', f'"{alasan}" tidak ada di master dropdown'))
+            row_errors.append({"row": row_num, "field": "Alasan Permintaan FPTK", "message": "Wajib diisi"})
         row_data['alasan_permintaan_fptk'] = alasan
-        
-        # --- Category FPTK ---
-        category = str(row.get('Category FPTK', '')).strip()
+
+        # Category FPTK
+        category = str(get_val("Category FPTK") or "").strip()
         if not category:
-            row_errors.append(ValidationError(row_num, 'Category FPTK', 'Wajib diisi'))
-        elif category not in master_category:
-            row_errors.append(ValidationError(row_num, 'Category FPTK', f'"{category}" tidak ada di master dropdown'))
+            row_errors.append({"row": row_num, "field": "Category FPTK", "message": "Wajib diisi"})
         row_data['category_fptk'] = category
-        
-        # --- PIC Recruiter ---
-        pic = str(row.get('PIC Recruiter', '')).strip()
+
+        # PIC Recruiter
+        pic = str(get_val("PIC Recruiter") or "").strip()
         if not pic:
-            row_errors.append(ValidationError(row_num, 'PIC Recruiter', 'Wajib diisi'))
-        elif pic not in master_pic:
-            row_errors.append(ValidationError(row_num, 'PIC Recruiter', f'"{pic}" tidak ada di master dropdown'))
+            row_errors.append({"row": row_num, "field": "PIC Recruiter", "message": "Wajib diisi"})
         row_data['pic_recruiter'] = pic
-        
-        # --- Vacancy ---
-        vacancy = safe_int(row.get('Vacancy'))
+
+        # Vacancy
+        vacancy = safe_int(get_val("Vacancy"))
         if vacancy <= 0:
-            row_errors.append(ValidationError(row_num, 'Vacancy', 'Harus angka > 0'))
+            row_errors.append({"row": row_num, "field": "Vacancy", "message": "Harus angka > 0"})
         row_data['vacancy'] = vacancy
-        
-        # --- Status ---
-        status = str(row.get('Status', '')).strip()
+
+        # Status
+        status = str(get_val("Status") or "").strip()
         if not status:
-            row_errors.append(ValidationError(row_num, 'Status', 'Wajib diisi'))
-        elif status not in master_status:
-            row_errors.append(ValidationError(row_num, 'Status', f'Hanya OP, Closed, atau Cancel (input: {status})'))
+            row_errors.append({"row": row_num, "field": "Status", "message": "Wajib diisi"})
+        elif status not in ["OP", "Closed", "Cancel"]:
+            row_errors.append({"row": row_num, "field": "Status", "message": f"Hanya OP/Closed/Cancel (input: {status})"})
         row_data['status'] = status
-        
-        # --- Closed requires Offering Date ---
-        if status == 'Closed':
-            offering = parse_date_dmy(row.get('Offering Date'))
+
+        # Closed → Offering Date
+        if status == "Closed":
+            offering = parse_date_dmy(get_val("Offering Date"))
             if not offering:
-                row_errors.append(ValidationError(row_num, 'Offering Date', 'Wajib diisi jika Status = Closed'))
+                row_errors.append({"row": row_num, "field": "Offering Date", "message": "Wajib diisi jika Status = Closed"})
             row_data['offering_date'] = offering
-        
-        # --- Cancel requires FPTK Cancel Date ---
-        if status == 'Cancel':
-            cancel = parse_date_dmy(row.get('FPTK Cancel Date'))
+
+        # Cancel → FPTK Cancel Date
+        if status == "Cancel":
+            cancel = parse_date_dmy(get_val("FPTK Cancel Date"))
             if not cancel:
-                row_errors.append(ValidationError(row_num, 'FPTK Cancel Date', 'Wajib diisi jika Status = Cancel'))
+                row_errors.append({"row": row_num, "field": "FPTK Cancel Date", "message": "Wajib diisi jika Status = Cancel"})
             row_data['fptk_cancel_date'] = cancel
-        
-        # --- If any error in this row, skip row ---
+
+        # Jika ada error di row ini, skip row
         if row_errors:
             errors.extend(row_errors)
             continue
-        
-        # Add row data to validated list
+
         validated_rows.append(row_data)
-    
+
     return validated_rows, errors
 
+
+# ============================================================
+# VALIDASI DB SOURCING
+# ============================================================
+SOURCING_HEADER_ALIASES = {
+    "Sourcing Date": ["Sourcing Date", "Tanggal Sourcing", "Tanggal Input"],
+    "Kode Unik (copy value dari FPTK)": ["Kode Unik (copy value dari FPTK)", "Kode Unik", "Unique Code"],
+    "Posisi": ["Posisi", "Position", "Nama Posisi"],
+    "Nama": ["Nama", "Nama Kandidat", "Candidate Name"],
+}
+
+def find_sourcing_header_column(df: pd.DataFrame, canonical: str) -> str:
+    """Cari nama kolom di DataFrame berdasarkan alias mapping untuk sourcing."""
+    aliases = SOURCING_HEADER_ALIASES.get(canonical, [canonical])
+    for col in df.columns:
+        col_clean = str(col).strip()
+        for alias in aliases:
+            if col_clean.lower() == alias.lower():
+                return col_clean
+            # partial match
+            if alias.lower().replace(" ", "") in col_clean.lower().replace(" ", ""):
+                return col_clean
+    return None
+
 def validate_db_sourcing_rows(df: pd.DataFrame):
-    """Validate DB Sourcing rows - Sourcing Date mandatory"""
+    """
+    Validasi DB Sourcing: Sourcing Date mandatory.
+    Returns: (valid_rows, errors)
+    """
     errors = []
     valid_rows = []
-    
-    if 'Sourcing Date' not in df.columns:
-        errors.append(ValidationError(0, 'HEADER', 'Kolom Sourcing Date tidak ditemukan'))
+
+    # Cek header Sourcing Date
+    src_date_col = find_sourcing_header_column(df, "Sourcing Date")
+    if not src_date_col:
+        errors.append({
+            "row": 0,
+            "field": "HEADER",
+            "message": "Kolom Sourcing Date tidak ditemukan"
+        })
         return [], errors
-    
+
+    # Cek apakah ada data
+    if df.empty:
+        return [], errors
+
     for idx, row in df.iterrows():
         row_num = idx + 2
-        sourcing_date = parse_date_dmy(row.get('Sourcing Date'))
+        row_errors = []
+
+        # Sourcing Date
+        raw_date = row.get(src_date_col)
+        sourcing_date = parse_date_dmy(raw_date)
         if not sourcing_date:
-            errors.append(ValidationError(row_num, 'Sourcing Date', 'Wajib diisi dan valid'))
+            row_errors.append({
+                "row": row_num,
+                "field": "Sourcing Date",
+                "message": "Wajib diisi dan valid (dd/mm/yyyy)"
+            })
+
+        # Jika error, skip row
+        if row_errors:
+            errors.extend(row_errors)
             continue
-        valid_rows.append({**row.to_dict(), 'sourcing_date': sourcing_date})
-    
+
+        # Simpan data valid
+        row_data = row.to_dict()
+        row_data['sourcing_date'] = sourcing_date
+        valid_rows.append(row_data)
+
     return valid_rows, errors

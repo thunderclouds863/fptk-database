@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from sqlalchemy.orm import Session
 from core.database import get_db
 from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle
 from core.auth import get_current_user, is_admin
 from datetime import datetime, timedelta
-import numpy as np
 
 def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
@@ -209,11 +207,6 @@ def show_dashboard():
             trend.columns = ['Minggu', 'Jumlah']
             trend['Minggu'] = trend['Minggu'].astype(str)
             
-            # Group by month also
-            trend_month = df.groupby(df['date'].dt.to_period('M')).size().reset_index()
-            trend_month.columns = ['Bulan', 'Jumlah']
-            trend_month['Bulan'] = trend_month['Bulan'].astype(str)
-            
             fig = px.line(trend, x='Minggu', y='Jumlah', title='📈 Trend FPTK per Minggu', markers=True)
             fig.update_layout(height=400)
             st.plotly_chart(fig, use_container_width=True)
@@ -271,7 +264,7 @@ def show_dashboard():
             st.info("Tidak ada data")
     
     # ============================================================
-    # ROW 3: BOXPLOT + TOP PIC
+    # ROW 3: BOXPLOT SLA + TOP PIC
     # ============================================================
     col1, col2 = st.columns(2)
     
@@ -280,7 +273,6 @@ def show_dashboard():
         if total > 0 and 'jumlah_sla' in df and 'pic_recruiter' in df:
             sla_df = df[df['jumlah_sla'] > 0][['pic_recruiter', 'jumlah_sla']].dropna()
             if len(sla_df) > 0:
-                # Limit to top 10 PIC for readability
                 top_pics = sla_df['pic_recruiter'].value_counts().head(10).index
                 sla_df = sla_df[sla_df['pic_recruiter'].isin(top_pics)]
                 
@@ -342,62 +334,68 @@ def show_dashboard():
         st.info("Tidak ada data funnel sourcing")
     
     # ============================================================
-    # ROW 5: SLA COMPLIANCE + HEATMAP
+    # ROW 5: SLA COMPLIANCE (FIXED) + DETAIL SLA DISTRIBUTION
     # ============================================================
     col1, col2 = st.columns(2)
     
     with col1:
-        # SLA Compliance
-        if total > 0 and 'deadline_sla' in df and 'status' in df:
-            now = datetime.now().date()
-            df['deadline_date'] = pd.to_datetime(df['deadline_sla'])
-            df['sla_compliant'] = df.apply(
-                lambda row: row['deadline_date'] >= now if pd.notna(row['deadline_date']) else None, axis=1
-            )
-            compliant = len(df[df['sla_compliant'] == True])
-            not_compliant = len(df[df['sla_compliant'] == False])
+        # SLA Compliance - menggunakan detail_sla dari database
+        st.subheader("✅ SLA Compliance")
+        if total > 0 and 'detail_sla' in df and df['detail_sla'].notna().any():
+            # Hitung compliance dari detail_sla
+            detail_counts = df['detail_sla'].value_counts().reset_index()
+            detail_counts.columns = ['Detail SLA', 'Count']
+            
+            # Kategorikan "Lulus" vs "Tidak Lulus"
+            lulus_keywords = ["Lulus", "Belum Lewat"]
+            lulus = detail_counts[detail_counts['Detail SLA'].str.contains('|'.join(lulus_keywords), case=False, na=False)]['Count'].sum()
+            tidak_lulus = detail_counts[~detail_counts['Detail SLA'].str.contains('|'.join(lulus_keywords), case=False, na=False)]['Count'].sum()
             
             sla_data = pd.DataFrame([
-                {"Status": "Lulus SLA", "Count": compliant},
-                {"Status": "Tidak Lulus SLA", "Count": not_compliant}
+                {"Status": "Lulus SLA", "Count": lulus},
+                {"Status": "Tidak Lulus SLA", "Count": tidak_lulus}
             ])
-            if compliant + not_compliant > 0:
-                fig = px.pie(sla_data, values='Count', names='Status', title='✅ SLA Compliance',
+            if lulus + tidak_lulus > 0:
+                fig = px.pie(sla_data, values='Count', names='Status', title='SLA Compliance',
                              color='Status', color_discrete_map={'Lulus SLA': '#2ecc71', 'Tidak Lulus SLA': '#e74c3c'})
-                fig.update_layout(height=300)
+                fig.update_layout(height=350)
                 st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Tidak ada data SLA")
+                st.info("Belum ada data Detail SLA")
         else:
-            st.info("Tidak ada data SLA")
+            st.info("Belum ada data Detail SLA. Silakan compile file terlebih dahulu.")
     
     with col2:
-        # HEATMAP / Calendar View (simplified)
-        if total > 0 and 'fptk_date_real' in df:
-            df['date'] = pd.to_datetime(df['fptk_date_real'])
-            df['month'] = df['date'].dt.strftime('%Y-%m')
-            df['day'] = df['date'].dt.day
-            
-            heatmap_data = df.groupby(['month', 'day']).size().reset_index(name='count')
-            
-            if len(heatmap_data) > 0:
-                fig = px.density_heatmap(
-                    heatmap_data, 
-                    x='day', 
-                    y='month', 
-                    z='count',
-                    title='🔥 Persebaran FPTK (Calendar Heatmap)',
-                    color_continuous_scale='Blues'
-                )
-                fig.update_layout(height=300)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Tidak ada data")
+        # DISTRIBUSI DETAIL SLA
+        st.subheader("📋 Detail SLA Distribution")
+        if total > 0 and 'detail_sla' in df and df['detail_sla'].notna().any():
+            detail_counts = df['detail_sla'].value_counts().reset_index()
+            detail_counts.columns = ['Detail SLA', 'Count']
+            fig = px.bar(detail_counts, x='Detail SLA', y='Count', title='Distribusi Detail SLA',
+                         color='Detail SLA', text='Count')
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Tidak ada data")
+            st.info("Belum ada data Detail SLA")
     
     # ============================================================
-    # ROW 6: UPLOAD CYCLE PROGRESS (ADMIN ONLY)
+    # ROW 6: HEATMAP (Calendar)
+    # ============================================================
+    st.subheader("📅 Persebaran FPTK")
+    if total > 0 and 'fptk_date_real' in df:
+        df['date'] = pd.to_datetime(df['fptk_date_real'])
+        df['month'] = df['date'].dt.strftime('%Y-%m')
+        df['day'] = df['date'].dt.day
+        heatmap_data = df.groupby(['month', 'day']).size().reset_index(name='count')
+        if len(heatmap_data) > 0:
+            fig = px.density_heatmap(heatmap_data, x='day', y='month', z='count',
+                                     title='🔥 Persebaran FPTK (Calendar Heatmap)',
+                                     color_continuous_scale='Blues')
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+    
+    # ============================================================
+    # ROW 7: UPLOAD CYCLE PROGRESS (ADMIN ONLY)
     # ============================================================
     if admin:
         st.markdown("---")
