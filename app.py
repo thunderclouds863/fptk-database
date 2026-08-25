@@ -33,7 +33,7 @@ init_db()
 
 
 # ============================================================
-# SESSION STATE
+# SESSION STATE INITIALIZATION
 # ============================================================
 
 if "user_id" not in st.session_state:
@@ -56,7 +56,7 @@ if "filter_stack" not in st.session_state:
 
 
 # ============================================================
-# DEFAULT USERS
+# INITIALIZE DEFAULT USERS
 # ============================================================
 
 db = SessionLocal()
@@ -98,18 +98,22 @@ if not st.session_state.user_id:
         }
 
 
-        /* Remove default Streamlit header */
+        /* ====================================================
+           HIDE STREAMLIT HEADER
+        ==================================================== */
 
         header {
             visibility: hidden;
         }
 
 
-        /* Remove excessive top padding */
+        /* ====================================================
+           MAIN CONTAINER
+        ==================================================== */
 
         .block-container {
-            padding-top: 2rem !important;
-            padding-bottom: 2rem !important;
+            padding-top: 25px !important;
+            padding-bottom: 40px !important;
         }
 
 
@@ -118,18 +122,28 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-testid="stImage"] {
-            display: flex;
-            justify-content: center;
-            align-items: center;
+            display: flex !important;
 
-            width: 100%;
+            justify-content: center !important;
 
-            margin-top: 10px;
-            margin-bottom: 15px;
+            align-items: center !important;
+
+            width: 100% !important;
+
+            margin: 0 auto 35px auto !important;
+
+            padding: 0 !important;
         }
 
+
         div[data-testid="stImage"] img {
-            object-fit: contain;
+            width: 300px !important;
+
+            max-width: 300px !important;
+
+            height: auto !important;
+
+            object-fit: contain !important;
         }
 
 
@@ -139,31 +153,32 @@ if not st.session_state.user_id:
 
         div[data-testid="stForm"] {
 
-            width: 100%;
+            width: 700px !important;
 
-            max-width: 700px;
+            max-width: calc(100vw - 40px) !important;
 
-            margin-left: auto;
-            margin-right: auto;
+            margin-left: auto !important;
 
-            padding: 38px 42px 34px 42px;
+            margin-right: auto !important;
+
+            padding: 38px 42px 34px 42px !important;
 
             background:
                 linear-gradient(
                     145deg,
-                    rgba(20, 24, 34, 0.88),
-                    rgba(12, 15, 22, 0.88)
-                );
+                    rgba(20, 24, 34, 0.90),
+                    rgba(12, 15, 22, 0.90)
+                ) !important;
 
             border:
                 1px solid
-                rgba(125, 140, 170, 0.28);
+                rgba(125, 140, 170, 0.28) !important;
 
-            border-radius: 20px;
+            border-radius: 20px !important;
 
             box-shadow:
                 0 25px 70px
-                rgba(0, 0, 0, 0.45);
+                rgba(0, 0, 0, 0.45) !important;
 
             backdrop-filter: blur(15px);
 
@@ -182,34 +197,44 @@ if not st.session_state.user_id:
 
             align-items: center;
 
-            gap: 18px;
+            gap: 14px;
 
             color: #f5f7fb;
 
             font-size: 38px;
 
-            font-weight: 750;
+            font-weight: 700;
 
             line-height: 1;
 
-            margin-bottom: 30px;
+            margin-bottom: 32px;
 
             letter-spacing: -1px;
 
         }
 
 
+        /* ====================================================
+           LOGIN ICON
+        ==================================================== */
+
         .login-icon {
 
-            font-size: 52px;
+            font-size: 42px;
 
             line-height: 1;
+
+            display: flex;
+
+            align-items: center;
+
+            justify-content: center;
 
         }
 
 
         /* ====================================================
-           LABEL
+           TEXT INPUT LABEL
         ==================================================== */
 
         div[data-testid="stTextInput"] label {
@@ -226,12 +251,12 @@ if not st.session_state.user_id:
 
 
         /* ====================================================
-           INPUT WRAPPER
+           INPUT CONTAINER
         ==================================================== */
 
         div[data-baseweb="input"] {
 
-            height: 66px !important;
+            height: 58px !important;
 
             background:
                 linear-gradient(
@@ -265,7 +290,7 @@ if not st.session_state.user_id:
 
             box-shadow:
                 0 0 0 2px
-                rgba(255, 255, 255, 0.04);
+                rgba(255, 255, 255, 0.04) !important;
 
         }
 
@@ -276,15 +301,13 @@ if not st.session_state.user_id:
 
         div[data-baseweb="input"] input {
 
-            height: 64px !important;
+            height: 56px !important;
 
             color: #f5f5f7 !important;
 
-            font-size: 17px !important;
+            font-size: 16px !important;
 
             font-weight: 400 !important;
-
-            padding-left: 58px !important;
 
         }
 
@@ -294,82 +317,6 @@ if not st.session_state.user_id:
             color: #a0a3ad !important;
 
             opacity: 1 !important;
-
-        }
-
-
-        /* ====================================================
-           USER ICON
-        ==================================================== */
-
-        div[data-testid="stTextInput"]:has(
-            input[placeholder="Masukkan username"]
-        ) div[data-baseweb="input"] {
-
-            position: relative;
-
-        }
-
-
-        div[data-testid="stTextInput"]:has(
-            input[placeholder="Masukkan username"]
-        ) div[data-baseweb="input"]::before {
-
-            content: "♙";
-
-            position: absolute;
-
-            left: 20px;
-
-            top: 50%;
-
-            transform: translateY(-50%);
-
-            color: #f0f2f7;
-
-            font-size: 30px;
-
-            z-index: 10;
-
-            pointer-events: none;
-
-        }
-
-
-        /* ====================================================
-           PASSWORD ICON
-        ==================================================== */
-
-        div[data-testid="stTextInput"]:has(
-            input[placeholder="Masukkan password"]
-        ) div[data-baseweb="input"] {
-
-            position: relative;
-
-        }
-
-
-        div[data-testid="stTextInput"]:has(
-            input[placeholder="Masukkan password"]
-        ) div[data-baseweb="input"]::before {
-
-            content: "🔒";
-
-            position: absolute;
-
-            left: 20px;
-
-            top: 50%;
-
-            transform: translateY(-50%);
-
-            font-size: 24px;
-
-            z-index: 10;
-
-            pointer-events: none;
-
-            filter: grayscale(1) brightness(2);
 
         }
 
@@ -386,7 +333,7 @@ if not st.session_state.user_id:
 
 
         /* ====================================================
-           SPACING BETWEEN INPUTS
+           INPUT SPACING
         ==================================================== */
 
         div[data-testid="stTextInput"] {
@@ -402,7 +349,7 @@ if not st.session_state.user_id:
 
         div[data-testid="stFormSubmitButton"] {
 
-            margin-top: 8px;
+            margin-top: 8px !important;
 
         }
 
@@ -437,6 +384,10 @@ if not st.session_state.user_id:
         }
 
 
+        /* ====================================================
+           BUTTON HOVER
+        ==================================================== */
+
         div[data-testid="stFormSubmitButton"] button:hover {
 
             background:
@@ -455,6 +406,10 @@ if not st.session_state.user_id:
         }
 
 
+        /* ====================================================
+           BUTTON ACTIVE
+        ==================================================== */
+
         div[data-testid="stFormSubmitButton"] button:active {
 
             transform: translateY(0);
@@ -463,7 +418,7 @@ if not st.session_state.user_id:
 
 
         /* ====================================================
-           SUCCESS / ERROR
+           ALERT
         ==================================================== */
 
         div[data-testid="stAlert"] {
@@ -483,21 +438,41 @@ if not st.session_state.user_id:
 
             .block-container {
 
-                padding-left: 20px !important;
+                padding-left: 15px !important;
 
-                padding-right: 20px !important;
+                padding-right: 15px !important;
+
+                padding-top: 20px !important;
+
+            }
+
+
+            div[data-testid="stImage"] {
+
+                margin-bottom: 25px !important;
+
+            }
+
+
+            div[data-testid="stImage"] img {
+
+                width: 250px !important;
+
+                max-width: 250px !important;
 
             }
 
 
             div[data-testid="stForm"] {
 
-                max-width: 100%;
+                width: auto !important;
+
+                max-width: calc(100vw - 30px) !important;
 
                 padding:
-                    28px 22px 25px 22px;
+                    28px 22px 25px 22px !important;
 
-                border-radius: 17px;
+                border-radius: 17px !important;
 
             }
 
@@ -506,21 +481,37 @@ if not st.session_state.user_id:
 
                 font-size: 31px;
 
-                gap: 13px;
+                gap: 12px;
 
             }
 
 
             .login-icon {
 
-                font-size: 43px;
+                font-size: 36px;
 
             }
 
 
-            div[data-testid="stImage"] img {
+            div[data-baseweb="input"] {
 
-                max-width: 280px;
+                height: 56px !important;
+
+            }
+
+
+            div[data-baseweb="input"] input {
+
+                height: 54px !important;
+
+                font-size: 15px !important;
+
+            }
+
+
+            div[data-testid="stFormSubmitButton"] button {
+
+                height: 56px !important;
 
             }
 
@@ -533,19 +524,12 @@ if not st.session_state.user_id:
 
 
     # ========================================================
-    # TOP LOGO
+    # CIMORY LOGO
     # ========================================================
 
-    logo_col_left, logo_col_center, logo_col_right = st.columns(
-        [1, 2, 1]
+    st.image(
+        "asset/cimory_logo.png"
     )
-
-    with logo_col_center:
-
-        st.image(
-            "asset/cimory_logo.png",
-            width=390
-        )
 
 
     # ========================================================
@@ -555,7 +539,7 @@ if not st.session_state.user_id:
     with st.form("login_form"):
 
         # ----------------------------------------------------
-        # TITLE
+        # LOGIN TITLE
         # ----------------------------------------------------
 
         st.markdown(
@@ -623,7 +607,7 @@ if not st.session_state.user_id:
                 try:
 
                     # ----------------------------------------
-                    # AUTHENTICATE USER
+                    # AUTHENTICATION
                     # ----------------------------------------
 
                     user = login_user(
@@ -690,9 +674,9 @@ if not st.session_state.user_id:
 
 with st.sidebar:
 
-    # --------------------------------------------------------
-    # USER INFO
-    # --------------------------------------------------------
+    # ========================================================
+    # USER INFORMATION
+    # ========================================================
 
     st.markdown(
         f"### 👤 {st.session_state.user_display}"
@@ -705,9 +689,9 @@ with st.sidebar:
     st.markdown("---")
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # NAVIGATION
-    # --------------------------------------------------------
+    # ========================================================
 
     pages = {
 
@@ -729,9 +713,9 @@ with st.sidebar:
     }
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # ADMIN PAGES
-    # --------------------------------------------------------
+    # ========================================================
 
     db = SessionLocal()
 
@@ -752,9 +736,9 @@ with st.sidebar:
         db.close()
 
 
-    # --------------------------------------------------------
-    # NAVIGATION
-    # --------------------------------------------------------
+    # ========================================================
+    # NAVIGATION RADIO
+    # ========================================================
 
     selected = st.radio(
         "Navigasi",
@@ -816,11 +800,19 @@ with st.sidebar:
 
                 if update_password:
 
+                    # ----------------------------------------
+                    # VALIDATE PASSWORD
+                    # ----------------------------------------
+
                     if (
                         new
                         and new == confirm
                         and len(new) >= 6
                     ):
+
+                        # ------------------------------------
+                        # VERIFY OLD PASSWORD
+                        # ------------------------------------
 
                         if (
                             user
