@@ -332,7 +332,7 @@ if not st.session_state.user_id:
     )
 
     st.image(
-        "assets/cimory_logo.png",
+        "asset/cimory_logo.png",
         width=220
     )
 
