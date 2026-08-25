@@ -56,18 +56,18 @@ if not st.session_state.user_id:
         unsafe_allow_html=True
     )
     
-st.markdown('<div class="login-container">', unsafe_allow_html=True)
-
-st.markdown(
-    """
-    <div style="text-align: center; margin-bottom: 15px;">
-        <img src="DIRECT_IMAGE_URL" width="150">
-    </div>
-    """,
-    unsafe_allow_html=True
-)
-
-st.markdown("## 🔐 Login")
+    st.markdown('<div class="login-container">', unsafe_allow_html=True)
+    
+    st.markdown(
+        """
+        <div style="text-align: center; margin-bottom: 15px;">
+            <img src="DIRECT_IMAGE_URL" width="150">
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    st.markdown("## 🔐 Login")
     
     with st.form("login_form"):
         username = st.text_input("Username", placeholder="Masukkan username")
