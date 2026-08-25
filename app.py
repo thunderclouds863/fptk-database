@@ -1,5 +1,7 @@
 import streamlit as st
 import importlib
+import time
+
 from core.database import SessionLocal, init_db
 from core.auth import (
     login_user,
@@ -9,7 +11,6 @@ from core.auth import (
     hash_password
 )
 from core.models import User
-import time
 
 
 # ============================================================
@@ -32,7 +33,7 @@ init_db()
 
 
 # ============================================================
-# SESSION STATE
+# SESSION STATE INITIALIZATION
 # ============================================================
 
 if "user_id" not in st.session_state:
@@ -62,7 +63,6 @@ db = SessionLocal()
 
 try:
     init_default_users(db)
-
 finally:
     db.close()
 
@@ -73,29 +73,28 @@ finally:
 
 if not st.session_state.user_id:
 
-    # --------------------------------------------------------
-    # LOGIN PAGE CSS
-    # --------------------------------------------------------
+    # ========================================================
+    # LOGIN CSS
+    # ========================================================
 
     st.markdown(
         """
         <style>
 
         /* ==================================================
-           GLOBAL
+           GLOBAL BACKGROUND
         ================================================== */
 
         .stApp {
             background:
                 radial-gradient(
-                    circle at 50% 35%,
-                    rgba(35, 40, 55, 0.35) 0%,
-                    rgba(14, 17, 23, 1) 55%
+                    circle at 50% 30%,
+                    rgba(35, 40, 55, 0.35),
+                    #0e1117 60%
                 );
         }
 
-
-        /* Hide Streamlit header */
+        /* Hide Streamlit top header */
         header {
             visibility: hidden;
         }
@@ -109,7 +108,7 @@ if not st.session_state.user_id:
             width: 100%;
             max-width: 850px;
             margin: 0 auto;
-            padding-top: 60px;
+            padding-top: 40px;
         }
 
 
@@ -117,41 +116,11 @@ if not st.session_state.user_id:
            LOGO
         ================================================== */
 
-        .logo-container {
+        .logo-wrapper {
             display: flex;
             justify-content: center;
             align-items: center;
-
-            margin-bottom: 25px;
-        }
-
-        .logo-container img {
-            width: 220px;
-            height: auto;
-            object-fit: contain;
-        }
-
-
-        /* ==================================================
-           LOGIN CARD
-        ================================================== */
-
-        .login-card {
-            background: rgba(18, 21, 29, 0.82);
-
-            border: 1px solid rgba(255, 255, 255, 0.15);
-
-            border-radius: 20px;
-
-            padding: 38px 42px 30px 42px;
-
-            box-shadow:
-                0 20px 60px rgba(0, 0, 0, 0.35),
-                inset 0 1px 0 rgba(255, 255, 255, 0.03);
-
-            backdrop-filter: blur(12px);
-
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
 
 
@@ -160,28 +129,37 @@ if not st.session_state.user_id:
         ================================================== */
 
         .login-title {
-            display: flex;
-            align-items: center;
-
-            gap: 15px;
-
-            margin-bottom: 28px;
-        }
-
-        .login-title .icon {
-            font-size: 42px;
-            line-height: 1;
-        }
-
-        .login-title .text {
+            text-align: center;
+            color: #f5f5f5;
             font-size: 38px;
             font-weight: 700;
-            color: #f5f5f5;
+            margin-top: 0;
+            margin-bottom: 25px;
         }
 
 
         /* ==================================================
-           STREAMLIT INPUT
+           LOGIN FORM CARD
+        ================================================== */
+
+        div[data-testid="stForm"] {
+            background: rgba(18, 21, 29, 0.88);
+
+            border: 1px solid rgba(255, 255, 255, 0.15);
+
+            border-radius: 20px;
+
+            padding: 35px 40px 30px 40px;
+
+            box-shadow:
+                0 20px 60px rgba(0, 0, 0, 0.35);
+
+            backdrop-filter: blur(12px);
+        }
+
+
+        /* ==================================================
+           INPUT CONTAINER
         ================================================== */
 
         div[data-baseweb="input"] {
@@ -192,15 +170,23 @@ if not st.session_state.user_id:
             border: 1px solid transparent !important;
         }
 
+
         div[data-baseweb="input"]:focus-within {
-            border: 1px solid rgba(255, 255, 255, 0.25) !important;
+            border: 1px solid rgba(255, 255, 255, 0.25)
+                !important;
         }
+
+
+        /* ==================================================
+           INPUT TEXT
+        ================================================== */
 
         div[data-baseweb="input"] input {
             color: #ffffff !important;
 
             font-size: 16px !important;
         }
+
 
         div[data-baseweb="input"] input::placeholder {
             color: #9b9da7 !important;
@@ -224,9 +210,7 @@ if not st.session_state.user_id:
            LOGIN BUTTON
         ================================================== */
 
-        div.stButton > button,
-        div[data-testid="stFormSubmitButton"] > button {
-
+        div[data-testid="stFormSubmitButton"] button {
             width: 100%;
 
             min-height: 52px;
@@ -247,9 +231,7 @@ if not st.session_state.user_id:
         }
 
 
-        div.stButton > button:hover,
-        div[data-testid="stFormSubmitButton"] > button:hover {
-
+        div[data-testid="stFormSubmitButton"] button:hover {
             background: #ff5c5c;
 
             transform: translateY(-1px);
@@ -260,18 +242,7 @@ if not st.session_state.user_id:
 
 
         /* ==================================================
-           REMOVE EXTRA FORM BORDER
-        ================================================== */
-
-        div[data-testid="stForm"] {
-            border: none !important;
-
-            padding: 0 !important;
-        }
-
-
-        /* ==================================================
-           ERROR / SUCCESS
+           ALERT
         ================================================== */
 
         div[data-testid="stAlert"] {
@@ -286,24 +257,17 @@ if not st.session_state.user_id:
         @media (max-width: 768px) {
 
             .login-wrapper {
-                padding: 30px 15px 0 15px;
+                padding: 25px 15px 0 15px;
             }
 
-            .login-card {
-                padding: 28px 22px 25px 22px;
+            div[data-testid="stForm"] {
+                padding: 25px 20px;
             }
 
-            .logo-container img {
-                width: 170px;
-            }
-
-            .login-title .text {
+            .login-title {
                 font-size: 30px;
             }
 
-            .login-title .icon {
-                font-size: 34px;
-            }
         }
 
         </style>
@@ -312,9 +276,9 @@ if not st.session_state.user_id:
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # LOGIN WRAPPER
-    # --------------------------------------------------------
+    # ========================================================
 
     st.markdown(
         '<div class="login-wrapper">',
@@ -322,61 +286,49 @@ if not st.session_state.user_id:
     )
 
 
-    # --------------------------------------------------------
-    # LOGO
-    # --------------------------------------------------------
+    # ========================================================
+    # CIMORY LOGO
+    # ========================================================
 
-    st.markdown(
-        '<div class="logo-container">',
-        unsafe_allow_html=True
+    logo_col1, logo_col2, logo_col3 = st.columns(
+        [1, 2, 1]
     )
 
-    st.image(
-        "asset/cimory_logo.png",
-        width=220
-    )
+    with logo_col2:
 
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
+        st.markdown(
+            '<div class="logo-wrapper">',
+            unsafe_allow_html=True
+        )
 
+        st.image(
+            "asset/cimory_logo.png",
+            width=220
+        )
 
-    # --------------------------------------------------------
-    # LOGIN CARD
-    # --------------------------------------------------------
-
-    st.markdown(
-        '<div class="login-card">',
-        unsafe_allow_html=True
-    )
+        st.markdown(
+            '</div>',
+            unsafe_allow_html=True
+        )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # LOGIN TITLE
-    # --------------------------------------------------------
+    # ========================================================
 
     st.markdown(
         """
         <div class="login-title">
-
-            <div class="icon">
-                🔐
-            </div>
-
-            <div class="text">
-                Login
-            </div>
-
+            🔐 Login
         </div>
         """,
         unsafe_allow_html=True
     )
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # LOGIN FORM
-    # --------------------------------------------------------
+    # ========================================================
 
     with st.form("login_form"):
 
@@ -397,11 +349,15 @@ if not st.session_state.user_id:
         )
 
 
-        # ----------------------------------------------------
+        # ====================================================
         # LOGIN PROCESS
-        # ----------------------------------------------------
+        # ====================================================
 
         if submitted:
+
+            # -----------------------------------------------
+            # EMPTY INPUT
+            # -----------------------------------------------
 
             if not username or not password:
 
@@ -415,17 +371,28 @@ if not st.session_state.user_id:
 
                 try:
 
+                    # ---------------------------------------
+                    # AUTHENTICATION
+                    # ---------------------------------------
+
                     user = login_user(
                         db,
                         username,
                         password
                     )
 
+
+                    # ---------------------------------------
+                    # LOGIN SUCCESS
+                    # ---------------------------------------
+
                     if user:
 
                         st.session_state.user_id = user.id
 
-                        st.session_state.username = user.username
+                        st.session_state.username = (
+                            user.username
+                        )
 
                         st.session_state.role = user.role
 
@@ -443,6 +410,11 @@ if not st.session_state.user_id:
 
                         st.rerun()
 
+
+                    # ---------------------------------------
+                    # LOGIN FAILED
+                    # ---------------------------------------
+
                     else:
 
                         st.error(
@@ -454,34 +426,32 @@ if not st.session_state.user_id:
                     db.close()
 
 
-    # --------------------------------------------------------
-    # CLOSE LOGIN CARD
-    # --------------------------------------------------------
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True
-    )
-
-
-    # --------------------------------------------------------
+    # ========================================================
     # CLOSE LOGIN WRAPPER
-    # --------------------------------------------------------
+    # ========================================================
 
     st.markdown(
         "</div>",
         unsafe_allow_html=True
     )
 
+
+    # ========================================================
+    # STOP APP
+    # ========================================================
 
     st.stop()
 
 
 # ============================================================
-# SIDEBAR - LOGGED IN
+# SIDEBAR - LOGGED IN USER
 # ============================================================
 
 with st.sidebar:
+
+    # ========================================================
+    # USER INFORMATION
+    # ========================================================
 
     st.markdown(
         f"### 👤 {st.session_state.user_display}"
@@ -494,9 +464,9 @@ with st.sidebar:
     st.markdown("---")
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # NAVIGATION
-    # --------------------------------------------------------
+    # ========================================================
 
     pages = {
 
@@ -517,20 +487,32 @@ with st.sidebar:
     }
 
 
+    # ========================================================
+    # CHECK ADMIN ACCESS
+    # ========================================================
+
     db = SessionLocal()
 
     try:
 
         if is_admin(db):
 
-            pages["🔄 Upload Cycle"] = "upload_cycle"
+            pages["🔄 Upload Cycle"] = (
+                "upload_cycle"
+            )
 
-            pages["👥 User Management"] = "user_management"
+            pages["👥 User Management"] = (
+                "user_management"
+            )
 
     finally:
 
         db.close()
 
+
+    # ========================================================
+    # NAVIGATION RADIO
+    # ========================================================
 
     selected = st.radio(
         "Navigasi",
@@ -540,13 +522,12 @@ with st.sidebar:
 
     st.session_state.page = pages[selected]
 
-
     st.markdown("---")
 
 
-    # --------------------------------------------------------
+    # ========================================================
     # CHANGE PASSWORD
-    # --------------------------------------------------------
+    # ========================================================
 
     with st.expander("🔑 Ganti Password"):
 
@@ -584,15 +565,28 @@ with st.sidebar:
                 )
 
 
-                if st.form_submit_button(
-                    "Update Password"
-                ):
+                update_password = (
+                    st.form_submit_button(
+                        "Update Password"
+                    )
+                )
+
+
+                if update_password:
+
+                    # ---------------------------------------
+                    # VALIDATE NEW PASSWORD
+                    # ---------------------------------------
 
                     if (
                         new
                         and new == confirm
                         and len(new) >= 6
                     ):
+
+                        # -----------------------------------
+                        # VERIFY OLD PASSWORD
+                        # -----------------------------------
 
                         if (
                             user
@@ -630,12 +624,11 @@ with st.sidebar:
                 db.close()
 
 
-    st.markdown("---")
-
-
-    # --------------------------------------------------------
+    # ========================================================
     # LOGOUT
-    # --------------------------------------------------------
+    # ========================================================
+
+    st.markdown("---")
 
     if st.button(
         "🚪 Logout",
@@ -654,6 +647,10 @@ with st.sidebar:
 page = st.session_state.page
 
 
+# ============================================================
+# DASHBOARD
+# ============================================================
+
 if page == "dashboard":
 
     dashboard = importlib.import_module(
@@ -662,6 +659,10 @@ if page == "dashboard":
 
     dashboard.show_dashboard()
 
+
+# ============================================================
+# UPLOAD & COMPILE
+# ============================================================
 
 elif page == "upload_compile":
 
@@ -672,6 +673,10 @@ elif page == "upload_compile":
     upload_compile.show_upload_compile()
 
 
+# ============================================================
+# FPTK VIEW
+# ============================================================
+
 elif page == "fptk_view":
 
     fptk_view = importlib.import_module(
@@ -680,6 +685,10 @@ elif page == "fptk_view":
 
     fptk_view.show_fptk_view()
 
+
+# ============================================================
+# SOURCING VIEW
+# ============================================================
 
 elif page == "sourcing_view":
 
@@ -690,6 +699,10 @@ elif page == "sourcing_view":
     sourcing_view.show_sourcing_view()
 
 
+# ============================================================
+# DB KODE POSISI
+# ============================================================
+
 elif page == "db_kode_posisi":
 
     db_kode_posisi = importlib.import_module(
@@ -699,6 +712,10 @@ elif page == "db_kode_posisi":
     db_kode_posisi.show_db_kode_posisi()
 
 
+# ============================================================
+# UPLOAD CYCLE
+# ============================================================
+
 elif page == "upload_cycle":
 
     upload_cycle = importlib.import_module(
@@ -707,6 +724,10 @@ elif page == "upload_cycle":
 
     upload_cycle.show_upload_cycle()
 
+
+# ============================================================
+# USER MANAGEMENT
+# ============================================================
 
 elif page == "user_management":
 
