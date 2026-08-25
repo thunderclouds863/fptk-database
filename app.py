@@ -1,6 +1,7 @@
 import streamlit as st
 import importlib
 import time
+import base64
 
 from core.database import SessionLocal, init_db
 from core.auth import (
@@ -74,6 +75,16 @@ finally:
 if not st.session_state.user_id:
 
     # ========================================================
+    # LOAD CIMORY LOGO
+    # ========================================================
+
+    with open("asset/cimory_logo.png", "rb") as logo_file:
+        logo_base64 = base64.b64encode(
+            logo_file.read()
+        ).decode("utf-8")
+
+
+    # ========================================================
     # LOGIN CSS
     # ========================================================
 
@@ -119,48 +130,39 @@ if not st.session_state.user_id:
 
         /* ====================================================
            CIMORY LOGO
-           TRUE CENTER OF PAGE
+           TRUE CENTER OF VIEWPORT
         ==================================================== */
 
-        div[data-testid="stImage"] {
+        .cimory-logo-container {
+            width: 100vw !important;
+
+            max-width: 100vw !important;
+
+            position: relative !important;
+
+            left: 50% !important;
+
+            transform: translateX(-50%) !important;
+
             display: flex !important;
 
             justify-content: center !important;
 
             align-items: center !important;
 
-            width: 100% !important;
+            margin-top: 10px !important;
 
-            max-width: 100% !important;
-
-            margin: 10px auto 55px auto !important;
+            margin-bottom: 55px !important;
 
             padding: 0 !important;
+
+            box-sizing: border-box !important;
 
             text-align: center !important;
         }
 
 
-        /* Inner wrapper Streamlit */
-
-        div[data-testid="stImage"] > div {
-            display: flex !important;
-
-            justify-content: center !important;
-
-            align-items: center !important;
-
-            width: 100% !important;
-
-            max-width: 100% !important;
-
-            margin: 0 auto !important;
-        }
-
-
-        /* Actual image */
-
-        div[data-testid="stImage"] img {
+        .cimory-logo {
             width: 260px !important;
 
             max-width: 260px !important;
@@ -170,6 +172,8 @@ if not st.session_state.user_id:
             display: block !important;
 
             margin: 0 auto !important;
+
+            padding: 0 !important;
 
             object-fit: contain !important;
         }
@@ -210,6 +214,8 @@ if not st.session_state.user_id:
             backdrop-filter: blur(15px);
 
             -webkit-backdrop-filter: blur(15px);
+
+            box-sizing: border-box !important;
         }
 
 
@@ -440,27 +446,22 @@ if not st.session_state.user_id:
                LOGO MOBILE
             ----------------------------------------------- */
 
-            div[data-testid="stImage"] {
-                width: 100% !important;
+            .cimory-logo-container {
+                width: 100vw !important;
 
-                max-width: 100% !important;
+                max-width: 100vw !important;
 
-                margin:
-                    10px auto
-                    35px auto !important;
+                left: 50% !important;
+
+                transform: translateX(-50%) !important;
+
+                margin-top: 10px !important;
+
+                margin-bottom: 35px !important;
             }
 
 
-            div[data-testid="stImage"] > div {
-                width: 100% !important;
-
-                max-width: 100% !important;
-
-                justify-content: center !important;
-            }
-
-
-            div[data-testid="stImage"] img {
+            .cimory-logo {
                 width: 220px !important;
 
                 max-width: 220px !important;
@@ -543,8 +544,17 @@ if not st.session_state.user_id:
     # CIMORY LOGO
     # ========================================================
 
-    st.image(
-        "asset/cimory_logo.png"
+    st.markdown(
+        f"""
+        <div class="cimory-logo-container">
+            <img
+                src="data:image/png;base64,{logo_base64}"
+                class="cimory-logo"
+                alt="Cimory Logo"
+            >
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
 
@@ -699,12 +709,21 @@ with st.sidebar:
 
         "🏢 DB Kode Posisi":
             "db_kode_posisi",
-        
-        "📝 FPTK Input": "fptk_input",          
-        "👤 Sourcing Input": "sourcing_input",   
-        "🔍 Funnel Report": "funnel_report",     
-        "📊 Monitoring": "monitoring_sourcing",  
-        "📎 Upload Evidence": "upload_evidence", 
+
+        "📝 FPTK Input":
+            "fptk_input",
+
+        "👤 Sourcing Input":
+            "sourcing_input",
+
+        "🔍 Funnel Report":
+            "funnel_report",
+
+        "📊 Monitoring":
+            "monitoring_sourcing",
+
+        "📎 Upload Evidence":
+            "upload_evidence",
 
     }
 
@@ -856,6 +875,10 @@ with st.sidebar:
 page = st.session_state.page
 
 
+# ============================================================
+# DASHBOARD
+# ============================================================
+
 if page == "dashboard":
 
     dashboard = importlib.import_module(
@@ -864,6 +887,10 @@ if page == "dashboard":
 
     dashboard.show_dashboard()
 
+
+# ============================================================
+# UPLOAD & COMPILE
+# ============================================================
 
 elif page == "upload_compile":
 
@@ -874,6 +901,10 @@ elif page == "upload_compile":
     upload_compile.show_upload_compile()
 
 
+# ============================================================
+# FPTK VIEW
+# ============================================================
+
 elif page == "fptk_view":
 
     fptk_view = importlib.import_module(
@@ -882,6 +913,10 @@ elif page == "fptk_view":
 
     fptk_view.show_fptk_view()
 
+
+# ============================================================
+# SOURCING VIEW
+# ============================================================
 
 elif page == "sourcing_view":
 
@@ -892,6 +927,10 @@ elif page == "sourcing_view":
     sourcing_view.show_sourcing_view()
 
 
+# ============================================================
+# DB KODE POSISI
+# ============================================================
+
 elif page == "db_kode_posisi":
 
     db_kode_posisi = importlib.import_module(
@@ -900,6 +939,10 @@ elif page == "db_kode_posisi":
 
     db_kode_posisi.show_db_kode_posisi()
 
+
+# ============================================================
+# UPLOAD CYCLE
+# ============================================================
 
 elif page == "upload_cycle":
 
@@ -910,6 +953,10 @@ elif page == "upload_cycle":
     upload_cycle.show_upload_cycle()
 
 
+# ============================================================
+# USER MANAGEMENT
+# ============================================================
+
 elif page == "user_management":
 
     user_management = importlib.import_module(
@@ -918,18 +965,57 @@ elif page == "user_management":
 
     user_management.show_user_management()
 
+
+# ============================================================
+# FPTK INPUT
+# ============================================================
+
 elif page == "fptk_input":
+
     from pages import fptk_input
+
     fptk_input.show_fptk_input()
+
+
+# ============================================================
+# SOURCING INPUT
+# ============================================================
+
 elif page == "sourcing_input":
+
     from pages import sourcing_input
+
     sourcing_input.show_sourcing_input()
+
+
+# ============================================================
+# FUNNEL REPORT
+# ============================================================
+
 elif page == "funnel_report":
+
     from pages import funnel_report
+
     funnel_report.show_funnel_report()
+
+
+# ============================================================
+# MONITORING SOURCING
+# ============================================================
+
 elif page == "monitoring_sourcing":
+
     from pages import monitoring_sourcing
+
     monitoring_sourcing.show_monitoring_sourcing()
+
+
+# ============================================================
+# UPLOAD EVIDENCE
+# ============================================================
+
 elif page == "upload_evidence":
+
     from pages import upload_evidence
+
     upload_evidence.show_upload_evidence()
