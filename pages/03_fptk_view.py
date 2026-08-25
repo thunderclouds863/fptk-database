@@ -177,4 +177,3 @@ def show_fptk_view():
                             st.rerun()
     else:
         st.info("Tidak ada data FPTK dengan filter yang dipilih.")
-user = get_current_user(db)
