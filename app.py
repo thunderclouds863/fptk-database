@@ -119,34 +119,48 @@ if not st.session_state.user_id:
 
         /* ====================================================
            CIMORY LOGO
-           TRUE CENTER OF VIEWPORT
+           TRUE CENTER OF PAGE
         ==================================================== */
 
         div[data-testid="stImage"] {
+            display: flex !important;
 
-            width: 260px !important;
+            justify-content: center !important;
 
-            max-width: 260px !important;
+            align-items: center !important;
 
-            margin-left: auto !important;
+            width: 100% !important;
 
-            margin-right: auto !important;
+            max-width: 100% !important;
 
-            margin-top: 5px !important;
-
-            margin-bottom: 55px !important;
+            margin: 10px auto 55px auto !important;
 
             padding: 0 !important;
 
-            display: block !important;
-
             text-align: center !important;
-
         }
 
 
-        div[data-testid="stImage"] img {
+        /* Inner wrapper Streamlit */
 
+        div[data-testid="stImage"] > div {
+            display: flex !important;
+
+            justify-content: center !important;
+
+            align-items: center !important;
+
+            width: 100% !important;
+
+            max-width: 100% !important;
+
+            margin: 0 auto !important;
+        }
+
+
+        /* Actual image */
+
+        div[data-testid="stImage"] img {
             width: 260px !important;
 
             max-width: 260px !important;
@@ -155,12 +169,9 @@ if not st.session_state.user_id:
 
             display: block !important;
 
-            margin-left: auto !important;
-
-            margin-right: auto !important;
+            margin: 0 auto !important;
 
             object-fit: contain !important;
-
         }
 
 
@@ -169,7 +180,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-testid="stForm"] {
-
             width: 700px !important;
 
             max-width: calc(100vw - 40px) !important;
@@ -200,7 +210,6 @@ if not st.session_state.user_id:
             backdrop-filter: blur(15px);
 
             -webkit-backdrop-filter: blur(15px);
-
         }
 
 
@@ -209,7 +218,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         .login-title {
-
             display: flex;
 
             align-items: center;
@@ -227,7 +235,6 @@ if not st.session_state.user_id:
             margin-bottom: 35px;
 
             letter-spacing: -1px;
-
         }
 
 
@@ -236,7 +243,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         .login-icon {
-
             font-size: 30px !important;
 
             line-height: 1 !important;
@@ -250,7 +256,6 @@ if not st.session_state.user_id:
             align-items: center;
 
             justify-content: center;
-
         }
 
 
@@ -259,7 +264,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-testid="stTextInput"] label {
-
             color: #f1f3f7 !important;
 
             font-size: 16px !important;
@@ -267,7 +271,6 @@ if not st.session_state.user_id:
             font-weight: 600 !important;
 
             margin-bottom: 8px !important;
-
         }
 
 
@@ -276,7 +279,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-baseweb="input"] {
-
             height: 58px !important;
 
             background:
@@ -295,7 +297,6 @@ if not st.session_state.user_id:
             transition:
                 border 0.2s ease,
                 box-shadow 0.2s ease;
-
         }
 
 
@@ -304,7 +305,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-baseweb="input"]:focus-within {
-
             border:
                 1px solid
                 rgba(255, 255, 255, 0.38) !important;
@@ -312,7 +312,6 @@ if not st.session_state.user_id:
             box-shadow:
                 0 0 0 2px
                 rgba(255, 255, 255, 0.04) !important;
-
         }
 
 
@@ -321,7 +320,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-baseweb="input"] input {
-
             height: 56px !important;
 
             color: #f5f5f7 !important;
@@ -329,16 +327,13 @@ if not st.session_state.user_id:
             font-size: 16px !important;
 
             font-weight: 400 !important;
-
         }
 
 
         div[data-baseweb="input"] input::placeholder {
-
             color: #a0a3ad !important;
 
             opacity: 1 !important;
-
         }
 
 
@@ -347,9 +342,7 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-baseweb="input"] button {
-
             color: #f4f5f8 !important;
-
         }
 
 
@@ -358,9 +351,7 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-testid="stTextInput"] {
-
             margin-bottom: 20px;
-
         }
 
 
@@ -369,14 +360,11 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-testid="stFormSubmitButton"] {
-
             margin-top: 8px !important;
-
         }
 
 
         div[data-testid="stFormSubmitButton"] button {
-
             width: 100% !important;
 
             height: 62px !important;
@@ -401,7 +389,6 @@ if not st.session_state.user_id:
             transition:
                 transform 0.15s ease,
                 box-shadow 0.15s ease;
-
         }
 
 
@@ -410,7 +397,6 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-testid="stFormSubmitButton"] button:hover {
-
             background:
                 linear-gradient(
                     90deg,
@@ -423,7 +409,6 @@ if not st.session_state.user_id:
             box-shadow:
                 0 10px 25px
                 rgba(255, 60, 70, 0.25);
-
         }
 
 
@@ -432,9 +417,7 @@ if not st.session_state.user_id:
         ==================================================== */
 
         div[data-testid="stFormSubmitButton"] button:active {
-
             transform: translateY(0);
-
         }
 
 
@@ -445,38 +428,50 @@ if not st.session_state.user_id:
         @media (max-width: 768px) {
 
             .block-container {
-
                 padding-left: 15px !important;
 
                 padding-right: 15px !important;
 
                 padding-top: 20px !important;
-
             }
 
 
+            /* -----------------------------------------------
+               LOGO MOBILE
+            ----------------------------------------------- */
+
             div[data-testid="stImage"] {
+                width: 100% !important;
 
-                width: 220px !important;
+                max-width: 100% !important;
 
-                max-width: 220px !important;
+                margin:
+                    10px auto
+                    35px auto !important;
+            }
 
-                margin-bottom: 35px !important;
 
+            div[data-testid="stImage"] > div {
+                width: 100% !important;
+
+                max-width: 100% !important;
+
+                justify-content: center !important;
             }
 
 
             div[data-testid="stImage"] img {
-
                 width: 220px !important;
 
                 max-width: 220px !important;
-
             }
 
 
-            div[data-testid="stForm"] {
+            /* -----------------------------------------------
+               LOGIN FORM
+            ----------------------------------------------- */
 
+            div[data-testid="stForm"] {
                 width: auto !important;
 
                 max-width: calc(100vw - 30px) !important;
@@ -485,50 +480,55 @@ if not st.session_state.user_id:
                     30px 22px 28px 22px !important;
 
                 border-radius: 17px !important;
-
             }
 
 
-            .login-title {
+            /* -----------------------------------------------
+               TITLE
+            ----------------------------------------------- */
 
+            .login-title {
                 font-size: 32px;
 
                 gap: 10px;
-
             }
 
 
-            .login-icon {
+            /* -----------------------------------------------
+               ICON
+            ----------------------------------------------- */
 
+            .login-icon {
                 font-size: 26px !important;
 
                 width: 34px;
 
                 height: 34px;
-
             }
 
 
+            /* -----------------------------------------------
+               INPUT
+            ----------------------------------------------- */
+
             div[data-baseweb="input"] {
-
                 height: 56px !important;
-
             }
 
 
             div[data-baseweb="input"] input {
-
                 height: 54px !important;
 
                 font-size: 15px !important;
-
             }
 
 
+            /* -----------------------------------------------
+               BUTTON
+            ----------------------------------------------- */
+
             div[data-testid="stFormSubmitButton"] button {
-
                 height: 56px !important;
-
             }
 
         }
