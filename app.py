@@ -699,6 +699,12 @@ with st.sidebar:
 
         "🏢 DB Kode Posisi":
             "db_kode_posisi",
+        
+        "📝 FPTK Input": "fptk_input",          
+        "👤 Sourcing Input": "sourcing_input",   
+        "🔍 Funnel Report": "funnel_report",     
+        "📊 Monitoring": "monitoring_sourcing",  
+        "📎 Upload Evidence": "upload_evidence", 
 
     }
 
@@ -911,3 +917,19 @@ elif page == "user_management":
     )
 
     user_management.show_user_management()
+
+elif page == "fptk_input":
+    from pages import fptk_input
+    fptk_input.show_fptk_input()
+elif page == "sourcing_input":
+    from pages import sourcing_input
+    sourcing_input.show_sourcing_input()
+elif page == "funnel_report":
+    from pages import funnel_report
+    funnel_report.show_funnel_report()
+elif page == "monitoring_sourcing":
+    from pages import monitoring_sourcing
+    monitoring_sourcing.show_monitoring_sourcing()
+elif page == "upload_evidence":
+    from pages import upload_evidence
+    upload_evidence.show_upload_evidence()
