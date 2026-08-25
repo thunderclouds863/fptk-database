@@ -61,7 +61,7 @@ if not st.session_state.user_id:
     st.markdown(
         """
         <div style="text-align: center; margin-bottom: 15px;">
-            <img src="DIRECT_IMAGE_URL" width="150">
+            <img src="https://icon2.cleanpng.com/20180607/hct/aa82svjoo.webp" width="150">
         </div>
         """,
         unsafe_allow_html=True
