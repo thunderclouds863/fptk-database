@@ -33,7 +33,7 @@ init_db()
 
 
 # ============================================================
-# SESSION STATE INITIALIZATION
+# SESSION STATE
 # ============================================================
 
 if "user_id" not in st.session_state:
@@ -56,7 +56,7 @@ if "filter_stack" not in st.session_state:
 
 
 # ============================================================
-# INITIALIZE DEFAULT USERS
+# DEFAULT USERS
 # ============================================================
 
 db = SessionLocal()
@@ -74,198 +74,454 @@ finally:
 if not st.session_state.user_id:
 
     # ========================================================
-    # LOGIN CSS
+    # LOGIN PAGE CSS
     # ========================================================
 
     st.markdown(
         """
         <style>
 
-        /* ==================================================
-           GLOBAL BACKGROUND
-        ================================================== */
+        /* ====================================================
+           GLOBAL PAGE
+        ==================================================== */
 
         .stApp {
             background:
                 radial-gradient(
-                    circle at 50% 30%,
-                    rgba(35, 40, 55, 0.35),
-                    #0e1117 60%
+                    ellipse at 50% 20%,
+                    #151b29 0%,
+                    #0d1119 45%,
+                    #080b10 100%
                 );
+
+            min-height: 100vh;
         }
 
-        /* Hide Streamlit top header */
+
+        /* Remove default Streamlit header */
+
         header {
             visibility: hidden;
         }
 
 
-        /* ==================================================
-           LOGIN WRAPPER
-        ================================================== */
+        /* Remove excessive top padding */
 
-        .login-wrapper {
-            width: 100%;
-            max-width: 850px;
-            margin: 0 auto;
-            padding-top: 40px;
+        .block-container {
+            padding-top: 2rem !important;
+            padding-bottom: 2rem !important;
         }
 
 
-        /* ==================================================
+        /* ====================================================
            LOGO
-        ================================================== */
+        ==================================================== */
 
-        .logo-wrapper {
+        div[data-testid="stImage"] {
             display: flex;
             justify-content: center;
             align-items: center;
+
+            width: 100%;
+
+            margin-top: 10px;
             margin-bottom: 15px;
         }
 
-
-        /* ==================================================
-           LOGIN TITLE
-        ================================================== */
-
-        .login-title {
-            text-align: center;
-            color: #f5f5f5;
-            font-size: 38px;
-            font-weight: 700;
-            margin-top: 0;
-            margin-bottom: 25px;
+        div[data-testid="stImage"] img {
+            object-fit: contain;
         }
 
 
-        /* ==================================================
-           LOGIN FORM CARD
-        ================================================== */
+        /* ====================================================
+           LOGIN CARD
+        ==================================================== */
 
         div[data-testid="stForm"] {
-            background: rgba(18, 21, 29, 0.88);
 
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            width: 100%;
+
+            max-width: 700px;
+
+            margin-left: auto;
+            margin-right: auto;
+
+            padding: 38px 42px 34px 42px;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    rgba(20, 24, 34, 0.88),
+                    rgba(12, 15, 22, 0.88)
+                );
+
+            border:
+                1px solid
+                rgba(125, 140, 170, 0.28);
 
             border-radius: 20px;
 
-            padding: 35px 40px 30px 40px;
-
             box-shadow:
-                0 20px 60px rgba(0, 0, 0, 0.35);
+                0 25px 70px
+                rgba(0, 0, 0, 0.45);
 
-            backdrop-filter: blur(12px);
+            backdrop-filter: blur(15px);
+
+            -webkit-backdrop-filter: blur(15px);
+
         }
 
 
-        /* ==================================================
-           INPUT CONTAINER
-        ================================================== */
+        /* ====================================================
+           LOGIN TITLE
+        ==================================================== */
+
+        .login-title {
+
+            display: flex;
+
+            align-items: center;
+
+            gap: 18px;
+
+            color: #f5f7fb;
+
+            font-size: 38px;
+
+            font-weight: 750;
+
+            line-height: 1;
+
+            margin-bottom: 30px;
+
+            letter-spacing: -1px;
+
+        }
+
+
+        .login-icon {
+
+            font-size: 52px;
+
+            line-height: 1;
+
+        }
+
+
+        /* ====================================================
+           LABEL
+        ==================================================== */
+
+        div[data-testid="stTextInput"] label {
+
+            color: #f1f3f7 !important;
+
+            font-size: 16px !important;
+
+            font-weight: 600 !important;
+
+            margin-bottom: 8px !important;
+
+        }
+
+
+        /* ====================================================
+           INPUT WRAPPER
+        ==================================================== */
 
         div[data-baseweb="input"] {
-            background-color: #242731 !important;
+
+            height: 66px !important;
+
+            background:
+                linear-gradient(
+                    145deg,
+                    #242731,
+                    #1e212b
+                ) !important;
+
+            border:
+                1px solid
+                rgba(150, 160, 180, 0.20) !important;
 
             border-radius: 12px !important;
 
-            border: 1px solid transparent !important;
+            transition:
+                border 0.2s ease,
+                box-shadow 0.2s ease;
+
         }
 
+
+        /* ====================================================
+           INPUT FOCUS
+        ==================================================== */
 
         div[data-baseweb="input"]:focus-within {
-            border: 1px solid rgba(255, 255, 255, 0.25)
-                !important;
+
+            border:
+                1px solid
+                rgba(255, 255, 255, 0.38) !important;
+
+            box-shadow:
+                0 0 0 2px
+                rgba(255, 255, 255, 0.04);
+
         }
 
 
-        /* ==================================================
+        /* ====================================================
            INPUT TEXT
-        ================================================== */
+        ==================================================== */
 
         div[data-baseweb="input"] input {
-            color: #ffffff !important;
 
-            font-size: 16px !important;
+            height: 64px !important;
+
+            color: #f5f5f7 !important;
+
+            font-size: 17px !important;
+
+            font-weight: 400 !important;
+
+            padding-left: 58px !important;
+
         }
 
 
         div[data-baseweb="input"] input::placeholder {
-            color: #9b9da7 !important;
+
+            color: #a0a3ad !important;
+
+            opacity: 1 !important;
+
         }
 
 
-        /* ==================================================
-           LABEL
-        ================================================== */
+        /* ====================================================
+           USER ICON
+        ==================================================== */
 
-        div[data-testid="stTextInput"] label {
-            color: #eeeeee !important;
+        div[data-testid="stTextInput"]:has(
+            input[placeholder="Masukkan username"]
+        ) div[data-baseweb="input"] {
 
-            font-size: 16px !important;
+            position: relative;
 
-            font-weight: 500 !important;
         }
 
 
-        /* ==================================================
+        div[data-testid="stTextInput"]:has(
+            input[placeholder="Masukkan username"]
+        ) div[data-baseweb="input"]::before {
+
+            content: "♙";
+
+            position: absolute;
+
+            left: 20px;
+
+            top: 50%;
+
+            transform: translateY(-50%);
+
+            color: #f0f2f7;
+
+            font-size: 30px;
+
+            z-index: 10;
+
+            pointer-events: none;
+
+        }
+
+
+        /* ====================================================
+           PASSWORD ICON
+        ==================================================== */
+
+        div[data-testid="stTextInput"]:has(
+            input[placeholder="Masukkan password"]
+        ) div[data-baseweb="input"] {
+
+            position: relative;
+
+        }
+
+
+        div[data-testid="stTextInput"]:has(
+            input[placeholder="Masukkan password"]
+        ) div[data-baseweb="input"]::before {
+
+            content: "🔒";
+
+            position: absolute;
+
+            left: 20px;
+
+            top: 50%;
+
+            transform: translateY(-50%);
+
+            font-size: 24px;
+
+            z-index: 10;
+
+            pointer-events: none;
+
+            filter: grayscale(1) brightness(2);
+
+        }
+
+
+        /* ====================================================
+           PASSWORD EYE
+        ==================================================== */
+
+        div[data-baseweb="input"] button {
+
+            color: #f4f5f8 !important;
+
+        }
+
+
+        /* ====================================================
+           SPACING BETWEEN INPUTS
+        ==================================================== */
+
+        div[data-testid="stTextInput"] {
+
+            margin-bottom: 20px;
+
+        }
+
+
+        /* ====================================================
            LOGIN BUTTON
-        ================================================== */
+        ==================================================== */
+
+        div[data-testid="stFormSubmitButton"] {
+
+            margin-top: 8px;
+
+        }
+
 
         div[data-testid="stFormSubmitButton"] button {
-            width: 100%;
 
-            min-height: 52px;
+            width: 100% !important;
 
-            border-radius: 12px;
+            height: 62px !important;
 
-            border: none;
+            border: none !important;
 
-            background: #ff4b4b;
+            border-radius: 13px !important;
 
-            color: white;
+            background:
+                linear-gradient(
+                    90deg,
+                    #ff3d48,
+                    #ff4d54
+                ) !important;
 
-            font-size: 17px;
+            color: white !important;
 
-            font-weight: 600;
+            font-size: 18px !important;
 
-            transition: all 0.2s ease;
+            font-weight: 700 !important;
+
+            transition:
+                transform 0.15s ease,
+                box-shadow 0.15s ease;
+
         }
 
 
         div[data-testid="stFormSubmitButton"] button:hover {
-            background: #ff5c5c;
+
+            background:
+                linear-gradient(
+                    90deg,
+                    #ff4751,
+                    #ff5960
+                ) !important;
 
             transform: translateY(-1px);
 
             box-shadow:
-                0 8px 20px rgba(255, 75, 75, 0.25);
+                0 10px 25px
+                rgba(255, 60, 70, 0.25);
+
         }
 
 
-        /* ==================================================
-           ALERT
-        ================================================== */
+        div[data-testid="stFormSubmitButton"] button:active {
+
+            transform: translateY(0);
+
+        }
+
+
+        /* ====================================================
+           SUCCESS / ERROR
+        ==================================================== */
 
         div[data-testid="stAlert"] {
+
             border-radius: 10px;
+
+            margin-top: 15px;
+
         }
 
 
-        /* ==================================================
+        /* ====================================================
            MOBILE
-        ================================================== */
+        ==================================================== */
 
         @media (max-width: 768px) {
 
-            .login-wrapper {
-                padding: 25px 15px 0 15px;
+            .block-container {
+
+                padding-left: 20px !important;
+
+                padding-right: 20px !important;
+
             }
+
 
             div[data-testid="stForm"] {
-                padding: 25px 20px;
+
+                max-width: 100%;
+
+                padding:
+                    28px 22px 25px 22px;
+
+                border-radius: 17px;
+
             }
 
+
             .login-title {
-                font-size: 30px;
+
+                font-size: 31px;
+
+                gap: 13px;
+
+            }
+
+
+            .login-icon {
+
+                font-size: 43px;
+
+            }
+
+
+            div[data-testid="stImage"] img {
+
+                max-width: 280px;
+
             }
 
         }
@@ -277,53 +533,19 @@ if not st.session_state.user_id:
 
 
     # ========================================================
-    # LOGIN WRAPPER
+    # TOP LOGO
     # ========================================================
 
-    st.markdown(
-        '<div class="login-wrapper">',
-        unsafe_allow_html=True
-    )
-
-
-    # ========================================================
-    # CIMORY LOGO
-    # ========================================================
-
-    logo_col1, logo_col2, logo_col3 = st.columns(
+    logo_col_left, logo_col_center, logo_col_right = st.columns(
         [1, 2, 1]
     )
 
-    with logo_col2:
-
-        st.markdown(
-            '<div class="logo-wrapper">',
-            unsafe_allow_html=True
-        )
+    with logo_col_center:
 
         st.image(
             "asset/cimory_logo.png",
-            width=220
+            width=390
         )
-
-        st.markdown(
-            '</div>',
-            unsafe_allow_html=True
-        )
-
-
-    # ========================================================
-    # LOGIN TITLE
-    # ========================================================
-
-    st.markdown(
-        """
-        <div class="login-title">
-            🔐 Login
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
 
 
     # ========================================================
@@ -332,10 +554,34 @@ if not st.session_state.user_id:
 
     with st.form("login_form"):
 
+        # ----------------------------------------------------
+        # TITLE
+        # ----------------------------------------------------
+
+        st.markdown(
+            """
+            <div class="login-title">
+                <span class="login-icon">🔐</span>
+                <span>Login</span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+
+        # ----------------------------------------------------
+        # USERNAME
+        # ----------------------------------------------------
+
         username = st.text_input(
             "Username",
             placeholder="Masukkan username"
         )
+
+
+        # ----------------------------------------------------
+        # PASSWORD
+        # ----------------------------------------------------
 
         password = st.text_input(
             "Password",
@@ -343,8 +589,13 @@ if not st.session_state.user_id:
             placeholder="Masukkan password"
         )
 
+
+        # ----------------------------------------------------
+        # LOGIN BUTTON
+        # ----------------------------------------------------
+
         submitted = st.form_submit_button(
-            "Login",
+            "Login  →",
             use_container_width=True
         )
 
@@ -355,9 +606,9 @@ if not st.session_state.user_id:
 
         if submitted:
 
-            # -----------------------------------------------
-            # EMPTY INPUT
-            # -----------------------------------------------
+            # ------------------------------------------------
+            # VALIDATE INPUT
+            # ------------------------------------------------
 
             if not username or not password:
 
@@ -371,9 +622,9 @@ if not st.session_state.user_id:
 
                 try:
 
-                    # ---------------------------------------
-                    # AUTHENTICATION
-                    # ---------------------------------------
+                    # ----------------------------------------
+                    # AUTHENTICATE USER
+                    # ----------------------------------------
 
                     user = login_user(
                         db,
@@ -382,9 +633,9 @@ if not st.session_state.user_id:
                     )
 
 
-                    # ---------------------------------------
+                    # ----------------------------------------
                     # LOGIN SUCCESS
-                    # ---------------------------------------
+                    # ----------------------------------------
 
                     if user:
 
@@ -411,9 +662,9 @@ if not st.session_state.user_id:
                         st.rerun()
 
 
-                    # ---------------------------------------
+                    # ----------------------------------------
                     # LOGIN FAILED
-                    # ---------------------------------------
+                    # ----------------------------------------
 
                     else:
 
@@ -427,31 +678,21 @@ if not st.session_state.user_id:
 
 
     # ========================================================
-    # CLOSE LOGIN WRAPPER
-    # ========================================================
-
-    st.markdown(
-        "</div>",
-        unsafe_allow_html=True
-    )
-
-
-    # ========================================================
-    # STOP APP
+    # STOP LOGIN PAGE
     # ========================================================
 
     st.stop()
 
 
 # ============================================================
-# SIDEBAR - LOGGED IN USER
+# SIDEBAR
 # ============================================================
 
 with st.sidebar:
 
-    # ========================================================
-    # USER INFORMATION
-    # ========================================================
+    # --------------------------------------------------------
+    # USER INFO
+    # --------------------------------------------------------
 
     st.markdown(
         f"### 👤 {st.session_state.user_display}"
@@ -464,9 +705,9 @@ with st.sidebar:
     st.markdown("---")
 
 
-    # ========================================================
+    # --------------------------------------------------------
     # NAVIGATION
-    # ========================================================
+    # --------------------------------------------------------
 
     pages = {
 
@@ -484,12 +725,13 @@ with st.sidebar:
 
         "🏢 DB Kode Posisi":
             "db_kode_posisi",
+
     }
 
 
-    # ========================================================
-    # CHECK ADMIN ACCESS
-    # ========================================================
+    # --------------------------------------------------------
+    # ADMIN PAGES
+    # --------------------------------------------------------
 
     db = SessionLocal()
 
@@ -510,9 +752,9 @@ with st.sidebar:
         db.close()
 
 
-    # ========================================================
-    # NAVIGATION RADIO
-    # ========================================================
+    # --------------------------------------------------------
+    # NAVIGATION
+    # --------------------------------------------------------
 
     selected = st.radio(
         "Navigasi",
@@ -574,19 +816,11 @@ with st.sidebar:
 
                 if update_password:
 
-                    # ---------------------------------------
-                    # VALIDATE NEW PASSWORD
-                    # ---------------------------------------
-
                     if (
                         new
                         and new == confirm
                         and len(new) >= 6
                     ):
-
-                        # -----------------------------------
-                        # VERIFY OLD PASSWORD
-                        # -----------------------------------
 
                         if (
                             user
@@ -641,7 +875,7 @@ with st.sidebar:
 
 
 # ============================================================
-# RENDER PAGE
+# PAGE RENDERING
 # ============================================================
 
 page = st.session_state.page
