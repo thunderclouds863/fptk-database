@@ -57,7 +57,6 @@ if not st.session_state.user_id:
     )
     
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
-    st.image("https://via.placeholder.com/200x60?text=FPTK+System", use_container_width=True)
     st.markdown("## 🔐 Login")
     
     with st.form("login_form"):
