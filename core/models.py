@@ -265,12 +265,16 @@ class Evidence(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     kode_unik = Column(String(50), nullable=False, index=True)
+    posisi = Column(String(255))
+    pic_recruiter = Column(String(100))
     evidence_date = Column(Date, nullable=False)
     file_name = Column(String(255))
+    file_path = Column(String(500))
     file_size = Column(Integer)
     total_cv = Column(Integer, default=0)
     notes = Column(Text)
-    uploaded_by = Column(Integer, ForeignKey("users.id"))
+    uploaded_by = Column(Integer, ForeignKey("users.id"), nullable=False)  # <-- HARUS ADA
     created_at = Column(TIMESTAMP, server_default=func.now())
     
+    # Relasi
     uploader = relationship("User", foreign_keys=[uploaded_by])
