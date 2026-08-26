@@ -1,11 +1,11 @@
 from sqlalchemy import (
     Column, Integer, String, Date, Numeric, Text, Boolean, TIMESTAMP, 
-    ForeignKey, CheckConstraint, UniqueConstraint, JSON
+    ForeignKey, CheckConstraint, UniqueConstraint, JSON, LargeBinary
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from core.database import Base
-from sqlalchemy import LargeBinary 
+
 
 class User(Base):
     __tablename__ = "users"
@@ -17,6 +17,11 @@ class User(Base):
     display_name = Column(String(100))
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_login = Column(TIMESTAMP)
+    
+    # Relationships
+    uploads = relationship("UploadLog", back_populates="user")
+    evidences = relationship("Evidence", foreign_keys="Evidence.uploaded_by", back_populates="uploader")
+
 
 class UploadCycle(Base):
     __tablename__ = "upload_cycles"
@@ -26,6 +31,11 @@ class UploadCycle(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     started_at = Column(TIMESTAMP, server_default=func.now())
     ended_at = Column(TIMESTAMP)
+    
+    # Relationships
+    logs = relationship("UploadLog", back_populates="cycle")
+    statuses = relationship("UploadStatus", back_populates="cycle")
+
 
 class UploadStatus(Base):
     __tablename__ = "upload_status"
@@ -36,6 +46,10 @@ class UploadStatus(Base):
     first_compile_at = Column(TIMESTAMP)
     done_at = Column(TIMESTAMP)
     __table_args__ = (UniqueConstraint('cycle_id', 'user_id'),)
+    
+    # Relationships
+    cycle = relationship("UploadCycle", back_populates="statuses")
+
 
 class UploadLog(Base):
     __tablename__ = "upload_logs"
@@ -49,6 +63,11 @@ class UploadLog(Base):
     record_count = Column(Integer)
     error_details = Column(Text)
     uploaded_at = Column(TIMESTAMP, server_default=func.now())
+    
+    # Relationships
+    cycle = relationship("UploadCycle", back_populates="logs")
+    user = relationship("User", back_populates="uploads")
+
 
 class FPTK(Base):
     __tablename__ = "fptk"
@@ -109,6 +128,7 @@ class FPTK(Base):
     
     __table_args__ = (UniqueConstraint('kode_unik', 'posisi'),)
 
+
 class DBKodePosisi(Base):
     __tablename__ = "db_kode_posisi"
     id = Column(Integer, primary_key=True, index=True)
@@ -123,6 +143,7 @@ class DBKodePosisi(Base):
     directorate = Column(String(100))
     year = Column(Integer)
     __table_args__ = (UniqueConstraint('position', 'location', 'business_unit'),)
+
 
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
@@ -205,6 +226,7 @@ class DBSourcing(Base):
     source_user_id = Column(Integer, ForeignKey("users.id"))
     source_cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
 
+
 class MasterDropdown(Base):
     __tablename__ = "master_dropdown"
     id = Column(Integer, primary_key=True, index=True)
@@ -242,11 +264,13 @@ class MasterDropdown(Base):
     lokasi_pic_recruiter = Column(String(50))
     is_active = Column(Boolean, default=True)
 
+
 class Blacklist(Base):
     __tablename__ = "blacklist"
     id = Column(Integer, primary_key=True, index=True)
     key_value = Column(String(255), unique=True, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -261,6 +285,7 @@ class AuditLog(Base):
     user_agent = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
+
 class Evidence(Base):
     __tablename__ = "evidence"
     
@@ -268,11 +293,13 @@ class Evidence(Base):
     kode_unik = Column(String(50), nullable=False, index=True)
     evidence_date = Column(Date, nullable=False)
     file_name = Column(String(255))
-    file_data = Column(LargeBinary)
+    file_data = Column(LargeBinary)  # Simpan file sebagai binary
     file_size = Column(Integer)
+    file_type = Column(String(50))  # pdf, jpg, png, xlsx, dll
     total_cv = Column(Integer, default=0)
     notes = Column(Text)
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
     
-    uploader = relationship("User", foreign_keys=[uploaded_by])
+    # Relationships
+    uploader = relationship("User", foreign_keys=[uploaded_by], back_populates="evidences")
