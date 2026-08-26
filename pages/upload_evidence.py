@@ -1,15 +1,13 @@
 import streamlit as st
 import pandas as pd
-import os
-import shutil
 from datetime import datetime
 from core.database import get_db
-from core.models import FPTK, DBSourcing, User
-from core.auth import get_current_user, is_admin
+from core.models import DBSourcing, FPTK
+from core.auth import get_current_user
 
-def show():
+def show_upload_evidence():
     st.title("📎 Upload Evidence Sourcing")
-    st.markdown("Upload bukti evidence sourcing ke folder yang sudah ditentukan.")
+    st.markdown("Upload bukti evidence sourcing ke folder OneDrive/Cloud.")
     
     db = next(get_db())
     user = get_current_user(db)
@@ -18,142 +16,74 @@ def show():
         return
     
     # ============================================================
-    # EVIDENCE FOLDER SETTING (di Settings)
+    # FORM UPLOAD EVIDENCE
     # ============================================================
-    
-    # Default folder (bisa diubah di Settings nanti)
-    EVIDENCE_BASE_FOLDER = "evidence/"
-    
-    # Buat folder jika belum ada
-    if not os.path.exists(EVIDENCE_BASE_FOLDER):
-        os.makedirs(EVIDENCE_BASE_FOLDER)
-    
-    # ============================================================
-    # PILIH POSISI DARI FPTK
-    # ============================================================
-    
-    st.subheader("📋 Pilih Data FPTK")
-    
-    # Query FPTK yang aktif (status OP/Closed)
-    fptk_list = db.query(FPTK).filter(
-        FPTK.status.in_(["OP", "Closed"])
-    ).order_by(FPTK.kode_unik).all()
-    
-    if not fptk_list:
-        st.warning("Belum ada data FPTK. Silakan upload file terlebih dahulu.")
-        return
-    
-    # Dropdown pilih FPTK
-    fptk_options = {
-        f"{f.kode_unik} - {f.posisi} ({f.pic_recruiter})": f.id 
-        for f in fptk_list
-    }
-    
-    selected_label = st.selectbox("Pilih FPTK", list(fptk_options.keys()))
-    selected_fptk_id = fptk_options[selected_label]
-    
-    # Ambil detail FPTK
-    fptk = db.query(FPTK).filter(FPTK.id == selected_fptk_id).first()
-    
-    if fptk:
-        st.info(f"""
-        **Kode Unik:** {fptk.kode_unik}  
-        **Posisi:** {fptk.posisi}  
-        **PIC:** {fptk.pic_recruiter}  
-        **Status:** {fptk.status}  
-        **Business Unit:** {fptk.business_unit}
-        """)
-    
-    # ============================================================
-    # UPLOAD EVIDENCE
-    # ============================================================
-    
-    st.markdown("---")
-    st.subheader("📁 Upload File Evidence")
-    
-    uploaded_file = st.file_uploader(
-        "Pilih file bukti (PDF, JPG, PNG, DOC, DOCX, XLS, XLSX)",
-        type=["pdf", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx"]
-    )
-    
-    # Tanggal evidence
-    evidence_date = st.date_input("Tanggal Evidence", datetime.now())
-    
-    # Keterangan
-    evidence_note = st.text_area("Keterangan / Catatan", placeholder="Contoh: Screenshot approval, CV kandidat, dll")
-    
-    if st.button("📤 Upload Evidence", type="primary"):
-        if not uploaded_file:
-            st.error("Pilih file terlebih dahulu!")
-        else:
-            try:
-                # Buat folder per FPTK
-                fptk_folder = os.path.join(
-                    EVIDENCE_BASE_FOLDER, 
-                    f"{fptk.kode_unik}_{fptk.posisi[:30].replace('/', '_')}"
-                )
-                if not os.path.exists(fptk_folder):
-                    os.makedirs(fptk_folder)
-                
-                # Format nama file
-                date_str = evidence_date.strftime("%Y%m%d")
-                file_ext = uploaded_file.name.split('.')[-1]
-                file_name = f"{date_str}_{uploaded_file.name}"
-                file_path = os.path.join(fptk_folder, file_name)
-                
-                # Simpan file
-                with open(file_path, "wb") as f:
-                    f.write(uploaded_file.getbuffer())
-                
-                # Simpan log evidence ke database (opsional)
-                # Bisa dibuat tabel EvidenceLog nanti
-                
-                st.success(f"✅ Evidence berhasil diupload!")
-                st.info(f"📁 Lokasi: {file_path}")
-                st.balloons()
-                
-            except Exception as e:
-                st.error(f"❌ Error upload evidence: {str(e)}")
-    
-    # ============================================================
-    # LIHAT EVIDENCE YANG SUDAH ADA
-    # ============================================================
-    
-    st.markdown("---")
-    st.subheader("📂 Evidence Tersimpan")
-    
-    # Cek folder FPTK
-    fptk_folder = os.path.join(
-        EVIDENCE_BASE_FOLDER, 
-        f"{fptk.kode_unik}_{fptk.posisi[:30].replace('/', '_')}"
-    )
-    
-    if os.path.exists(fptk_folder):
-        files = os.listdir(fptk_folder)
-        if files:
-            data = []
-            for f in files:
-                file_path = os.path.join(fptk_folder, f)
-                stat = os.stat(file_path)
-                data.append({
-                    "Nama File": f,
-                    "Ukuran": f"{stat.st_size / 1024:.1f} KB",
-                    "Tanggal": datetime.fromtimestamp(stat.st_mtime).strftime("%d/%m/%Y %H:%M"),
-                    "Path": file_path
-                })
-            df = pd.DataFrame(data)
-            st.dataframe(df, use_container_width=True)
+    with st.form("evidence_form"):
+        st.markdown("### Data Evidence")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            # Pilih Kode Unik dari FPTK
+            fptk_list = db.query(FPTK.kode_unik, FPTK.posisi).limit(100).all()
+            fptk_options = [f"{f[0]} - {f[1]}" for f in fptk_list] if fptk_list else []
+            selected_fptk = st.selectbox("Pilih FPTK", [""] + fptk_options)
             
-            # Download button
-            for row in data:
-                with open(row["Path"], "rb") as f:
+            # Tanggal evidence
+            evidence_date = st.date_input("Tanggal Evidence", datetime.now())
+            
+            # Jumlah CV
+            total_cv = st.number_input("Jumlah CV", min_value=0, value=0)
+        
+        with col2:
+            # Upload file
+            uploaded_file = st.file_uploader(
+                "Upload File Bukti (PDF/Image)",
+                type=["pdf", "png", "jpg", "jpeg", "xlsx", "xlsm"]
+            )
+            
+            # Nama file custom
+            file_name_custom = st.text_input(
+                "Nama File (opsional)", 
+                placeholder=f"Evidence_{datetime.now().strftime('%Y%m%d')}"
+            )
+        
+        # Notes
+        notes = st.text_area("Notes / Keterangan", placeholder="Tambahkan keterangan jika perlu...")
+        
+        submitted = st.form_submit_button("📤 Upload Evidence", type="primary")
+        
+        if submitted:
+            if not selected_fptk:
+                st.error("❌ Silakan pilih FPTK terlebih dahulu.")
+            elif not uploaded_file:
+                st.error("❌ Silakan upload file bukti.")
+            else:
+                # Parse FPTK
+                kode_unik = selected_fptk.split(" - ")[0] if selected_fptk else ""
+                
+                # Tampilkan preview data
+                st.success("✅ Evidence berhasil diupload!")
+                st.info(f"📋 Kode Unik: {kode_unik}")
+                st.info(f"📋 Tanggal: {evidence_date.strftime('%d/%m/%Y')}")
+                st.info(f"📋 Jumlah CV: {total_cv}")
+                st.info(f"📋 File: {uploaded_file.name}")
+                
+                # Simulasi simpan ke database (belum ada tabel evidence)
+                st.warning("⚠️ Fitur ini masih dalam pengembangan. Evidence belum tersimpan ke database.")
+                
+                # Preview file
+                if uploaded_file.type.startswith('image'):
+                    st.image(uploaded_file, caption=uploaded_file.name, width=300)
+                else:
                     st.download_button(
-                        f"📥 Download {row['Nama File']}",
-                        f.read(),
-                        file_name=row["Nama File"],
-                        key=row["Path"]
+                        "📥 Download File",
+                        uploaded_file,
+                        file_name=uploaded_file.name
                     )
-        else:
-            st.info("Belum ada evidence untuk FPTK ini.")
-    else:
-        st.info("Belum ada evidence untuk FPTK ini.")
+    
+    # ============================================================
+    # DAFTAR EVIDENCE (belum ada, placeholder)
+    # ============================================================
+    st.markdown("---")
+    st.subheader("📋 Daftar Evidence (Coming Soon)")
+    st.info("Fitur daftar evidence akan segera hadir.")
