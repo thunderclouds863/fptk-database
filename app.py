@@ -972,55 +972,80 @@ elif page == "user_management":
 
 
 # ============================================================
-# SOURCING INPUT
+# SOURCING INPUT (FILE: 09_sourcing_input.py)
 # ============================================================
 
 elif page == "sourcing_input":
 
-    from pages import sourcing_input
-
-    sourcing_input.show_sourcing_input()
+    try:
+        sourcing_input = importlib.import_module(
+            "pages.09_sourcing_input"
+        )
+        sourcing_input.show_sourcing_input()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
+        st.info("Silakan buat file tersebut atau periksa nama file.")
 
 
 # ============================================================
-# FUNNEL REPORT
+# FUNNEL REPORT (FILE: 10_funnel_report.py)
 # ============================================================
 
 elif page == "funnel_report":
 
-    from pages import funnel_report
-
-    funnel_report.show_funnel_report()
+    try:
+        funnel_report = importlib.import_module(
+            "pages.10_funnel_report"
+        )
+        funnel_report.show_funnel_report()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/10_funnel_report.py tidak ditemukan!")
+        st.info("Silakan buat file tersebut atau periksa nama file.")
 
 
 # ============================================================
-# MONITORING SOURCING
+# MONITORING SOURCING (FILE: 11_monitoring_sourcing.py)
 # ============================================================
 
 elif page == "monitoring_sourcing":
 
-    from pages import monitoring_sourcing
-
-    monitoring_sourcing.show_monitoring_sourcing()
+    try:
+        monitoring_sourcing = importlib.import_module(
+            "pages.11_monitoring_sourcing"
+        )
+        monitoring_sourcing.show_monitoring_sourcing()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/11_monitoring_sourcing.py tidak ditemukan!")
+        st.info("Silakan buat file tersebut atau periksa nama file.")
 
 
 # ============================================================
-# UPLOAD EVIDENCE
+# UPLOAD EVIDENCE (FILE: 12_upload_evidence.py)
 # ============================================================
 
 elif page == "upload_evidence":
 
-    from pages import upload_evidence
-
-    upload_evidence.show_upload_evidence()
+    try:
+        upload_evidence = importlib.import_module(
+            "pages.12_upload_evidence"
+        )
+        upload_evidence.show_upload_evidence()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/12_upload_evidence.py tidak ditemukan!")
+        st.info("Silakan buat file tersebut atau periksa nama file.")
 
 
 # ============================================================
-# TRANSFER FPTK
+# TRANSFER FPTK (FILE: 13_transfer_fptk.py)
 # ============================================================
 
 elif page == "transfer_fptk":
 
-    from pages import transfer_fptk
-
-    transfer_fptk.show_transfer_fptk()
+    try:
+        transfer_fptk = importlib.import_module(
+            "pages.13_transfer_fptk"
+        )
+        transfer_fptk.show_transfer_fptk()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/13_transfer_fptk.py tidak ditemukan!")
+        st.info("Silakan buat file tersebut atau periksa nama file.")
