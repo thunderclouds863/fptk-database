@@ -4,6 +4,7 @@ from datetime import datetime
 from core.database import get_db
 from core.models import Evidence, FPTK, User
 from core.auth import get_current_user, is_admin
+import os
 
 def show_upload_evidence():
     st.title("📎 Upload Evidence Sourcing")
@@ -114,22 +115,15 @@ def show_upload_evidence():
     st.markdown("---")
     st.subheader("📋 Daftar Evidence")
     
-    # Query evidence dengan join ke FPTK untuk ambil posisi & PIC
-    evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(100).all()
+    # Query evidence
+    evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(50).all()
     
     if evidences:
         data = []
         for ev in evidences:
-            # Ambil posisi & PIC dari FPTK
-            fptk = db.query(FPTK).filter(FPTK.kode_unik == ev.kode_unik).first()
-            posisi = fptk.posisi if fptk else "-"
-            pic = fptk.pic_recruiter if fptk else "-"
-            
             data.append({
                 "ID": ev.id,
                 "Kode Unik": ev.kode_unik,
-                "Posisi": posisi,
-                "PIC": pic,
                 "Tanggal": ev.evidence_date.strftime("%d/%m/%Y") if ev.evidence_date else "-",
                 "File": ev.file_name,
                 "Total CV": ev.total_cv,
@@ -138,7 +132,7 @@ def show_upload_evidence():
             })
         
         df = pd.DataFrame(data)
-        st.dataframe(df, use_container_width=True, height=400)
+        st.dataframe(df, use_container_width=True, height=300)
         
         # Download
         if st.button("📥 Export CSV"):
