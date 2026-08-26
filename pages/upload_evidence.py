@@ -115,7 +115,7 @@ def show_upload_evidence():
         evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(100).all()
         user_filter = None
     else:
-        st.subheader(f"📋 Evidence Saya ({user.display_name or user.username})")
+        st.subheader(f"📋 Riwayat Evidence ")
         evidences = db.query(Evidence).filter(
             Evidence.uploaded_by == user.id
         ).order_by(Evidence.created_at.desc()).limit(100).all()
