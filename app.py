@@ -9,7 +9,8 @@ from core.auth import (
     is_admin,
     init_default_users,
     verify_password,
-    hash_password
+    hash_password,
+    init_master_dropdown
 )
 from core.models import User
 
