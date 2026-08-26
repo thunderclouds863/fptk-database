@@ -740,7 +740,7 @@ with st.sidebar:
 
         if is_admin(db):
 
-            pages["🔄 Update Cycle"] = (
+            pages["📩 Update Cycle"] = (
                 "upload_cycle"
             )
 
