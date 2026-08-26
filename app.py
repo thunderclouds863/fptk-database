@@ -70,6 +70,7 @@ db = SessionLocal()
 
 try:
     init_default_users(db)
+    init_master_dropdown(db)
 finally:
     db.close()
 
