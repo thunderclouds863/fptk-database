@@ -7,12 +7,20 @@ from core.auth import get_current_user, is_admin
 
 def show_upload_evidence():
     st.title("📎 Upload Evidence Sourcing")
-    st.markdown("Upload bukti evidence sourcing.")
+    st.markdown("Upload bukti evidence sourcing ke sistem.")
     
     db = next(get_db())
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login terlebih dahulu.")
+        return
+    
+    # ============================================================
+    # CEK ADMIN (Evidence hanya untuk Admin)
+    # ============================================================
+    if not is_admin(db):
+        st.error("⛔ Halaman ini hanya untuk Admin.")
+        st.info("Evidence sourcing hanya dapat diupload oleh Admin.")
         return
     
     # ============================================================
@@ -22,7 +30,7 @@ def show_upload_evidence():
     kode_unik_options = [""] + [f[0] for f in fptk_list if f[0]]
     
     # ============================================================
-    # FORM UPLOAD (SEMUA PIC BISA UPLOAD)
+    # FORM UPLOAD
     # ============================================================
     with st.form("evidence_upload_form"):
         st.markdown("### Upload Evidence")
@@ -33,6 +41,7 @@ def show_upload_evidence():
             evidence_date = st.date_input("Tanggal Evidence *", datetime.now())
             total_cv = st.number_input("Total CV", min_value=0, value=0)
         with col2:
+            # Auto-fill posisi & PIC jika kode_unik dipilih
             if kode_unik:
                 fptk_data = db.query(FPTK).filter(FPTK.kode_unik == kode_unik).first()
                 if fptk_data:
@@ -51,7 +60,6 @@ def show_upload_evidence():
         )
         
         st.markdown("---")
-        st.caption("💡 Semua PIC bisa upload. Admin lihat semua, PIC lihat sendiri.")
         submitted = st.form_submit_button("💾 Upload Evidence", type="primary")
     
     # ============================================================
@@ -72,10 +80,12 @@ def show_upload_evidence():
                 st.error(f"❌ {err}")
         else:
             try:
+                # Baca file
                 file_bytes = uploaded_file.read()
                 file_name = uploaded_file.name
                 file_size = len(file_bytes)
                 
+                # Simpan ke database
                 new_evidence = Evidence(
                     kode_unik=kode_unik,
                     evidence_date=evidence_date,
@@ -83,7 +93,7 @@ def show_upload_evidence():
                     file_size=file_size,
                     total_cv=total_cv,
                     notes=notes,
-                    uploaded_by=user.id,  # <-- PASTIKAN uploaded_by diisi
+                    uploaded_by=user.id,
                     created_at=datetime.now()
                 )
                 db.add(new_evidence)
@@ -99,49 +109,40 @@ def show_upload_evidence():
                 db.rollback()
     
     # ============================================================
-    # DAFTAR EVIDENCE (FILTER BERDASARKAN ROLE)
+    # DAFTAR EVIDENCE
     # ============================================================
     st.markdown("---")
+    st.subheader("📋 Daftar Evidence")
     
-    admin = is_admin(db)
-    
-    if admin:
-        st.subheader("📋 Semua Evidence (Admin View)")
-        evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(100).all()
-    else:
-        st.subheader(f"📋 Evidence Saya ({user.display_name or user.username})")
-        evidences = db.query(Evidence).filter(
-            Evidence.uploaded_by == user.id
-        ).order_by(Evidence.created_at.desc()).limit(100).all()
+    # Query evidence dengan join ke FPTK untuk ambil posisi & PIC
+    evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(100).all()
     
     if evidences:
         data = []
         for ev in evidences:
-            uploader_name = "-"
-            try:
-                if ev.uploader:
-                    uploader_name = ev.uploader.display_name or ev.uploader.username or "-"
-            except:
-                uploader_name = str(ev.uploaded_by) if ev.uploaded_by else "-"
+            # Ambil posisi & PIC dari FPTK
+            fptk = db.query(FPTK).filter(FPTK.kode_unik == ev.kode_unik).first()
+            posisi = fptk.posisi if fptk else "-"
+            pic = fptk.pic_recruiter if fptk else "-"
             
             data.append({
                 "ID": ev.id,
                 "Kode Unik": ev.kode_unik,
+                "Posisi": posisi,
+                "PIC": pic,
                 "Tanggal": ev.evidence_date.strftime("%d/%m/%Y") if ev.evidence_date else "-",
                 "File": ev.file_name,
                 "Total CV": ev.total_cv,
-                "Uploader": uploader_name,
+                "Uploader": ev.uploader.display_name if ev.uploader else "-",
                 "Created": ev.created_at.strftime("%d/%m/%Y %H:%M") if ev.created_at else "-"
             })
         
         df = pd.DataFrame(data)
-        st.dataframe(df, use_container_width=True, height=300)
+        st.dataframe(df, use_container_width=True, height=400)
         
+        # Download
         if st.button("📥 Export CSV"):
             csv = df.to_csv(index=False)
             st.download_button("Download CSV", csv, f"evidence_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
     else:
-        if admin:
-            st.info("Belum ada evidence yang diupload.")
-        else:
-            st.info("Anda belum upload evidence.")
+        st.info("Belum ada evidence yang diupload.")
