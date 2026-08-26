@@ -25,5 +25,5 @@ def get_db():
         db.close()
 
 def init_db():
-    from core.models import Base
+    from core.models import Base, Evidence
     Base.metadata.create_all(bind=engine)
