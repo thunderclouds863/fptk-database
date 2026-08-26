@@ -724,9 +724,6 @@ with st.sidebar:
 
         "📎 Upload Evidence":
             "upload_evidence",
-        
-        "📊 Evidence Dashboard": 
-            "evidence_dashboard",
 
         "📩 Transfer FPTK": "transfer_fptk"
 
