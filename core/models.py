@@ -259,3 +259,19 @@ class AuditLog(Base):
     ip_address = Column(String(45))
     user_agent = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
+class Evidence(Base):
+    __tablename__ = "evidence"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    kode_unik = Column(String(50), nullable=False, index=True)
+    pic_recruiter = Column(String(100), index=True)
+    file_name = Column(String(255), nullable=False)
+    file_size_bytes = Column(Integer)
+    file_type = Column(String(100))
+    file_data = Column(Text)  # Base64 encoded file data atau URL
+    evidence_date = Column(Date, nullable=False)
+    notes = Column(Text)
+    source_user_id = Column(Integer, ForeignKey("users.id"))
+    source_user_name = Column(String(100))
+    created_at = Column(TIMESTAMP, server_default=func.now())
