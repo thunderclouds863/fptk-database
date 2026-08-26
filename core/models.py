@@ -262,18 +262,15 @@ class AuditLog(Base):
 
 class Evidence(Base):
     __tablename__ = "evidence"
+    
     id = Column(Integer, primary_key=True, index=True)
     kode_unik = Column(String(50), nullable=False, index=True)
-    pic_recruiter = Column(String(100), index=True)
-    tanggal_evidence = Column(Date, nullable=False)
-    file_name = Column(String(255), nullable=False)
+    evidence_date = Column(Date, nullable=False)
+    file_name = Column(String(255))
     file_size = Column(Integer)
-    file_type = Column(String(100))
-    file_hash = Column(String(64))
-    evidence_notes = Column(Text)
-    source_user_id = Column(Integer, ForeignKey("users.id"))
-    source_user_name = Column(String(100))
+    total_cv = Column(Integer, default=0)
+    notes = Column(Text)
+    uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
     
-    # Relasi ke FPTK (opsional)
-    fptk = relationship("FPTK", foreign_keys=[kode_unik], primaryjoin="Evidence.kode_unik == FPTK.kode_unik")
+    uploader = relationship("User", foreign_keys=[uploaded_by])
