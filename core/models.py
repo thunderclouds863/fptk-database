@@ -1,6 +1,6 @@
 from sqlalchemy import (
     Column, Integer, String, Date, Numeric, Text, Boolean, TIMESTAMP, 
-    ForeignKey, CheckConstraint, UniqueConstraint, JSON
+    ForeignKey, CheckConstraint, UniqueConstraint, JSON, LargeBinary
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
@@ -267,11 +267,13 @@ class Evidence(Base):
     kode_unik = Column(String(50), nullable=False, index=True)
     evidence_date = Column(Date, nullable=False)
     file_name = Column(String(255))
-    file_data = Column(LargeBinary)
+    file_data = Column(LargeBinary)  # Simpan file sebagai binary
     file_size = Column(Integer)
+    file_type = Column(String(50))  # pdf, jpg, png, xlsx, dll
     total_cv = Column(Integer, default=0)
     notes = Column(Text)
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
     
-    uploader = relationship("User", foreign_keys=[uploaded_by])
+    # Relationships
+    uploader = relationship("User", foreign_keys=[uploaded_by], back_populates="evidences")
