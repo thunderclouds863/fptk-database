@@ -273,4 +273,3 @@ class Evidence(Base):
     pic_recruiter = Column(String(100), index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
-    uploaded_at = Column(TIMESTAMP, server_default=func.now())
