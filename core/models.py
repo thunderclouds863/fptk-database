@@ -261,19 +261,16 @@ class AuditLog(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 class Evidence(Base):
-    __tablename__ = "evidence"
+    __tablename__ = "evidences"
     id = Column(Integer, primary_key=True, index=True)
-    kode_unik = Column(String(50), nullable=False, index=True)
+    kode_unik = Column(String(50), index=True)
     posisi = Column(String(255))
-    pic_recruiter = Column(String(100))
-    business_unit = Column(String(100))
-    sourcing_date = Column(Date)
+    tanggal = Column(Date, index=True)
     file_name = Column(String(255))
     file_path = Column(String(500))
-    file_size_bytes = Column(Integer)
-    file_hash = Column(String(64))
-    total_cv = Column(Integer)
-    uploaded_by = Column(Integer, ForeignKey("users.id"))
-    uploaded_at = Column(TIMESTAMP, server_default=func.now())
+    file_size = Column(Integer)
+    total_cv = Column(Integer, default=0)
+    pic_recruiter = Column(String(100), index=True)
+    user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
-    remark = Column(Text)
+    uploaded_at = Column(TIMESTAMP, server_default=func.now())
