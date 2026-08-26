@@ -142,7 +142,7 @@ def show_upload_evidence():
         st.subheader("📋 Semua Evidence (Admin View)")
         evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(100).all()
     else:
-        st.subheader(f"📋 Evidence Saya ({user.display_name or user.username})")
+        st.subheader(f"📋 Riwayat Evidence ")
         evidences = db.query(Evidence).filter(
             Evidence.uploaded_by == user.id
         ).order_by(Evidence.created_at.desc()).limit(100).all()
