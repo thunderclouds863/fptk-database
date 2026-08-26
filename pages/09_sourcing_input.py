@@ -9,6 +9,14 @@ from core.utils import normalize_key, parse_date_dmy, safe_int, parse_phone, is_
 from core.cv_parser import parse_cv_text
 import io
 import base64
+import webbrowser
+
+# Copilot Agent URL (sama dengan yang di VBA)
+COPILOT_AGENT_URL = (
+    "https://m365.cloud.microsoft/chat/"
+    "?titleId=T_e0524666-839c-757c-7ef5-d5e72311417d"
+    "&source=embedded-builder"
+)
 
 def show_sourcing_input():
     st.title("👤 Input Sourcing / CV")
@@ -179,13 +187,15 @@ def show_sourcing_input():
         if uploaded_file:
             st.info(f"📄 {uploaded_file.name} ({uploaded_file.size/1024:.1f} KB)")
             
-            if st.button("🔍 Parse CV"):
+            col1, col2 = st.columns([1, 4])
+            with col1:
+                parse_btn = st.button("🔍 Parse CV", use_container_width=True)
+            
+            if parse_btn:
                 with st.spinner("Memproses CV..."):
                     try:
-                        # Baca file
                         file_bytes = uploaded_file.read()
                         
-                        # Parse CV (gunakan fungsi dari core.cv_parser)
                         from core.cv_parser import parse_cv_text
                         text = ""
                         if uploaded_file.type == "application/pdf":
@@ -193,15 +203,20 @@ def show_sourcing_input():
                             with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
                                 text = "\n".join([page.extract_text() or "" for page in pdf.pages])
                         else:
-                            # Image -> OCR (sederhana)
-                            st.warning("⚠️ OCR untuk gambar belum sepenuhnya didukung. Silakan gunakan Paste Text.")
-                            text = ""
+                            # Image -> OCR
+                            try:
+                                import pytesseract
+                                from PIL import Image
+                                img = Image.open(io.BytesIO(file_bytes))
+                                text = pytesseract.image_to_string(img, lang='ind')
+                            except:
+                                st.warning("⚠️ OCR tidak tersedia. Silakan gunakan Paste Text.")
+                                text = ""
                         
-                        if text:
+                        if text and len(text.strip()) > 50:
                             parsed = parse_cv_text(text)
                             st.success("✅ CV berhasil diparse!")
                             
-                            # Tampilkan hasil parse
                             col1, col2 = st.columns(2)
                             with col1:
                                 st.text_input("Nama", value=parsed.get('nama', ''))
@@ -213,62 +228,133 @@ def show_sourcing_input():
                                 st.text_input("Jurusan", value=parsed.get('jurusan', ''))
                                 st.text_input("IPK", value=parsed.get('ipk', ''))
                                 st.text_input("Tahun Lulus", value=parsed.get('tahun_lulus', ''))
+                            
+                            if st.button("💾 Simpan Kandidat", key="save_from_upload"):
+                                st.success("Data siap disimpan ke form manual!")
                         else:
                             st.warning("Tidak ada text yang terbaca. Silakan gunakan Paste Text.")
                     except Exception as e:
                         st.error(f"❌ Error parsing CV: {str(e)}")
     
     # ============================================================
-    # TAB 3: PASTE TEXT
+    # TAB 3: PASTE TEXT (DENGAN COPILOT AGENT)
     # ============================================================
     with tab3:
         st.subheader("Paste Text CV (dari Jobstreet / LinkedIn / PDF text)")
         st.caption("Copy teks CV lalu paste di box di bawah. Sistem akan otomatis mengekstrak informasi.")
         
-        raw_text = st.text_area("Paste teks CV di sini", height=200)
+        # ========================================================
+        # COPILOT AGENT BUTTON (seperti di VBA frmPasteCVText)
+        # ========================================================
+        st.markdown("---")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("**💡 Tips:** Untuk CV gambar/PDF scan, gunakan Copilot Agent untuk parsing.")
+        with col2:
+            if st.button("🤖 Buka Copilot Agent", use_container_width=True, type="secondary"):
+                webbrowser.open(COPILOT_AGENT_URL)
+                st.success("✅ Copilot Agent dibuka di tab baru!")
+                st.info("1. Upload CV ke Copilot Agent")
+                st.info("2. Copy hasil parsing")
+                st.info("3. Paste di box di bawah")
         
-        if raw_text and st.button("🔍 Parse Text", key="parse_text"):
-            from core.cv_parser import parse_cv_text
-            parsed = parse_cv_text(raw_text)
-            
-            if any(parsed.values()):
-                st.success("✅ Text berhasil diparse!")
+        st.markdown("---")
+        
+        raw_text = st.text_area("Paste teks CV di sini", height=200, key="paste_text_area")
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            if raw_text and st.button("🔍 Parse Text", key="parse_text", use_container_width=True):
+                from core.cv_parser import parse_cv_text
+                parsed = parse_cv_text(raw_text)
                 
-                # Auto-fill form
-                with st.form("auto_fill_form"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        nama = st.text_input("Nama", value=parsed.get('nama', ''))
-                        email = st.text_input("Email", value=parsed.get('email', ''))
-                        hp = st.text_input("Nomor HP", value=parsed.get('nomor_hp', ''))
-                        domisili = st.text_input("Domisili", value=parsed.get('domisili', ''))
-                        universitas = st.text_input("Universitas", value=parsed.get('universitas', ''))
-                        jurusan = st.text_input("Jurusan", value=parsed.get('jurusan', ''))
-                    with col2:
-                        ipk = st.text_input("IPK", value=parsed.get('ipk', ''))
-                        tahun_lulus = st.text_input("Tahun Lulus", value=parsed.get('tahun_lulus', ''))
-                        jenjang = st.selectbox("Jenjang Pendidikan", [""] + jenjang_options, index=0)
-                        last_position = st.text_input("Last Position", value=parsed.get('last_position', ''))
-                        last_company = st.text_input("Last Company", value=parsed.get('last_company', ''))
-                        fmcg = st.selectbox("Pernah di FMCG?", [""] + fmcg_options, index=0)
+                if any(parsed.values()):
+                    st.success("✅ Text berhasil diparse!")
                     
-                    if st.form_submit_button("💾 Simpan Kandidat", type="primary"):
-                        # Proses simpan (sama seperti manual)
-                        st.success("✅ Data siap disimpan!")
-            else:
-                st.warning("Tidak ada data yang terdeteksi. Coba paste ulang.")
+                    # Auto-fill form
+                    with st.form("auto_fill_form"):
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            nama = st.text_input("Nama", value=parsed.get('nama', ''))
+                            email = st.text_input("Email", value=parsed.get('email', ''))
+                            hp = st.text_input("Nomor HP", value=parsed.get('nomor_hp', ''))
+                            domisili = st.text_input("Domisili", value=parsed.get('domisili', ''))
+                            universitas = st.text_input("Universitas", value=parsed.get('universitas', ''))
+                            jurusan = st.text_input("Jurusan", value=parsed.get('jurusan', ''))
+                        with col2:
+                            ipk = st.text_input("IPK", value=parsed.get('ipk', ''))
+                            tahun_lulus = st.text_input("Tahun Lulus", value=parsed.get('tahun_lulus', ''))
+                            jenjang = st.selectbox("Jenjang Pendidikan", [""] + jenjang_options, index=0)
+                            last_position = st.text_input("Last Position", value=parsed.get('last_position', ''))
+                            last_company = st.text_input("Last Company", value=parsed.get('last_company', ''))
+                            fmcg = st.selectbox("Pernah di FMCG?", [""] + fmcg_options, index=0)
+                        
+                        if st.form_submit_button("💾 Simpan Kandidat", type="primary"):
+                            # Proses simpan
+                            errors = []
+                            if not nama:
+                                errors.append("Nama wajib diisi")
+                            if errors:
+                                for err in errors:
+                                    st.error(f"❌ {err}")
+                            else:
+                                try:
+                                    last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
+                                    next_no = (last_no.no + 1) if last_no and last_no.no else 1
+                                    
+                                    new_sourcing = DBSourcing(
+                                        no=next_no,
+                                        nama=nama,
+                                        email=email,
+                                        nomor_hp=parse_phone(hp),
+                                        domisili=domisili,
+                                        nama_universitas_top10=universitas,
+                                        jurusan=jurusan,
+                                        ipk=safe_int(ipk.replace(',', '.')) if ipk else None,
+                                        tahun_lulus=tahun_lulus if tahun_lulus and str(tahun_lulus).isdigit() else None,
+                                        rekruter=user.pic_recruiter,
+                                        sourcing_date=datetime.now().date(),
+                                        source_user_id=user.id,
+                                        created_at=datetime.now()
+                                    )
+                                    db.add(new_sourcing)
+                                    db.commit()
+                                    st.success(f"✅ Kandidat '{nama}' berhasil disimpan!")
+                                    st.balloons()
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                                    db.rollback()
+                else:
+                    st.warning("Tidak ada data yang terdeteksi. Coba paste ulang.")
     
     # ============================================================
-    # TAB 4: BATCH CV
+    # TAB 4: BATCH CV (DENGAN COPILOT AGENT)
     # ============================================================
     with tab4:
         st.subheader("Batch Paste CV (Banyak Kandidat)")
-        st.caption("Paste teks dari Copilot Agent atau hasil parse multiple CV. Pisahkan dengan separator '=== CV ==='.")
+        st.caption("Paste teks dari Copilot Agent atau hasil parse multiple CV. Pisahkan dengan separator.")
         
-        batch_text = st.text_area("Paste batch CV di sini", height=300)
+        # ========================================================
+        # COPILOT AGENT BUTTON (seperti di VBA frmBatchPasteCV)
+        # ========================================================
+        st.markdown("---")
+        col1, col2 = st.columns([3, 1])
+        with col1:
+            st.markdown("**💡 Tips:** Gunakan Copilot Agent untuk parsing CV gambar/PDF scan secara batch.")
+        with col2:
+            if st.button("🤖 Copilot Agent", key="copilot_batch", use_container_width=True, type="secondary"):
+                webbrowser.open(COPILOT_AGENT_URL)
+                st.success("✅ Copilot Agent dibuka di tab baru!")
+                st.info("1. Upload CV ke Copilot Agent (bisa multiple)")
+                st.info("2. Copy hasil parsing")
+                st.info("3. Paste di box di bawah")
+        
+        st.markdown("---")
+        
         separator = st.text_input("Separator kandidat", value="=== CV ===")
+        batch_text = st.text_area("Paste batch CV di sini", height=300, key="batch_text_area")
         
-        if batch_text and st.button("🚀 Proses Batch", key="process_batch"):
+        if batch_text and st.button("🚀 Proses Batch", key="process_batch", type="primary"):
             # Split berdasarkan separator
             candidates = batch_text.split(separator)
             candidates = [c.strip() for c in candidates if c.strip()]
@@ -286,7 +372,6 @@ def show_sourcing_input():
                 parsed = parse_cv_text(text)
                 
                 if parsed.get('nama'):
-                    # Simpan ke database
                     try:
                         last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
                         next_no = (last_no.no + 1) if last_no and last_no.no else 1
@@ -300,7 +385,7 @@ def show_sourcing_input():
                             nama_universitas_top10=parsed.get('universitas', ''),
                             jurusan=parsed.get('jurusan', ''),
                             ipk=safe_int(parsed.get('ipk', '').replace(',', '.')),
-                            tahun_lulus=parsed.get('tahun_lulus'),
+                            tahun_lulus=parsed.get('tahun_lulus') if parsed.get('tahun_lulus') else None,
                             rekruter=user.pic_recruiter,
                             sourcing_date=datetime.now().date(),
                             source_user_id=user.id,
