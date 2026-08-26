@@ -55,6 +55,12 @@ if "page" not in st.session_state:
 if "filter_stack" not in st.session_state:
     st.session_state.filter_stack = []
 
+if "detail_id" not in st.session_state:
+    st.session_state.detail_id = None
+
+if "edit_id" not in st.session_state:
+    st.session_state.edit_id = None
+
 
 # ============================================================
 # DEFAULT USER
@@ -698,23 +704,20 @@ with st.sidebar:
         "📊 Dashboard":
             "dashboard",
 
-        "📤 Upload & Compile":
+        "📤 Upload & Compile FPTK":
             "upload_compile",
 
         "📋 FPTK View":
             "fptk_view",
+
+        "👤 Sourcing Input":
+            "sourcing_input",
 
         "👤 Sourcing View":
             "sourcing_view",
 
         "🏢 DB Kode Posisi":
             "db_kode_posisi",
-
-        "📝 FPTK Input":
-            "fptk_input",
-
-        "👤 Sourcing Input":
-            "sourcing_input",
 
         "🔍 Funnel Report":
             "funnel_report",
@@ -943,7 +946,7 @@ elif page == "db_kode_posisi":
 
 
 # ============================================================
-# UPDATE CYCLE
+# UPDATE CYCLE (ADMIN)
 # ============================================================
 
 elif page == "upload_cycle":
@@ -956,7 +959,7 @@ elif page == "upload_cycle":
 
 
 # ============================================================
-# USER MANAGEMENT
+# USER MANAGEMENT (ADMIN)
 # ============================================================
 
 elif page == "user_management":
@@ -966,17 +969,6 @@ elif page == "user_management":
     )
 
     user_management.show_user_management()
-
-
-# ============================================================
-# FPTK INPUT
-# ============================================================
-
-elif page == "fptk_input":
-
-    from pages import fptk_input
-
-    fptk_input.show_fptk_input()
 
 
 # ============================================================
@@ -1023,6 +1015,12 @@ elif page == "upload_evidence":
     upload_evidence.show_upload_evidence()
 
 
+# ============================================================
+# TRANSFER FPTK
+# ============================================================
+
 elif page == "transfer_fptk":
+
     from pages import transfer_fptk
-    transfer_fptk.show()
+
+    transfer_fptk.show_transfer_fptk()
