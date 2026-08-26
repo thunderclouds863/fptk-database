@@ -713,7 +713,7 @@ with st.sidebar:
         "👤 Sourcing Input":
             "sourcing_input",
 
-        "👤 Sourcing View":
+        "👤👤👤 Sourcing View":
             "sourcing_view",
 
         "🏢 DB Kode Posisi":
