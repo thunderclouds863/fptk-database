@@ -740,7 +740,7 @@ with st.sidebar:
 
         if is_admin(db):
 
-            pages["🔄 Upload Cycle"] = (
+            pages["🔄 Update Cycle"] = (
                 "upload_cycle"
             )
 
@@ -943,7 +943,7 @@ elif page == "db_kode_posisi":
 
 
 # ============================================================
-# UPLOAD CYCLE
+# UPDATE CYCLE
 # ============================================================
 
 elif page == "upload_cycle":
