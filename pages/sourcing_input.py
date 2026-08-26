@@ -20,7 +20,7 @@ COPILOT_AGENT_URL = (
 
 def show_sourcing_input():
     st.title("👤 Input Sourcing / CV")
-    st.markdown("Input kandidat baru ke DB Sourcing (mirip frmSourcing di VBA)")
+    st.markdown("Input kandidat baru ke DB Sourcing")
     
     db = next(get_db())
     user = get_current_user(db)
