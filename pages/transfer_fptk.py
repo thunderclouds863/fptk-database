@@ -5,7 +5,7 @@ from core.database import get_db
 from core.models import FPTK, User, AuditLog
 from core.auth import get_current_user, is_admin
 
-def show():
+def show_transfer_fptk():
     st.title("🔄 Transfer FPTK")
     st.markdown("Transfer FPTK dari satu PIC ke PIC lain.")
     
