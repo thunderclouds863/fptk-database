@@ -1,149 +1,53 @@
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
+import plotly.express as px
 from core.database import get_db
 from core.models import DBSourcing, User
 from core.auth import get_current_user
 from datetime import datetime, timedelta
 
-def show_funnel_report():
-    st.title("🔍 Funneling Report")
-    st.markdown("Laporan funnel rekrutmen dari Sourcing HR sampai Day 1")
+def show_monitoring_report():
+    st.title("📈 Monitoring Sourcing")
     
     db = next(get_db())
     user = get_current_user(db)
     if not user:
-        st.warning("Silakan login terlebih dahulu.")
+        st.warning("Silakan login.")
         return
     
-    # ============================================================
-    # FILTERS
-    # ============================================================
     with st.sidebar:
-        st.markdown("### 🔍 Filters")
-        
-        col1, col2 = st.sidebar.columns(2)
-        with col1:
-            date_from = st.date_input("Dari", datetime.now() - timedelta(days=90))
-        with col2:
-            date_to = st.date_input("Sampai", datetime.now())
-        
-        pic_options = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
-        pic_filter = st.sidebar.selectbox("PIC Recruiter", pic_options)
-        
-        st.markdown("---")
-        if st.button("🔄 Reset Filter", use_container_width=True):
-            st.rerun()
+        st.markdown("### Filters")
+        today = datetime.now()
+        week_start = today - timedelta(days=today.weekday())
+        week_options = [(week_start - timedelta(days=i*7), week_start - timedelta(days=i*7) + timedelta(days=6)) for i in range(12)]
+        idx = st.selectbox("Minggu", range(12), format_func=lambda x: f"{week_options[x][0].strftime('%d/%m')} - {week_options[x][1].strftime('%d/%m')}")
+        pic_list = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
+        pic_filter = st.selectbox("PIC", pic_list)
     
-    # ============================================================
-    # QUERY
-    # ============================================================
-    query = db.query(DBSourcing)
-    
+    ws, we = week_options[idx]
+    query = db.query(DBSourcing).filter(DBSourcing.sourcing_date >= ws, DBSourcing.sourcing_date <= we)
     if pic_filter != "Semua":
         query = query.filter(DBSourcing.rekruter == pic_filter)
-    if date_from:
-        query = query.filter(DBSourcing.sourcing_date >= date_from)
-    if date_to:
-        query = query.filter(DBSourcing.sourcing_date <= date_to)
     
     df = pd.read_sql(query.statement, db.bind)
     total = len(df)
     
-    # ============================================================
-    # METRIC CARDS
-    # ============================================================
-    total_sourcing = total
-    total_shortlist = len(df[df['shortlist_cv'].notna()]) if 'shortlist_cv' in df else 0
-    total_psikotes = len(df[df['psikotes'].notna()]) if 'psikotes' in df else 0
-    total_hr = len(df[df['hr_interview'].notna()]) if 'hr_interview' in df else 0
-    total_user = len(df[df['user_interview'].notna()]) if 'user_interview' in df else 0
-    total_offering = len(df[df['offering'].notna()]) if 'offering' in df else 0
-    total_day1 = len(df[df['day1'].notna()]) if 'day1' in df else 0
+    st.subheader(f"{ws.strftime('%d/%m/%Y')} - {we.strftime('%d/%m/%Y')}")
     
-    col1, col2, col3, col4, col5, col6 = st.columns(6)
-    col1.metric("Total", f"{total_sourcing:,}")
-    col2.metric("Shortlist", f"{total_shortlist:,}")
-    col3.metric("Psikotes", f"{total_psikotes:,}")
-    col4.metric("HR Interview", f"{total_hr:,}")
-    col5.metric("Offering", f"{total_offering:,}")
-    col6.metric("Day 1", f"{total_day1:,}")
+    if total == 0:
+        st.info("Tidak ada data.")
+        return
     
-    st.markdown("---")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total CV", total)
+    col2.metric("Unique Kode", df['kode_unik'].nunique() if 'kode_unik' in df else 0)
+    col3.metric("Unique Posisi", df['posisi'].nunique() if 'posisi' in df else 0)
     
-    # ============================================================
-    # FUNNEL CHART
-    # ============================================================
-    if total > 0:
-        stages = [
-            ("Sourcing HR", total_sourcing),
-            ("Shortlist CV", total_shortlist),
-            ("Psikotes", total_psikotes),
-            ("HR Interview", total_hr),
-            ("Offering", total_offering),
-            ("Day 1", total_day1)
-        ]
-        
-        df_funnel = pd.DataFrame(stages, columns=["Stage", "Count"])
-        
-        fig = go.Figure(go.Funnel(
-            y=df_funnel['Stage'],
-            x=df_funnel['Count'],
-            textposition="inside",
-            textinfo="value+percent initial",
-            marker=dict(color=["#3498db", "#2ecc71", "#f1c40f", "#e67e22", "#9b59b6", "#1abc9c"])
-        ))
-        fig.update_layout(title="Funnel Sourcing", height=500)
+    if 'sourcing_date' in df:
+        df['date'] = pd.to_datetime(df['sourcing_date'])
+        daily = df.groupby(df['date'].dt.date).size().reset_index()
+        daily.columns = ['Tanggal', 'Jumlah']
+        fig = px.bar(daily, x='Tanggal', y='Jumlah', title='CV per Hari')
         st.plotly_chart(fig, use_container_width=True)
-        
-        # ============================================================
-        # CONVERSION RATES
-        # ============================================================
-        st.subheader("📊 Conversion Rates")
-        
-        conversion_data = []
-        stages_list = [
-            ("Shortlist", total_shortlist, total_sourcing),
-            ("Psikotes", total_psikotes, total_shortlist),
-            ("HR Interview", total_hr, total_psikotes),
-            ("Offering", total_offering, total_hr),
-            ("Day 1", total_day1, total_offering)
-        ]
-        
-        for name, current, previous in stages_list:
-            if previous > 0:
-                rate = (current / previous) * 100
-                conversion_data.append({"Stage": name, "Conversion Rate": f"{rate:.1f}%"})
-            else:
-                conversion_data.append({"Stage": name, "Conversion Rate": "0%"})
-        
-        df_conv = pd.DataFrame(conversion_data)
-        st.dataframe(df_conv, use_container_width=True)
-    else:
-        st.info("Tidak ada data sourcing untuk periode yang dipilih.")
     
-    # ============================================================
-    # DETAIL DATA
-    # ============================================================
-    if total > 0:
-        st.subheader("📋 Detail Data")
-        
-        display_cols = ['id', 'nama', 'posisi', 'kode_unik', 'rekruter', 'sourcing_date',
-                       'shortlist_cv', 'psikotes', 'hr_interview', 'offering', 'day1']
-        
-        display_df = df[[c for c in display_cols if c in df.columns]].copy()
-        
-        rename_map = {
-            'id': 'ID', 'nama': 'Nama', 'posisi': 'Posisi', 'kode_unik': 'Kode Unik',
-            'rekruter': 'PIC', 'sourcing_date': 'Tgl Sourcing',
-            'shortlist_cv': 'Shortlist', 'psikotes': 'Psikotes',
-            'hr_interview': 'HR Interview', 'offering': 'Offering', 'day1': 'Day 1'
-        }
-        display_df = display_df.rename(columns=rename_map)
-        
-        st.dataframe(display_df, use_container_width=True, height=400)
-        
-        # Export
-        if st.button("📥 Export CSV"):
-            csv = df.to_csv(index=False)
-            st.download_button("Download CSV", csv, f"funneling_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
+    st.dataframe(df[['nama', 'posisi', 'kode_unik', 'rekruter', 'sourcing_date']].head(50), use_container_width=True)
