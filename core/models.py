@@ -5,6 +5,7 @@ from sqlalchemy import (
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from core.database import Base
+from sqlalchemy import LargeBinary 
 
 class User(Base):
     __tablename__ = "users"
@@ -267,12 +268,11 @@ class Evidence(Base):
     kode_unik = Column(String(50), nullable=False, index=True)
     evidence_date = Column(Date, nullable=False)
     file_name = Column(String(255))
-    file_path = Column(String(500))
+    file_data = Column(LargeBinary)  
     file_size = Column(Integer)
     total_cv = Column(Integer, default=0)
     notes = Column(Text)
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
     
-    # Relasi
     uploader = relationship("User", foreign_keys=[uploaded_by])
