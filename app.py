@@ -979,12 +979,11 @@ elif page == "sourcing_input":
 
     try:
         sourcing_input = importlib.import_module(
-            "pages.09_sourcing_input"
+            "pages.sourcing_input"
         )
         sourcing_input.show_sourcing_input()
     except ModuleNotFoundError:
-        st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
-        st.info("Silakan buat file tersebut atau periksa nama file.")
+        st.error("❌ File pages/sourcing_input.py tidak ditemukan!")
 
 
 # ============================================================
