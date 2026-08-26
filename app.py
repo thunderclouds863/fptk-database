@@ -719,7 +719,7 @@ with st.sidebar:
         "🔍 Funnel Report":
             "funnel_report",
 
-        "📊 Monitoring":
+        "📊 Monitoring Sourcing":
             "monitoring_sourcing",
 
         "📎 Upload Evidence":
