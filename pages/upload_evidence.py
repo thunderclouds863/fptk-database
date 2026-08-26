@@ -8,7 +8,7 @@ import os
 
 def show_upload_evidence():
     st.title("📎 Upload Evidence Sourcing")
-    st.markdown("Upload bukti evidence sourcing ke sistem.")
+    st.markdown("Upload bukti evidence sourcing.")
     
     db = next(get_db())
     user = get_current_user(db)
@@ -17,21 +17,14 @@ def show_upload_evidence():
         return
     
     # ============================================================
-    # CEK ADMIN (Evidence hanya untuk Admin)
+    # AMBIL DATA FPTK UNTUK DROPDOWN (filter berdasarkan PIC)
     # ============================================================
-    if not is_admin(db):
-        st.error("⛔ Halaman ini hanya untuk Admin.")
-        st.info("Evidence sourcing hanya dapat diupload oleh Admin.")
-        return
-    
-    # ============================================================
-    # AMBIL DATA FPTK UNTUK DROPDOWN
-    # ============================================================
+    # Untuk dropdown, TAMPILKAN SEMUA FPTK (biar PIC bisa pilih)
     fptk_list = db.query(FPTK.kode_unik, FPTK.posisi, FPTK.pic_recruiter).distinct().all()
     kode_unik_options = [""] + [f[0] for f in fptk_list if f[0]]
     
     # ============================================================
-    # FORM UPLOAD
+    # FORM UPLOAD (SEMUA PIC BISA UPLOAD)
     # ============================================================
     with st.form("evidence_upload_form"):
         st.markdown("### Upload Evidence")
@@ -61,6 +54,7 @@ def show_upload_evidence():
         )
         
         st.markdown("---")
+        st.caption("💡 **Catatan:** Semua PIC bisa upload evidence. Admin bisa lihat semua, PIC hanya lihat milik sendiri.")
         submitted = st.form_submit_button("💾 Upload Evidence", type="primary")
     
     # ============================================================
@@ -110,24 +104,36 @@ def show_upload_evidence():
                 db.rollback()
     
     # ============================================================
-    # DAFTAR EVIDENCE
+    # DAFTAR EVIDENCE (FILTER BERDASARKAN ROLE)
     # ============================================================
     st.markdown("---")
-    st.subheader("📋 Daftar Evidence")
     
-    # Query evidence
-    evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(50).all()
+    # CEK ROLE UNTUK FILTER
+    admin = is_admin(db)
+    if admin:
+        st.subheader("📋 Semua Evidence (Admin View)")
+        evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(100).all()
+        user_filter = None
+    else:
+        st.subheader(f"📋 Evidence Saya ({user.display_name or user.username})")
+        evidences = db.query(Evidence).filter(
+            Evidence.uploaded_by == user.id
+        ).order_by(Evidence.created_at.desc()).limit(100).all()
+        user_filter = user.id
     
     if evidences:
         data = []
         for ev in evidences:
+            # Ambil nama uploader
+            uploader_name = ev.uploader.display_name if ev.uploader and ev.uploader.display_name else ev.uploader.username if ev.uploader else "-"
+            
             data.append({
                 "ID": ev.id,
                 "Kode Unik": ev.kode_unik,
                 "Tanggal": ev.evidence_date.strftime("%d/%m/%Y") if ev.evidence_date else "-",
                 "File": ev.file_name,
                 "Total CV": ev.total_cv,
-                "Uploader": ev.uploader.display_name if ev.uploader else "-",
+                "Uploader": uploader_name,
                 "Created": ev.created_at.strftime("%d/%m/%Y %H:%M") if ev.created_at else "-"
             })
         
@@ -139,4 +145,7 @@ def show_upload_evidence():
             csv = df.to_csv(index=False)
             st.download_button("Download CSV", csv, f"evidence_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
     else:
-        st.info("Belum ada evidence yang diupload.")
+        if admin:
+            st.info("Belum ada evidence yang diupload oleh semua PIC.")
+        else:
+            st.info("Anda belum upload evidence. Upload evidence menggunakan form di atas.")
