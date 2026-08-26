@@ -1,27 +1,21 @@
 from sqlalchemy import (
     Column, Integer, String, Date, Numeric, Text, Boolean, TIMESTAMP, 
-    ForeignKey, CheckConstraint, UniqueConstraint, JSON, LargeBinary
+    ForeignKey, CheckConstraint, UniqueConstraint, JSON
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from core.database import Base
-
 
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
-    role = Column(String(20), default="user")  # admin, user
-    pic_recruiter = Column(String(100))  # Nama PIC yang di-assign
+    role = Column(String(20), default="user")
+    pic_recruiter = Column(String(100))
     display_name = Column(String(100))
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_login = Column(TIMESTAMP)
-    
-    # Relationships
-    uploads = relationship("UploadLog", back_populates="user")
-    evidences = relationship("Evidence", foreign_keys="Evidence.uploaded_by", back_populates="uploader")
-
 
 class UploadCycle(Base):
     __tablename__ = "upload_cycles"
@@ -31,25 +25,16 @@ class UploadCycle(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     started_at = Column(TIMESTAMP, server_default=func.now())
     ended_at = Column(TIMESTAMP)
-    
-    # Relationships
-    logs = relationship("UploadLog", back_populates="cycle")
-    statuses = relationship("UploadStatus", back_populates="cycle")
-
 
 class UploadStatus(Base):
     __tablename__ = "upload_status"
     id = Column(Integer, primary_key=True, index=True)
     cycle_id = Column(Integer, ForeignKey("upload_cycles.id", ondelete="CASCADE"))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
-    status = Column(String(20), default="Belum Mulai")  # Belum Mulai, Sedang Upload, Done
+    status = Column(String(20), default="Belum Mulai")
     first_compile_at = Column(TIMESTAMP)
     done_at = Column(TIMESTAMP)
     __table_args__ = (UniqueConstraint('cycle_id', 'user_id'),)
-    
-    # Relationships
-    cycle = relationship("UploadCycle", back_populates="statuses")
-
 
 class UploadLog(Base):
     __tablename__ = "upload_logs"
@@ -59,15 +44,10 @@ class UploadLog(Base):
     file_name = Column(String(255))
     file_size_bytes = Column(Integer)
     file_hash = Column(String(64))
-    status = Column(String(20))  # SUCCESS, FAILED, PARTIAL
+    status = Column(String(20))
     record_count = Column(Integer)
     error_details = Column(Text)
     uploaded_at = Column(TIMESTAMP, server_default=func.now())
-    
-    # Relationships
-    cycle = relationship("UploadCycle", back_populates="logs")
-    user = relationship("User", back_populates="uploads")
-
 
 class FPTK(Base):
     __tablename__ = "fptk"
@@ -128,7 +108,6 @@ class FPTK(Base):
     
     __table_args__ = (UniqueConstraint('kode_unik', 'posisi'),)
 
-
 class DBKodePosisi(Base):
     __tablename__ = "db_kode_posisi"
     id = Column(Integer, primary_key=True, index=True)
@@ -143,7 +122,6 @@ class DBKodePosisi(Base):
     directorate = Column(String(100))
     year = Column(Integer)
     __table_args__ = (UniqueConstraint('position', 'location', 'business_unit'),)
-
 
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
@@ -226,7 +204,6 @@ class DBSourcing(Base):
     source_user_id = Column(Integer, ForeignKey("users.id"))
     source_cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
 
-
 class MasterDropdown(Base):
     __tablename__ = "master_dropdown"
     id = Column(Integer, primary_key=True, index=True)
@@ -264,13 +241,11 @@ class MasterDropdown(Base):
     lokasi_pic_recruiter = Column(String(50))
     is_active = Column(Boolean, default=True)
 
-
 class Blacklist(Base):
     __tablename__ = "blacklist"
     id = Column(Integer, primary_key=True, index=True)
     key_value = Column(String(255), unique=True, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
-
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -284,59 +259,3 @@ class AuditLog(Base):
     ip_address = Column(String(45))
     user_agent = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
-
-
-class Evidence(Base):
-    __tablename__ = "evidence"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    kode_unik = Column(String(50), nullable=False, index=True)
-    evidence_date = Column(Date, nullable=False)
-    file_name = Column(String(255))
-    file_data = Column(LargeBinary)  # Simpan file sebagai binary
-    file_size = Column(Integer)
-    file_type = Column(String(50))  # pdf, jpg, png, xlsx, dll
-    total_cv = Column(Integer, default=0)
-    notes = Column(Text)
-    uploaded_by = Column(Integer, ForeignKey("users.id"))
-    created_at = Column(TIMESTAMP, server_default=func.now())
-    
-    # Relationships
-    uploader = relationship("User", foreign_keys=[uploaded_by], back_populates="evidences")
-
-class MasterDropdown(Base):
-    __tablename__ = "master_dropdown"
-    id = Column(Integer, primary_key=True, index=True)
-    kode_pic = Column(String(50))
-    bu = Column(String(255))
-    alasan = Column(Text)
-    category_fptk = Column(String(50))
-    pic_recruiter = Column(String(100), index=True)
-    filter_fptk = Column(String(50))
-    status = Column(String(20))
-    lokasi_onboarding = Column(String(100))
-    detail_sla = Column(Text)
-    keterangan_0 = Column(Text)
-    keterangan_1 = Column(Text)
-    keterangan_cancel = Column(Text)
-    nama_direktorat = Column(String(100))
-    model = Column(String(20))
-    sumber_sourcing = Column(String(50))
-    jenjang_pendidikan = Column(String(20))
-    nama_universitas_top10 = Column(String(255))
-    jurusan = Column(String(100))
-    university_tier = Column(String(20))
-    ipk_tier = Column(String(20))
-    keterangan_tidak_lolos_sourcing_1 = Column(Text)
-    keterangan_tidak_lolos_sourcing_2 = Column(Text)
-    keterangan_tidak_lolos_psikotes = Column(Text)
-    keterangan_tidak_lolos_hr_interview = Column(Text)
-    keterangan_tidak_lolos_user_panel = Column(Text)
-    keterangan_tidak_lolos_technical_test = Column(Text)
-    keterangan_tidak_lolos_market_visit = Column(Text)
-    keterangan_tidak_lolos_reference_check = Column(Text)
-    keterangan_tidak_menerima_offer = Column(Text)
-    keterangan_tidak_lolos_mcu = Column(Text)
-    keterangan_tidak_hadir_day1 = Column(Text)
-    lokasi_pic_recruiter = Column(String(50))
-    is_active = Column(Boolean, default=True)
