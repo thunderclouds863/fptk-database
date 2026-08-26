@@ -268,7 +268,7 @@ class Evidence(Base):
     kode_unik = Column(String(50), nullable=False, index=True)
     evidence_date = Column(Date, nullable=False)
     file_name = Column(String(255))
-    file_data = Column(LargeBinary)  
+    file_data = Column(LargeBinary)
     file_size = Column(Integer)
     total_cv = Column(Integer, default=0)
     notes = Column(Text)
