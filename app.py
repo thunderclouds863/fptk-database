@@ -725,6 +725,8 @@ with st.sidebar:
         "📎 Upload Evidence":
             "upload_evidence",
 
+        "🔄 Transfer FPTK": "transfer_fptk"
+
     }
 
 
@@ -1019,3 +1021,8 @@ elif page == "upload_evidence":
     from pages import upload_evidence
 
     upload_evidence.show_upload_evidence()
+
+
+elif page == "transfer_fptk":
+    from pages import transfer_fptk
+    transfer_fptk.show()
