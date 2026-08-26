@@ -735,4 +735,156 @@ def parse_email_body(body: str, kode_pic_options: list, bu_options: list, pic_re
     result["lokasi_kerja"] = find_field(["Lokasi Kerja"])
     result["lokasi_hr"] = find_field(["Lokasi HR", "HR Location"])
     result["status_karyawan"] = find_field(["Status Karyawan"])
-    result["vacancy"] = safe_int(find_field(["J
+    result["vacancy"] = safe_int(find_field(["Jumlah Posisi Yang Dicari", "Jumlah Posisi", "Vacancy"])) or 1
+    result["pic_email"] = find_field(["Email PIC Rekruter", "PIC Rekruter", "Email PIC Recruiter"])
+    
+    # Extract Level Number from Level FPTK (e.g., "1A" -> 1)
+    if result["level_fptk"]:
+        match = re.search(r'(\d+)', result["level_fptk"])
+        if match:
+            result["level_number"] = int(match.group(1))
+    
+    # ============================================================
+    # RESOLVE PIC (mirip VBA F9_ResolvePIC)
+    # ============================================================
+    pic_found = False
+    
+    # Coba dari email
+    if result["pic_email"]:
+        email_lower = result["pic_email"].lower()
+        for key, value in PIC_MAPPING.items():
+            if key in email_lower:
+                result["pic_recruiter"] = value["name"]
+                result["kode_pic"] = value["code"]
+                pic_found = True
+                break
+    
+    # Coba dari text body
+    if not pic_found:
+        body_lower = body.lower()
+        for key, value in PIC_MAPPING.items():
+            if key in body_lower:
+                result["pic_recruiter"] = value["name"]
+                result["kode_pic"] = value["code"]
+                pic_found = True
+                break
+    
+    # ============================================================
+    # DETERMINE CATEGORY (mirip VBA F9_DetermineCategoryFPTK)
+    # ============================================================
+    alasan_lower = result["alasan"].lower()
+    if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
+        result["category"] = "REPLACEMENT"
+    elif "penambahan" in alasan_lower or "jabatan baru" in alasan_lower or "new" in alasan_lower:
+        result["category"] = "NEW"
+    else:
+        result["category"] = "REPLACEMENT"
+    
+    # ============================================================
+    # DETERMINE BUSINESS UNIT (mirip VBA F9_GetBUCodeFromPIC / LookupBU)
+    # ============================================================
+    bu_lower = result["business_unit"].lower()
+    for key, value in BU_MAPPING.items():
+        if key in bu_lower:
+            result["business_unit"] = value
+            break
+    
+    # Jika BU masih kosong dan Kode PIC ada, coba dari Kode PIC
+    if not result["business_unit"] and result["kode_pic"]:
+        kode = result["kode_pic"].upper()
+        if kode.startswith("CORP"):
+            result["business_unit"] = "PT CISARUA MOUNTAIN DAIRY, TBK"
+        elif kode.startswith("CMD"):
+            result["business_unit"] = "PT CISARUA MOUNTAIN DAIRY, TBK"
+        elif kode.startswith("MS"):
+            result["business_unit"] = "PT MACROSENTRA NIAGABOGA"
+        elif kode.startswith("JESS"):
+            result["business_unit"] = "PT JAVA EGG SPECIALITIES"
+        elif kode.startswith("MP"):
+            result["business_unit"] = "PT MACROPRIMA PANGANUTAMA"
+        elif kode.startswith("MB"):
+            result["business_unit"] = "PT MACROTAMA BINASANTIKA"
+        elif kode.startswith("BHC"):
+            result["business_unit"] = "PT BAVARIAN CULINARY HAUS"
+        elif kode.startswith("ARC"):
+            result["business_unit"] = "PT ARTHA RASA CIMORY"
+    
+    # ============================================================
+    # GENERATE KODE UNIK (mirip VBA UpdateKodeUnik)
+    # ============================================================
+    if result["kode_pic"]:
+        date_code = datetime.now().strftime("%d%m%y")
+        # Coba ambil posisi code dari posisi
+        posisi_code = ""
+        if result["posisi"]:
+            # Ambil 4 huruf pertama dari posisi
+            posisi_code = re.sub(r'[^A-Za-z]', '', result["posisi"])[:4].upper()
+        result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
+    
+    # ============================================================
+    # DETERMINE DIREKTORAT (dari master atau mapping)
+    # ============================================================
+    if result["business_unit"]:
+        # Coba mapping sederhana
+        bu_lower = result["business_unit"].lower()
+        if "cmd" in bu_lower or "cisarua" in bu_lower:
+            result["direktorat"] = "Commercial CMD"
+        elif "ms" in bu_lower or "macrosentra" in bu_lower:
+            result["direktorat"] = "Commercial MS"
+        elif "jess" in bu_lower or "java egg" in bu_lower:
+            result["direktorat"] = "Commercial JESS"
+        elif "mp" in bu_lower or "macroprima" in bu_lower:
+            result["direktorat"] = "Commercial MP"
+        elif "mb" in bu_lower or "macrotama" in bu_lower:
+            result["direktorat"] = "Commercial MB"
+        elif "bhc" in bu_lower or "bavarian" in bu_lower:
+            result["direktorat"] = "Commercial BHC"
+        elif "arc" in bu_lower or "artha rasa" in bu_lower:
+            result["direktorat"] = "Commercial ARC"
+    
+    # ============================================================
+    # FORMAT LEVEL DISPLAY (mirip VBA F9_FormatLevelDisplay)
+    # ============================================================
+    if result["level_number"] > 0:
+        # Cari suffix huruf dari level_fptk
+        suffix = ""
+        if result["level_fptk"]:
+            match = re.search(r'[A-Za-z]+$', result["level_fptk"])
+            if match:
+                suffix = match.group(0).upper()
+            else:
+                suffix = "A"
+        else:
+            suffix = "A"
+        result["level_fptk"] = f"{result['level_number']}{suffix}"
+    
+    # ============================================================
+    # AUTO-INCREMENT DATE (mirip VBA AutoIncrementFPTKDate)
+    # ============================================================
+    # Cek apakah ada FPTK dengan posisi + BU + Kode PIC + tanggal yang sama
+    db = next(get_db())
+    if result["posisi"] and result["business_unit"] and result["kode_pic"]:
+        existing = db.query(FPTK).filter(
+            FPTK.posisi == result["posisi"],
+            FPTK.business_unit == result["business_unit"],
+            FPTK.kode_pic == result["kode_pic"],
+            FPTK.fptk_date_real == datetime.now().date()
+        ).first()
+        if existing:
+            # Cari tanggal terakhir untuk kombinasi ini
+            last_date = db.query(FPTK.fptk_date_real).filter(
+                FPTK.posisi == result["posisi"],
+                FPTK.business_unit == result["business_unit"],
+                FPTK.kode_pic == result["kode_pic"]
+            ).order_by(FPTK.fptk_date_real.desc()).first()
+            
+            if last_date and last_date[0]:
+                result["fptk_date"] = last_date[0] + timedelta(days=1)
+            else:
+                result["fptk_date"] = datetime.now().date() + timedelta(days=1)
+        else:
+            result["fptk_date"] = datetime.now().date()
+    
+    db.close()
+    
+    return result                                      
