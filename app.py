@@ -979,7 +979,7 @@ elif page == "sourcing_input":
 
     try:
         sourcing_input = importlib.import_module(
-            "pages.sourcing_input"
+            "pages.09_sourcing_input"
         )
         sourcing_input.show_sourcing_input()
     except ModuleNotFoundError:
@@ -995,7 +995,7 @@ elif page == "funnel_report":
 
     try:
         funnel_report = importlib.import_module(
-            "pages.10_funnel_report"
+            "pages.funnel_report"
         )
         funnel_report.show_funnel_report()
     except ModuleNotFoundError:
@@ -1011,7 +1011,7 @@ elif page == "monitoring_sourcing":
 
     try:
         monitoring_sourcing = importlib.import_module(
-            "pages.11_monitoring_sourcing"
+            "pages.monitoring_sourcing"
         )
         monitoring_sourcing.show_monitoring_sourcing()
     except ModuleNotFoundError:
@@ -1027,7 +1027,7 @@ elif page == "upload_evidence":
 
     try:
         upload_evidence = importlib.import_module(
-            "pages.12_upload_evidence"
+            "pages.upload_evidence"
         )
         upload_evidence.show_upload_evidence()
     except ModuleNotFoundError:
@@ -1043,7 +1043,7 @@ elif page == "transfer_fptk":
 
     try:
         transfer_fptk = importlib.import_module(
-            "pages.13_transfer_fptk"
+            "pages.transfer_fptk"
         )
         transfer_fptk.show_transfer_fptk()
     except ModuleNotFoundError:
