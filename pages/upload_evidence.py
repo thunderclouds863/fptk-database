@@ -4,7 +4,6 @@ from datetime import datetime
 from core.database import get_db
 from core.models import Evidence, FPTK, User
 from core.auth import get_current_user, is_admin
-import os
 
 def show_upload_evidence():
     st.title("📎 Upload Evidence Sourcing")
@@ -17,9 +16,8 @@ def show_upload_evidence():
         return
     
     # ============================================================
-    # AMBIL DATA FPTK UNTUK DROPDOWN (filter berdasarkan PIC)
+    # AMBIL DATA FPTK UNTUK DROPDOWN
     # ============================================================
-    # Untuk dropdown, TAMPILKAN SEMUA FPTK (biar PIC bisa pilih)
     fptk_list = db.query(FPTK.kode_unik, FPTK.posisi, FPTK.pic_recruiter).distinct().all()
     kode_unik_options = [""] + [f[0] for f in fptk_list if f[0]]
     
@@ -35,7 +33,6 @@ def show_upload_evidence():
             evidence_date = st.date_input("Tanggal Evidence *", datetime.now())
             total_cv = st.number_input("Total CV", min_value=0, value=0)
         with col2:
-            # Auto-fill posisi & PIC jika kode_unik dipilih
             if kode_unik:
                 fptk_data = db.query(FPTK).filter(FPTK.kode_unik == kode_unik).first()
                 if fptk_data:
@@ -54,7 +51,7 @@ def show_upload_evidence():
         )
         
         st.markdown("---")
-        st.caption("💡 **Catatan:** Semua PIC bisa upload evidence. Admin bisa lihat semua, PIC hanya lihat milik sendiri.")
+        st.caption("💡 Semua PIC bisa upload. Admin lihat semua, PIC lihat sendiri.")
         submitted = st.form_submit_button("💾 Upload Evidence", type="primary")
     
     # ============================================================
@@ -75,12 +72,10 @@ def show_upload_evidence():
                 st.error(f"❌ {err}")
         else:
             try:
-                # Baca file
                 file_bytes = uploaded_file.read()
                 file_name = uploaded_file.name
                 file_size = len(file_bytes)
                 
-                # Simpan ke database
                 new_evidence = Evidence(
                     kode_unik=kode_unik,
                     evidence_date=evidence_date,
@@ -88,7 +83,7 @@ def show_upload_evidence():
                     file_size=file_size,
                     total_cv=total_cv,
                     notes=notes,
-                    uploaded_by=user.id,
+                    uploaded_by=user.id,  # <-- PASTIKAN uploaded_by diisi
                     created_at=datetime.now()
                 )
                 db.add(new_evidence)
@@ -108,24 +103,26 @@ def show_upload_evidence():
     # ============================================================
     st.markdown("---")
     
-    # CEK ROLE UNTUK FILTER
     admin = is_admin(db)
+    
     if admin:
         st.subheader("📋 Semua Evidence (Admin View)")
         evidences = db.query(Evidence).order_by(Evidence.created_at.desc()).limit(100).all()
-        user_filter = None
     else:
         st.subheader(f"📋 Evidence Saya ({user.display_name or user.username})")
         evidences = db.query(Evidence).filter(
             Evidence.uploaded_by == user.id
         ).order_by(Evidence.created_at.desc()).limit(100).all()
-        user_filter = user.id
     
     if evidences:
         data = []
         for ev in evidences:
-            # Ambil nama uploader
-            uploader_name = ev.uploader.display_name if ev.uploader and ev.uploader.display_name else ev.uploader.username if ev.uploader else "-"
+            uploader_name = "-"
+            try:
+                if ev.uploader:
+                    uploader_name = ev.uploader.display_name or ev.uploader.username or "-"
+            except:
+                uploader_name = str(ev.uploaded_by) if ev.uploaded_by else "-"
             
             data.append({
                 "ID": ev.id,
@@ -140,12 +137,11 @@ def show_upload_evidence():
         df = pd.DataFrame(data)
         st.dataframe(df, use_container_width=True, height=300)
         
-        # Download
         if st.button("📥 Export CSV"):
             csv = df.to_csv(index=False)
             st.download_button("Download CSV", csv, f"evidence_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
     else:
         if admin:
-            st.info("Belum ada evidence yang diupload oleh semua PIC.")
+            st.info("Belum ada evidence yang diupload.")
         else:
-            st.info("Anda belum upload evidence. Upload evidence menggunakan form di atas.")
+            st.info("Anda belum upload evidence.")
