@@ -1,13 +1,12 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
+import plotly.graph_objects as go
 from core.database import get_db
-from core.models import DBSourcing, User
+from core.models import DBSourcing
 from core.auth import get_current_user
-from datetime import datetime, timedelta
 
-def show_monitoring_report():
-    st.title("📈 Monitoring Sourcing")
+def show_funnel_report():
+    st.title("🔍 Funnel Report")
     
     db = next(get_db())
     user = get_current_user(db)
@@ -15,39 +14,35 @@ def show_monitoring_report():
         st.warning("Silakan login.")
         return
     
-    with st.sidebar:
-        st.markdown("### Filters")
-        today = datetime.now()
-        week_start = today - timedelta(days=today.weekday())
-        week_options = [(week_start - timedelta(days=i*7), week_start - timedelta(days=i*7) + timedelta(days=6)) for i in range(12)]
-        idx = st.selectbox("Minggu", range(12), format_func=lambda x: f"{week_options[x][0].strftime('%d/%m')} - {week_options[x][1].strftime('%d/%m')}")
-        pic_list = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
-        pic_filter = st.selectbox("PIC", pic_list)
-    
-    ws, we = week_options[idx]
-    query = db.query(DBSourcing).filter(DBSourcing.sourcing_date >= ws, DBSourcing.sourcing_date <= we)
-    if pic_filter != "Semua":
-        query = query.filter(DBSourcing.rekruter == pic_filter)
-    
+    # Query data sourcing
+    query = db.query(DBSourcing)
     df = pd.read_sql(query.statement, db.bind)
     total = len(df)
     
-    st.subheader(f"{ws.strftime('%d/%m/%Y')} - {we.strftime('%d/%m/%Y')}")
-    
     if total == 0:
-        st.info("Tidak ada data.")
+        st.info("Belum ada data sourcing.")
         return
     
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Total CV", total)
-    col2.metric("Unique Kode", df['kode_unik'].nunique() if 'kode_unik' in df else 0)
-    col3.metric("Unique Posisi", df['posisi'].nunique() if 'posisi' in df else 0)
+    # Hitung funnel
+    funnel_data = {
+        "Sourcing HR": total,
+        "Shortlist": len(df[df['shortlist_cv'].notna()]) if 'shortlist_cv' in df else 0,
+        "Psikotes": len(df[df['psikotes'].notna()]) if 'psikotes' in df else 0,
+        "HR Interview": len(df[df['hr_interview'].notna()]) if 'hr_interview' in df else 0,
+        "Offering": len(df[df['offering'].notna()]) if 'offering' in df else 0,
+        "Day 1": len(df[df['day1'].notna()]) if 'day1' in df else 0,
+    }
     
-    if 'sourcing_date' in df:
-        df['date'] = pd.to_datetime(df['sourcing_date'])
-        daily = df.groupby(df['date'].dt.date).size().reset_index()
-        daily.columns = ['Tanggal', 'Jumlah']
-        fig = px.bar(daily, x='Tanggal', y='Jumlah', title='CV per Hari')
-        st.plotly_chart(fig, use_container_width=True)
+    # Metrics
+    cols = st.columns(len(funnel_data))
+    for i, (name, val) in enumerate(funnel_data.items()):
+        cols[i].metric(name, val)
     
-    st.dataframe(df[['nama', 'posisi', 'kode_unik', 'rekruter', 'sourcing_date']].head(50), use_container_width=True)
+    # Funnel chart
+    df_funnel = pd.DataFrame(list(funnel_data.items()), columns=["Stage", "Count"])
+    fig = go.Figure(go.Funnel(y=df_funnel['Stage'], x=df_funnel['Count']))
+    fig.update_layout(height=400)
+    st.plotly_chart(fig, use_container_width=True)
+    
+    # Data table
+    st.dataframe(df[['nama', 'posisi', 'kode_unik', 'rekruter']].head(50), use_container_width=True)
