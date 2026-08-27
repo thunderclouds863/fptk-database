@@ -6,7 +6,6 @@ from core.database import get_db
 from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle
 from core.auth import get_current_user, is_admin
 from datetime import datetime, timedelta
-import traceback
 
 def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
@@ -17,7 +16,8 @@ def show_dashboard():
     except Exception as e:
         st.error(f"❌ Gagal koneksi ke database: {str(e)}")
         return
-        try:
+    
+    try:
         user = get_current_user(db)
     except Exception as e:
         st.error(f"❌ Gagal mendapatkan user: {str(e)}")
@@ -145,9 +145,6 @@ def show_dashboard():
         else:
             closed_sla_rate = 0
         
-        # Total Sourcing
-        total_sourcing = sourcing_query.count() if 'sourcing_query' in dir() else 0
-        
         # PIC Active
         total_pic = len(df['pic_recruiter'].unique()) if 'pic_recruiter' in df else 0
     else:
@@ -157,7 +154,6 @@ def show_dashboard():
         cancel = 0
         fulfillment_rate = 0
         closed_sla_rate = 0
-        total_sourcing = 0
         total_pic = 0
     
     # Display 6 metric cards
@@ -171,273 +167,228 @@ def show_dashboard():
     st.markdown("---")
     
     # ============================================================
-    # CEK APAKAH ADA DATA
-    # ============================================================
-    if total == 0:
-        st.info("📭 Belum ada data FPTK. Silakan upload file Excel terlebih dahulu melalui menu Upload & Compile.")
-        st.stop()
-    
-    # ============================================================
     # ROW 1: LINE CHART + STATUS PIE
     # ============================================================
-    try:
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            if 'fptk_date_real' in df and df['fptk_date_real'].notna().any():
-                df['date'] = pd.to_datetime(df['fptk_date_real'])
-                trend = df.groupby(df['date'].dt.to_period('W')).size().reset_index()
-                trend.columns = ['Minggu', 'Jumlah']
-                trend['Minggu'] = trend['Minggu'].astype(str)
-                fig = px.line(trend, x='Minggu', y='Jumlah', title='📈 Trend FPTK per Minggu', markers=True)
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Tidak ada data trend (kolom fptk_date_real kosong)")
-        
-        with c2:
-            if 'status' in df and not df.empty:
-                status_counts = df['status'].value_counts().reset_index()
-                status_counts.columns = ['Status', 'Count']
-                fig = px.pie(status_counts, values='Count', names='Status', title='📊 Distribusi Status',
-                             color='Status', color_discrete_map={'OP': '#2ecc71', 'Closed': '#3498db', 'Cancel': '#e74c3c'})
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Tidak ada data status")
-    except Exception as e:
-        st.error(f"Error grafik ROW 1: {str(e)}")
-        st.code(traceback.format_exc())
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # LINE CHART: Trend FPTK per Minggu
+        if total > 0 and 'fptk_date_real' in df:
+            df['date'] = pd.to_datetime(df['fptk_date_real'])
+            trend = df.groupby(df['date'].dt.to_period('W')).size().reset_index()
+            trend.columns = ['Minggu', 'Jumlah']
+            trend['Minggu'] = trend['Minggu'].astype(str)
+            fig = px.line(trend, x='Minggu', y='Jumlah', title='📈 Trend FPTK per Minggu', markers=True)
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Tidak ada data trend")
+    
+    with col2:
+        # PIE CHART: Status Distribution
+        if total > 0:
+            status_counts = df['status'].value_counts().reset_index()
+            status_counts.columns = ['Status', 'Count']
+            fig = px.pie(status_counts, values='Count', names='Status', title='📊 Distribusi Status',
+                         color='Status', color_discrete_map={'OP': '#2ecc71', 'Closed': '#3498db', 'Cancel': '#e74c3c'})
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Tidak ada data status")
     
     # ============================================================
-    # ROW 2: 3 CHARTS (Direktorat, BU, Level)
+    # ROW 2: 3 PIE/ DONUT CHARTS (Direktorat, BU, Level)
     # ============================================================
-    try:
-        c1, c2, c3 = st.columns(3)
-        
-        with c1:
-            if 'direktorat' in df and df['direktorat'].notna().any():
-                dir_counts = df['direktorat'].value_counts().reset_index()
-                dir_counts.columns = ['Direktorat', 'Count']
-                fig = px.pie(dir_counts, values='Count', names='Direktorat', title='🏢 Direktorat')
-                fig.update_layout(height=350)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Tidak ada data Direktorat")
-        
-        with c2:
-            if 'business_unit' in df and df['business_unit'].notna().any():
-                bu_counts = df['business_unit'].value_counts().reset_index()
-                bu_counts.columns = ['Business Unit', 'Count']
-                fig = px.pie(bu_counts, values='Count', names='Business Unit', title='🏢 Business Unit')
-                fig.update_layout(height=350)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Tidak ada data Business Unit")
-        
-        with c3:
-            if 'level_fptk' in df and df['level_fptk'].notna().any():
-                level_counts = df['level_fptk'].value_counts().reset_index()
-                level_counts.columns = ['Level', 'Count']
-                fig = px.bar(level_counts, x='Level', y='Count', title='📊 Level FPTK', color='Count')
-                fig.update_layout(height=350)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Tidak ada data Level")
-    except Exception as e:
-        st.error(f"Error grafik ROW 2: {str(e)}")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        if total > 0 and 'direktorat' in df and df['direktorat'].notna().any():
+            dir_counts = df['direktorat'].value_counts().reset_index()
+            dir_counts.columns = ['Direktorat', 'Count']
+            fig = px.pie(dir_counts, values='Count', names='Direktorat', title='🏢 Direktorat')
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Tidak ada data")
+    
+    with col2:
+        if total > 0 and 'business_unit' in df and df['business_unit'].notna().any():
+            bu_counts = df['business_unit'].value_counts().reset_index()
+            bu_counts.columns = ['Business Unit', 'Count']
+            fig = px.pie(bu_counts, values='Count', names='Business Unit', title='🏢 Business Unit')
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Tidak ada data")
+    
+    with col3:
+        if total > 0 and 'level_fptk' in df and df['level_fptk'].notna().any():
+            level_counts = df['level_fptk'].value_counts().reset_index()
+            level_counts.columns = ['Level', 'Count']
+            fig = px.bar(level_counts, x='Level', y='Count', title='📊 Level FPTK', color='Count')
+            fig.update_layout(height=350)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Tidak ada data")
     
     # ============================================================
-    # ROW 3: BOXPLOT SLA + TOP PIC
+    # ROW 3: BOXPLOT + TOP PIC
     # ============================================================
-    try:
-        c1, c2 = st.columns(2)
-        
-        with c1:
-            if 'jumlah_sla' in df and 'pic_recruiter' in df:
-                sla_df = df[df['jumlah_sla'] > 0][['pic_recruiter', 'jumlah_sla']].dropna()
-                if len(sla_df) > 0:
-                    top_pics = sla_df['pic_recruiter'].value_counts().head(10).index
-                    sla_df = sla_df[sla_df['pic_recruiter'].isin(top_pics)]
-                    fig = px.box(sla_df, x='pic_recruiter', y='jumlah_sla', title='📦 Distribusi SLA per PIC')
-                    fig.update_layout(height=400)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Tidak ada data SLA")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        if total > 0 and 'jumlah_sla' in df and 'pic_recruiter' in df:
+            sla_df = df[df['jumlah_sla'] > 0][['pic_recruiter', 'jumlah_sla']].dropna()
+            if len(sla_df) > 0:
+                top_pics = sla_df['pic_recruiter'].value_counts().head(10).index
+                sla_df = sla_df[sla_df['pic_recruiter'].isin(top_pics)]
+                fig = px.box(sla_df, x='pic_recruiter', y='jumlah_sla', title='📦 Distribusi SLA per PIC')
+                fig.update_layout(height=400)
+                st.plotly_chart(fig, use_container_width=True)
             else:
                 st.info("Tidak ada data SLA")
-        
-        with c2:
-            if 'pic_recruiter' in df and not df.empty:
-                pic_counts = df['pic_recruiter'].value_counts().reset_index()
-                pic_counts.columns = ['PIC', 'Jumlah FPTK']
-                pic_counts = pic_counts.head(10)
-                fig = px.bar(pic_counts, x='PIC', y='Jumlah FPTK', title='🏆 Top 10 PIC Performance', color='Jumlah FPTK')
-                fig.update_layout(height=400)
-                st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Tidak ada data PIC")
-    except Exception as e:
-        st.error(f"Error grafik ROW 3: {str(e)}")
+        else:
+            st.info("Tidak ada data SLA")
+    
+    with col2:
+        if total > 0 and 'pic_recruiter' in df:
+            pic_counts = df['pic_recruiter'].value_counts().reset_index()
+            pic_counts.columns = ['PIC', 'Jumlah FPTK']
+            pic_counts = pic_counts.head(10)
+            fig = px.bar(pic_counts, x='PIC', y='Jumlah FPTK', title='🏆 Top 10 PIC Performance', color='Jumlah FPTK')
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Tidak ada data PIC")
     
     # ============================================================
     # ROW 4: FUNNEL SOURCING
     # ============================================================
-    try:
-        st.subheader("🔍 Funnel Sourcing")
-        
-        stages = [
-            ("Sourcing HR", 'sourcing_hr'),
-            ("Shortlist CV", 'shortlist_cv'),
-            ("Psikotes", 'psikotes'),
-            ("HR Interview", 'hr_interview'),
-            ("User Interview", 'user_interview'),
-            ("Offering", 'offering'),
-            ("Day 1", 'day1')
-        ]
-        
-        funnel_data = []
-        for label, col in stages:
+    st.subheader("🔍 Funnel Sourcing")
+    
+    stages = [
+        ("Sourcing HR", 'sourcing_hr'),
+        ("Shortlist CV", 'shortlist_cv'),
+        ("Psikotes", 'psikotes'),
+        ("HR Interview", 'hr_interview'),
+        ("User Interview", 'user_interview'),
+        ("Offering", 'offering'),
+        ("Day 1", 'day1')
+    ]
+    
+    funnel_data = []
+    for label, col in stages:
+        if col in DBSourcing.__table__.columns:
             try:
-                if col in DBSourcing.__table__.columns:
-                    count = sourcing_query.filter(getattr(DBSourcing, col).isnot(None)).count()
-                    funnel_data.append({"Stage": label, "Count": count})
-                else:
-                    funnel_data.append({"Stage": label, "Count": 0})
+                count = sourcing_query.filter(getattr(DBSourcing, col).isnot(None)).count()
             except:
-                funnel_data.append({"Stage": label, "Count": 0})
-        
-        if funnel_data and any(d['Count'] > 0 for d in funnel_data):
-            df_funnel = pd.DataFrame(funnel_data)
-            fig = go.Figure(go.Funnel(
-                y=df_funnel['Stage'],
-                x=df_funnel['Count'],
-                textposition="inside",
-                textinfo="value+percent initial"
-            ))
-            fig.update_layout(title="Funnel Sourcing", height=500)
-            st.plotly_chart(fig, use_container_width=True)
+                count = 0
+            funnel_data.append({"Stage": label, "Count": count})
         else:
-            st.info("Tidak ada data funnel sourcing")
-    except Exception as e:
-        st.error(f"Error Funnel: {str(e)}")
+            funnel_data.append({"Stage": label, "Count": 0})
+    
+    if funnel_data and any(d['Count'] > 0 for d in funnel_data):
+        df_funnel = pd.DataFrame(funnel_data)
+        fig = go.Figure(go.Funnel(
+            y=df_funnel['Stage'],
+            x=df_funnel['Count'],
+            textposition="inside",
+            textinfo="value+percent initial"
+        ))
+        fig.update_layout(title="Funnel Sourcing", height=500)
+        st.plotly_chart(fig, use_container_width=True)
+    else:
+        st.info("Tidak ada data funnel sourcing")
     
     # ============================================================
     # ROW 5: SLA COMPLIANCE + HEATMAP
     # ============================================================
-    try:
-        c1, c2 = st.columns(2)
-            
-        with c1:
-            st.subheader("✅ Detail SLA Distribution")
-            if 'detail_sla' in df and df['detail_sla'].notna().any():
-                detail_counts = df['detail_sla'].value_counts().reset_index()
-                detail_counts.columns = ['Detail SLA', 'Count']
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        # SLA Compliance
+        if total > 0 and 'deadline_sla' in df:
+            try:
+                now = datetime.now().date()
+                df['deadline_date'] = pd.to_datetime(df['deadline_sla'])
+                df['sla_compliant'] = df.apply(
+                    lambda row: row['deadline_date'] >= now if pd.notna(row['deadline_date']) else None, axis=1
+                )
+                compliant = len(df[df['sla_compliant'] == True])
+                not_compliant = len(df[df['sla_compliant'] == False])
                 
-                # Urutkan sesuai dengan yang diinginkan
-                sla_order = [
-                    "OP Belum Lewat SLA",
-                    "OP Tidak Lulus SLA",
-                    "Closed Lulus SLA",
-                    "Closed Tidak Lulus SLA",
-                    "Cancel FPTK"
-                ]
-                
-                # Filter hanya yang ada di data
-                sla_order_existing = [s for s in sla_order if s in detail_counts['Detail SLA'].values]
-                detail_counts = detail_counts[detail_counts['Detail SLA'].isin(sla_order_existing)]
-                
-                if not detail_counts.empty:
-                    # Warna untuk setiap kategori
-                    color_map = {
-                        "OP Belum Lewat SLA": "#2ecc71",      # Hijau
-                        "OP Tidak Lulus SLA": "#e74c3c",       # Merah
-                        "Closed Lulus SLA": "#3498db",         # Biru
-                        "Closed Tidak Lulus SLA": "#e67e22",   # Orange
-                        "Cancel FPTK": "#95a5a6"               # Abu-abu
-                    }
-                    
-                    fig = px.bar(
-                        detail_counts, 
-                        x='Detail SLA', 
-                        y='Count', 
-                        title='Detail SLA Distribution',
-                        color='Detail SLA',
-                        color_discrete_map=color_map,
-                        text='Count'
-                    )
-                    fig.update_layout(height=400, xaxis_tickangle=-45)
-                    fig.update_traces(textposition='outside')
+                if compliant + not_compliant > 0:
+                    sla_data = pd.DataFrame([
+                        {"Status": "Lulus SLA", "Count": compliant},
+                        {"Status": "Tidak Lulus SLA", "Count": not_compliant}
+                    ])
+                    fig = px.pie(sla_data, values='Count', names='Status', title='✅ SLA Compliance',
+                                 color='Status', color_discrete_map={'Lulus SLA': '#2ecc71', 'Tidak Lulus SLA': '#e74c3c'})
+                    fig.update_layout(height=300)
                     st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Tampilkan juga tabel summary
-                    st.dataframe(detail_counts, use_container_width=True, hide_index=True)
-                    
-                    # Hitung summary
-                    lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Belum Lewat SLA", "Closed Lulus SLA"])]['Count'].sum()
-                    tidak_lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"])]['Count'].sum()
-                    cancel = detail_counts[detail_counts['Detail SLA'] == "Cancel FPTK"]['Count'].sum()
-                    
-                    col_a, col_b, col_c = st.columns(3)
-                    col_a.metric("✅ Lulus SLA", lulus)
-                    col_b.metric("❌ Tidak Lulus", tidak_lulus)
-                    col_c.metric("⏭️ Cancel", cancel)
                 else:
-                    st.info("Belum ada data Detail SLA")
-            else:
-                st.info("Belum ada data Detail SLA")        
-        with c2:
-            if 'fptk_date_real' in df and df['fptk_date_real'].notna().any():
+                    st.info("Tidak ada data SLA")
+            except:
+                st.info("Tidak ada data SLA")
+        else:
+            st.info("Tidak ada data SLA")
+    
+    with col2:
+        # HEATMAP / Calendar View (simplified)
+        if total > 0 and 'fptk_date_real' in df:
+            try:
                 df['date'] = pd.to_datetime(df['fptk_date_real'])
                 df['month'] = df['date'].dt.strftime('%Y-%m')
                 df['day'] = df['date'].dt.day
                 heatmap_data = df.groupby(['month', 'day']).size().reset_index(name='count')
                 if len(heatmap_data) > 0:
-                    fig = px.density_heatmap(heatmap_data, x='day', y='month', z='count',
-                                             title='🔥 Persebaran FPTK (Calendar Heatmap)',
-                                             color_continuous_scale='Blues')
-                    fig.update_layout(height=350)
+                    fig = px.density_heatmap(
+                        heatmap_data, 
+                        x='day', 
+                        y='month', 
+                        z='count',
+                        title='🔥 Persebaran FPTK (Calendar Heatmap)',
+                        color_continuous_scale='Blues'
+                    )
+                    fig.update_layout(height=300)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("Tidak ada data heatmap")
-            else:
-                st.info("Tidak ada data heatmap")
-    except Exception as e:
-        st.error(f"Error grafik ROW 5: {str(e)}")
+                    st.info("Tidak ada data")
+            except:
+                st.info("Tidak ada data")
+        else:
+            st.info("Tidak ada data")
     
     # ============================================================
-    # ROW 6: UPLOAD CYCLE (ADMIN)
+    # ROW 6: UPLOAD CYCLE PROGRESS (ADMIN ONLY)
     # ============================================================
     if admin:
+        st.markdown("---")
+        st.subheader("🔄 Upload Cycle Progress (Admin)")
         try:
-            st.markdown("---")
-            st.subheader("🔄 Upload Cycle Progress (Admin)")
-            
             cycle = db.query(UploadCycle).filter(UploadCycle.ended_at.is_(None)).order_by(UploadCycle.created_at.desc()).first()
             if cycle:
                 statuses = db.query(UploadStatus).filter(UploadStatus.cycle_id == cycle.id).all()
                 if statuses:
                     progress_data = []
                     for s in statuses:
-                        u = db.query(User).filter(User.id == s.user_id).first()
+                        user_obj = db.query(User).filter(User.id == s.user_id).first()
                         progress_data.append({
-                            "User": u.display_name if u else s.user_id,
-                            "PIC": u.pic_recruiter if u else "-",
-                            "Status": s.status,
-                            "First Compile": s.first_compile_at.strftime("%d/%m/%Y") if s.first_compile_at else "-"
+                            "User": user_obj.display_name if user_obj else s.user_id,
+                            "PIC": user_obj.pic_recruiter if user_obj else "-",
+                            "Status": s.status
                         })
-                    df_prog = pd.DataFrame(progress_data)
-                    done = len(df_prog[df_prog['Status'] == 'Done'])
-                    total_u = len(df_prog)
-                    if total_u > 0:
-                        st.progress(done / total_u, text=f"Progress: {done}/{total_u} user selesai")
-                    st.dataframe(df_prog, use_container_width=True, height=200)
+                    df_progress = pd.DataFrame(progress_data)
+                    done = len(df_progress[df_progress['Status'] == 'Done'])
+                    st.progress(done / len(df_progress) if len(df_progress) > 0 else 0, 
+                               text=f"Progress: {done}/{len(df_progress)} user selesai")
+                    st.dataframe(df_progress, use_container_width=True, height=200)
                 else:
                     st.info("Belum ada status upload")
             else:
                 st.info("Tidak ada cycle aktif")
-        except Exception as e:
-            st.error(f"Error Upload Cycle: {str(e)}")
+        except:
+            st.info("Upload cycle belum tersedia")
     
     # ============================================================
     # EXPORT
