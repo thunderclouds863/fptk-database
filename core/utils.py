@@ -95,3 +95,14 @@ def update_user_status(db, user_id, cycle_id, status):
         db.add(record)
     db.commit()
     return record
+
+def is_valid_detail_sla(value: str) -> bool:
+    """Cek apakah Detail SLA valid"""
+    valid_options = [
+        "OP Belum Lewat SLA",
+        "OP Tidak Lulus SLA",
+        "Closed Lulus SLA",
+        "Closed Tidak Lulus SLA",
+        "Cancel FPTK"
+    ]
+    return value in valid_options
