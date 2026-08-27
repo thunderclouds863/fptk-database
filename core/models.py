@@ -1,11 +1,10 @@
 from sqlalchemy import (
     Column, Integer, String, Date, Numeric, Text, Boolean, TIMESTAMP, 
-    ForeignKey, CheckConstraint, UniqueConstraint, JSON, Float
+    ForeignKey, CheckConstraint, UniqueConstraint, JSON
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from core.database import Base
-import re 
 
 class User(Base):
     __tablename__ = "users"
@@ -260,9 +259,6 @@ class AuditLog(Base):
     user_agent = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
-# ============================================================
-# EVIDENCE MODEL - DITAMBAHKAN
-# ============================================================
 class Evidence(Base):
     __tablename__ = "evidences"
     id = Column(Integer, primary_key=True, index=True)
