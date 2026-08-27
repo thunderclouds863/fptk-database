@@ -12,46 +12,78 @@ from core.utils import normalize_key, safe_int, parse_date_dmy
 
 
 # ============================================================
-# MAPPING PIC (MIRIP VBA F9_ResolvePIC)
+# MAPPING PIC & KODE BU (SESUAI STRUKTUR)
 # ============================================================
+
+# Kode BU mapping
+BU_CODE_MAPPING = {
+    "CORP": {"nama": "Corporate", "kode": "CORP"},
+    "MP": {"nama": "Macroprima Panganutama", "kode": "MP"},
+    "CMD": {"nama": "Cisarua Mountain Dairy", "kode": "CMD"},
+    "JESS": {"nama": "Java Egg Specialties", "kode": "JESS"},
+    "MS": {"nama": "Macrosentra Niagaboga", "kode": "MS"},
+}
+
+# PIC mapping dengan Kode BU (sesuai struktur)
 PIC_MAPPING = {
-    "pauline": {"name": "Pauline", "code": "CORPPau"},
-    "khaerina": {"name": "Khaerina", "code": "CORPKar"},
-    "karin": {"name": "Khaerina", "code": "CORPKar"},
-    "ratih": {"name": "Ratih", "code": "CORPTih"},
-    "alexa": {"name": "Alexa", "code": "CORPLex"},
-    "alexandra": {"name": "Alexa", "code": "CORPLex"},
-    "marta": {"name": "Marta", "code": "CORPMar"},
-    "brittney": {"name": "Brittney", "code": "CORPBrit"},
-    "britney": {"name": "Brittney", "code": "CORPBrit"},
-    "omega": {"name": "Omega", "code": "CORPOme"},
-    "zwei": {"name": "Zwei", "code": "CORPZwei"},
-    "kenthansen": {"name": "Kenthansen", "code": "CORPKen"},
-    "desi": {"name": "Desi", "code": "CORPDesi"},
-    "elsi": {"name": "Elsi", "code": "CMDEls"},
-    "salwa": {"name": "Salwa", "code": "CMDSal"},
-    "wahyu": {"name": "Wahyu", "code": "CMDWah"},
-    "achmad": {"name": "Achmad", "code": "MPAch"},
-    "kasanah": {"name": "Kasanah", "code": "MPKas"},
-    "eli": {"name": "Eli", "code": "MPEli"},
-    "gabbie": {"name": "Gabbie", "code": "MPGab"},
-    "leo": {"name": "Leo", "code": "MSLeo"},
-    "fiscall": {"name": "Fiscall", "code": "JESSFis"}
+    # CORPORATE (CORP)
+    "adista": {"name": "Adista", "bu": "CORP", "code": "CORPAdi"},
+    "brittney": {"name": "Brittney", "bu": "CORP", "code": "CORPBrit"},
+    "eli": {"name": "Eli", "bu": "CORP", "code": "CORPEli"},
+    "fiqra": {"name": "Fiqra", "bu": "CORP", "code": "CORPFiq"},
+    "karin": {"name": "Karin", "bu": "CORP", "code": "CORPKar"},
+    "kenthansen": {"name": "Kenthansen", "bu": "CORP", "code": "CORPKen"},
+    "kevin": {"name": "Kevin", "bu": "CORP", "code": "CORPKev"},
+    "marta": {"name": "Marta", "bu": "CORP", "code": "CORPMar"},
+    "omega": {"name": "Omega", "bu": "CORP", "code": "CORPOme"},
+    "salsa": {"name": "Salsa", "bu": "CORP", "code": "CORPSal"},
+    "valen": {"name": "Valendra", "bu": "CORP", "code": "CORPVal"},
+    "victor": {"name": "Victor", "bu": "CORP", "code": "CORPVic"},
+    "yeremia": {"name": "Yeremia", "bu": "CORP", "code": "CORPYer"},
+    "zwei": {"name": "Zwei", "bu": "CORP", "code": "CORPZwei"},
+    
+    # MP (Macroprima Panganutama)
+    "pauline": {"name": "Pauline", "bu": "MP", "code": "MPPau"},
+    "ratih": {"name": "Ratih", "bu": "MP", "code": "MPRat"},
+    "achmad": {"name": "Achmad", "bu": "MP", "code": "MPAch"},
+    "kasanah": {"name": "Kasanah", "bu": "MP", "code": "MPKas"},
+    "alma": {"name": "Alma", "bu": "MP", "code": "MPAlm"},
+    
+    # CMD (Cisarua Mountain Dairy)
+    "salwa": {"name": "Salwa", "bu": "CMD", "code": "CMDSal"},
+    "elsi": {"name": "Elsi", "bu": "CMD", "code": "CMDEls"},
+    "wahyu": {"name": "Wahyu", "bu": "CMD", "code": "CMDWah"},
+    
+    # JESS (Java Egg Specialties)
+    "riska": {"name": "Riska", "bu": "JESS", "code": "JESSRis"},
+    
+    # MS (Macrosentra Niagaboga)
+    "leo": {"name": "Leo", "bu": "MS", "code": "MSLeo"},
 }
 
-# ============================================================
-# MAPPING BU (MIRIP VBA GetBUCode / F9_GetBUCodeFromPIC)
-# ============================================================
-BU_MAPPING = {
-    "cisarua mountain dairy": "PT CISARUA MOUNTAIN DAIRY, TBK",
-    "macrosentra niagaboga": "PT MACROSENTRA NIAGABOGA",
-    "java egg specialities": "PT JAVA EGG SPECIALITIES",
-    "macroprima panganutama": "PT MACROPRIMA PANGANUTAMA",
-    "macrotama binasantika": "PT MACROTAMA BINASANTIKA",
-    "bavarian culinary haus": "PT BAVARIAN CULINARY HAUS",
-    "artha rasa cimory": "PT ARTHA RASA CIMORY"
+# Nama PIC untuk dropdown (urut berdasarkan BU)
+PIC_NAMES_BY_BU = {
+    "CORP": ["Adista", "Brittney", "Eli", "Fiqra", "Karin", "Kenthansen", "Kevin", "Marta", "Omega", "Salsa", "Valendra", "Victor", "Yeremia", "Zwei"],
+    "MP": ["Pauline", "Ratih", "Achmad", "Kasanah", "Alma"],
+    "CMD": ["Salwa", "Elsi", "Wahyu"],
+    "JESS": ["Riska"],
+    "MS": ["Leo"],
 }
 
+# Semua PIC name untuk dropdown
+ALL_PIC_NAMES = []
+for bu, names in PIC_NAMES_BY_BU.items():
+    ALL_PIC_NAMES.extend(names)
+ALL_PIC_NAMES = sorted(ALL_PIC_NAMES)
+
+# Kode BU untuk dropdown
+ALL_BU_CODES = sorted(BU_CODE_MAPPING.keys())
+
+# Level dropdown (1A sampai 5B)
+LEVEL_OPTIONS = []
+for num in range(1, 6):
+    for letter in ['A', 'B']:
+        LEVEL_OPTIONS.append(f"{num}{letter}")
 
 def show_upload_compile():
     st.title("📤 Upload & Compile FPTK")
