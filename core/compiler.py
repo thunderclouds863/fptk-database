@@ -74,6 +74,15 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             sla_days = 30
 
         deadline_sla = fptk_date_real + timedelta(days=sla_days) if fptk_date_real else None
+        # Hitung Detail SLA
+        detail_sla = calculate_detail_sla(
+            status=status,
+            deadline_sla=deadline_sla,
+            offering_date=offering_date
+        )
+
+# Set ke object
+new_fptk.detail_sla = detail_sla
         week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
         month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
         kode_bu = row.get('kode_pic', '')[:4] if row.get('kode_pic') else ''
