@@ -2,7 +2,10 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from core.database import get_db
-from core.models import DBSourcing, User, FPTK
+# Import model secara langsung, bukan dari core.models
+from core.models.dbsourcing import DBSourcing
+from core.models.user import User
+from core.models.fptk import FPTK
 from core.auth import get_current_user, is_admin
 from datetime import datetime
 import re
