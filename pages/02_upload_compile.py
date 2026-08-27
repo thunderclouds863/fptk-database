@@ -213,7 +213,7 @@ def show_upload_compile():
             st.dataframe(pd.DataFrame(data), use_container_width=True)
     
     # ================================================================
-    # TAB 2: INPUT MANUAL FPTK (DENGAN AUTO-FILL DARI PIC LOGIN & LEVEL DROPDOWN)
+    # TAB 2: INPUT MANUAL FPTK
     # ================================================================
     with tab2:
         st.subheader("Input FPTK Manual")
@@ -231,7 +231,6 @@ def show_upload_compile():
                 user_pic_bu = val["bu"]
                 break
         
-        # Jika tidak ditemukan, coba dari username
         if not user_pic_code:
             for key, val in PIC_MAPPING.items():
                 if key == user.username.lower():
@@ -256,11 +255,24 @@ def show_upload_compile():
                     help="Otomatis dari PIC yang login"
                 )
                 
-                # Kode Unik
-                kode_unik = st.text_input(
-                    "Kode Unik",
-                    placeholder="Akan di-generate otomatis"
-                )
+                # ============================================================
+                # KODE UNIK - ADMIN BISA ISI MANUAL, USER AUTO
+                # ============================================================
+                if is_admin(db):
+                    kode_unik = st.text_input(
+                        "Kode Unik",
+                        value="",
+                        placeholder="Admin: isi manual atau biarkan auto-generate",
+                        help="Admin bisa isi kode unik manual. Kosongkan untuk auto-generate."
+                    )
+                else:
+                    kode_unik = st.text_input(
+                        "Kode Unik",
+                        value="",
+                        placeholder="Akan di-generate otomatis",
+                        disabled=True,
+                        help="Auto-generate dari Kode PIC + Posisi + Tanggal"
+                    )
                 
                 # Posisi
                 posisi = st.text_input("Posisi *")
@@ -515,12 +527,24 @@ def show_upload_compile():
                     help="Otomatis dari PIC yang login"
                 )
                 
-                # Kode Unik
-                kode_unik = st.text_input(
-                    "Kode Unik",
-                    value=parsed_data.get("kode_unik", ""),
-                    placeholder="Akan di-generate otomatis"
-                )
+                # ============================================================
+                # KODE UNIK - ADMIN BISA ISI MANUAL, USER AUTO
+                # ============================================================
+                if is_admin(db):
+                    kode_unik = st.text_input(
+                        "Kode Unik",
+                        value=parsed_data.get("kode_unik", ""),
+                        placeholder="Admin: isi manual atau biarkan auto-generate",
+                        help="Admin bisa isi kode unik manual. Kosongkan untuk auto-generate."
+                    )
+                else:
+                    kode_unik = st.text_input(
+                        "Kode Unik",
+                        value=parsed_data.get("kode_unik", ""),
+                        placeholder="Akan di-generate otomatis",
+                        disabled=True,
+                        help="Auto-generate dari Kode PIC + Posisi + Tanggal"
+                    )
                 
                 # Posisi
                 posisi = st.text_input("Posisi *", value=parsed_data.get("posisi", ""))
