@@ -81,47 +81,77 @@ def show_fptk_view():
         query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
     
     total = query.count()
-    st.markdown(f"**Total FPTK: {total}**")
     
-    if total == 0:
+    # ============================================================
+    # METRIK CARD
+    # ============================================================
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total FPTK", total)
+    
+    if total > 0:
+        df_all = pd.read_sql(query.statement, db.bind)
+        op_count = len(df_all[df_all['status'] == 'OP']) if 'status' in df_all else 0
+        closed_count = len(df_all[df_all['status'] == 'Closed']) if 'status' in df_all else 0
+        cancel_count = len(df_all[df_all['status'] == 'Cancel']) if 'status' in df_all else 0
+        
+        col2.metric("OP", op_count)
+        col3.metric("Closed", closed_count)
+        col4.metric("Cancel", cancel_count)
+    else:
+        col2.metric("OP", 0)
+        col3.metric("Closed", 0)
+        col4.metric("Cancel", 0)
         st.info("Tidak ada data FPTK dengan filter yang dipilih.")
         return
     
+    st.markdown("---")
+    
     # ============================================================
-    # PAGINATION & DISPLAY - TABEL LIST FPTK
+    # TABEL LIST FPTK (TANPA KOLOM ID)
     # ============================================================
+    st.markdown("### 📋 Daftar FPTK")
+    
+    # Pagination
     page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
     page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
     offset = (page - 1) * page_size
     
     df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
     
-    # TAMPILKAN TABEL LIST FPTK (INI YANG SEBELUMNYA ILANG)
-    st.markdown("### 📋 Daftar FPTK")
+    # Format tanggal
+    if 'fptk_date_real' in df.columns:
+        df['fptk_date_real'] = pd.to_datetime(df['fptk_date_real'])
+        df['FPTK Date Real'] = df['fptk_date_real'].dt.strftime('%d/%m/%Y')
     
-    # Kolom yang ditampilkan di tabel
-    display_cols = ['id', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
-                    'direktorat', 'status', 'filter_kategorisasi_fptk', 'fptk_date_real', 
-                    'vacancy', 'level_fptk']
+    # Kolom yang ditampilkan (TANPA ID)
+    display_cols = ['kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
+                    'direktorat', 'status', 'filter_kategorisasi_fptk', 'FPTK Date Real', 
+                    'vacancy', 'level_fptk', 'jumlah_sla']
     
-    st.dataframe(
-        df[display_cols],
-        use_container_width=True,
-        height=400,
-        column_config={
-            "id": "ID",
-            "kode_unik": "Kode Unik",
-            "posisi": "Posisi",
-            "pic_recruiter": "PIC",
-            "business_unit": "BU",
-            "direktorat": "Direktorat",
-            "status": "Status",
-            "filter_kategorisasi_fptk": "Filter Kategorisasi",
-            "fptk_date_real": "Tanggal FPTK",
-            "vacancy": "Vacancy",
-            "level_fptk": "Level"
-        }
-    )
+    # Filter kolom yang ada
+    available_cols = [c for c in display_cols if c in df.columns]
+    
+    if df.empty:
+        st.info("Tidak ada data pada halaman ini.")
+    else:
+        st.dataframe(
+            df[available_cols],
+            use_container_width=True,
+            height=400,
+            column_config={
+                "kode_unik": "Kode Unik",
+                "posisi": "Posisi",
+                "pic_recruiter": "PIC",
+                "business_unit": "BU",
+                "direktorat": "Direktorat",
+                "status": "Status",
+                "filter_kategorisasi_fptk": "Filter Kategorisasi",
+                "FPTK Date Real": "FPTK Date (Real)",
+                "vacancy": "Vacancy",
+                "level_fptk": "Level",
+                "jumlah_sla": "SLA (hari)"
+            }
+        )
     
     # ============================================================
     # PILIH DATA UNTUK EDIT - PAKAI KODE UNIK / POSISI
@@ -129,26 +159,32 @@ def show_fptk_view():
     st.markdown("---")
     st.markdown("### ✏️ Pilih Data untuk Diedit")
     
-    # Buat list pilihan dengan format "Kode Unik | Posisi"
-    select_options = {}
-    for _, row in df.iterrows():
-        kode = row.get('kode_unik', '')
-        posisi = row.get('posisi', '')
-        display = f"{kode} | {posisi[:50]}..." if len(posisi) > 50 else f"{kode} | {posisi}"
-        select_options[display] = row.get('id')
+    # Refresh data tanpa pagination untuk dropdown
+    df_all = pd.read_sql(query.statement, db.bind)
     
-    selected_display = st.selectbox(
-        "Pilih FPTK (Kode Unik | Posisi)",
-        list(select_options.keys())
-    )
-    
-    if selected_display:
-        selected_id = select_options[selected_display]
+    if not df_all.empty:
+        # Buat list pilihan dengan format "Kode Unik | Posisi"
+        select_options = {}
+        for _, row in df_all.iterrows():
+            kode = row.get('kode_unik', '')
+            posisi = row.get('posisi', '')
+            display = f"{kode} | {posisi[:50]}..." if len(posisi) > 50 else f"{kode} | {posisi}"
+            select_options[display] = row.get('id')
+        
+        selected_display = st.selectbox(
+            "Pilih FPTK (Kode Unik | Posisi)",
+            list(select_options.keys())
+        )
+        
+        if selected_display:
+            selected_id = select_options[selected_display]
+        else:
+            selected_id = None
     else:
         selected_id = None
     
     if not selected_id:
-        st.info("Pilih data dari daftar di atas.")
+        st.info("Pilih data dari daftar di atas untuk diedit.")
         return
     
     # ============================================================
