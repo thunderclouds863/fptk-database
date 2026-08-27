@@ -37,7 +37,6 @@ class UploadStatus(Base):
     status = Column(String(20), default="Belum Mulai")
     first_compile_at = Column(TIMESTAMP)
     done_at = Column(TIMESTAMP)
-    __table_args__ = (UniqueConstraint('cycle_id', 'user_id'),)
 
 class UploadLog(Base):
     __tablename__ = "upload_logs"
