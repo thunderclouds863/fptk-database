@@ -658,7 +658,22 @@ def show_upload_compile():
                     status_options,
                     index=0 if not parsed_data.get("status") else (status_options.index(parsed_data["status"]) if parsed_data.get("status") in status_options else 0)
                 )
-            
+                # Jumlah SLA (auto-calculate)
+                sla_days = calculate_sla_days(level_number)
+                st.text_input("Jumlah SLA (auto)", value=str(sla_days), disabled=True)
+                # Deadline SLA (auto-calculate)
+                if fptk_date and sla_days:
+                    deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
+                    st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
+                # Detail SLA - DROPDOWN (bisa diisi manual)
+                detail_sla_options = [
+                    "OP Belum Lewat SLA",
+                    "OP Tidak Lulus SLA",
+                    "Closed Lulus SLA",
+                    "Closed Tidak Lulus SLA",
+                    "Cancel FPTK"
+                ]
+                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options)
             # Conditional fields
             if status == "Closed":
                 offering_date = st.date_input("Offering Date (required untuk Closed)", datetime.now())
