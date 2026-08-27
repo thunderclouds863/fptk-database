@@ -83,9 +83,9 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
 
         # Set ke object
         new_fptk.detail_sla = detail_sla
-                week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
-                month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
-                kode_bu = row.get('kode_pic', '')[:4] if row.get('kode_pic') else ''
+            week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
+            month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
+            kode_bu = row.get('kode_pic', '')[:4] if row.get('kode_pic') else ''
 
         filter_kat = row.get('filter_kategorisasi_fptk', '')
         posisi_lower = posisi.lower()
