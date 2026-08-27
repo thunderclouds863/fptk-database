@@ -20,7 +20,9 @@ from core.utils import (
     safe_date,
     sanitize_date_value, 
     calculate_detail_sla, 
-    parse_date_dmy
+    calculate_sla_days,
+    parse_date_dmy,
+    normalize_text
 )
 import hashlib
 
@@ -50,10 +52,10 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         posisi = safe_string(row.get('posisi', ''))
         status = safe_string(row.get('status', ''))
 
-        fptk_date_real = sanitize_date_value(row.get('fptk_date_real'))
-        offering_date = sanitize_date_value(row.get('offering_date'))
-        fptk_cancel_date = sanitize_date_value(row.get('fptk_cancel_date'))
-        deadline_sla_input = sanitize_date_value(row.get('deadline_sla'))
+        fptk_date_real = safe_date(row.get('fptk_date_real'))
+        offering_date = safe_date(row.get('offering_date'))
+        fptk_cancel_date = safe_date(row.get('fptk_cancel_date'))
+        deadline_sla_input = safe_date(row.get('deadline_sla'))
 
         if not kode_unik or not posisi:
             skipped += 1
@@ -82,14 +84,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         if level_fptk == "1A" and level_num > 1:
             level_fptk = f"{level_num}A"
 
-        if level_num <= 3:
-            sla_days = 30
-        elif level_num == 4:
-            sla_days = 45
-        elif level_num >= 5:
-            sla_days = 60
-        else:
-            sla_days = 30
+        sla_days = calculate_sla_days(level_num)
 
         if fptk_date_real:
             if isinstance(fptk_date_real, date):
@@ -293,12 +288,22 @@ def safe_level_fptk(value):
 
 def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
                         file_name: str, file_hash: str):
-    """Compile DB Sourcing dari uploaded file"""
+    """
+    Compile DB Sourcing dari uploaded file.
+    
+    CRITICAL FIX: This function now properly converts all values before inserting
+    into the database. The error "invalid input syntax for type double precision: 'V'"
+    occurred because string values like 'V' were being inserted into numeric columns.
+    """
     from core.validator import validate_db_sourcing_file
     
     errors = []
     imported = 0
     updated = 0
+    
+    # Clear any pending transaction before starting
+    if db.is_active:
+        db.rollback()
     
     valid_rows, val_errors = validate_db_sourcing_file(
         df,
@@ -308,7 +313,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
     if val_errors:
         return {"success": False, "imported": 0, "errors": val_errors}
     
-    for _, row in df.iterrows():
+    for idx, row in df.iterrows():
         kode_unik = safe_string(row.get('kode_unik', ''))
         nama = safe_string(row.get('nama', ''))
         
@@ -322,17 +327,17 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 DBSourcing.nama == nama
             ).first()
             
-            sourcing_date = sanitize_date_value(row.get('sourcing_date'))
+            sourcing_date = safe_date(row.get('sourcing_date'))
             if not sourcing_date:
                 sourcing_date = datetime.now().date()
             
-            # --- SAFE CONVERSIONS FOR ALL FIELDS ---
-            # Numeric fields with proper type conversion
+            # --- CRITICAL: SAFE CONVERSIONS FOR ALL FIELDS ---
+            # Numeric fields - these MUST NOT receive string values like 'V'
             no_val = safe_int(row.get('no'), imported + 1)
-            tahun_lulus_val = safe_int(row.get('tahun_lulus'))
-            ipk_val = safe_float(row.get('ipk'))
+            tahun_lulus_val = safe_int(row.get('tahun_lulus'))  # Will return 0 if invalid
+            ipk_val = safe_float(row.get('ipk'))  # Will return 0.0 if invalid
             
-            # String fields
+            # String fields - safe conversion
             posisi_val = safe_string(row.get('posisi'))
             model_rekrutmen_val = safe_string(row.get('model_rekrutmen'))
             rekruter_val = safe_string(row.get('rekruter'))
@@ -353,7 +358,8 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             total_tenure_val = safe_string(row.get('total_tenure'))
             pernah_di_fmcg_val = safe_string(row.get('pernah_di_fmcg'))
             
-            # Boolean-like fields (V/X) - CRITICAL: These must not be inserted into numeric columns
+            # Boolean-like fields (V/X) - These are STRINGS, not numeric
+            # CRITICAL: These should be stored in VARCHAR columns, not numeric columns
             sourcing_hr_val = safe_boolean_char(row.get('sourcing_hr'))
             shortlist_cv_val = safe_boolean_char(row.get('shortlist_cv'))
             psikotes_val = safe_boolean_char(row.get('psikotes'))
@@ -441,7 +447,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 imported += 1
                 
         except Exception as e:
-            errors.append(f"Row {_:.0f}: {str(e)}")
+            errors.append(f"Row {idx + 2}: {str(e)}")
             db.rollback()
     
     if errors:
@@ -463,6 +469,10 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
     
     errors = []
     imported = 0
+    
+    # Clear any pending transaction
+    if db.is_active:
+        db.rollback()
     
     valid_rows, val_errors = validate_db_kode_posisi_file(
         df,
@@ -530,6 +540,10 @@ def compile_blacklist(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int
     
     errors = []
     imported = 0
+    
+    # Clear any pending transaction
+    if db.is_active:
+        db.rollback()
     
     valid_rows, val_errors = validate_blacklist_file(
         df,
