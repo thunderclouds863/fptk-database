@@ -1,281 +1,443 @@
-import pandas as pd
+# core/validator.py
+
 import re
+import pandas as pd
 from datetime import datetime
-from core.utils import normalize_key, parse_date_dmy, safe_int
+from typing import Tuple, List, Dict, Any
+from core.utils import parse_date_dmy, safe_int, normalize_key
 
-# ============================================================
-# HEADER ALIAS MAPPING (SESUAI VBA)
-# ============================================================
-HEADER_ALIASES = {
-    "Kode PIC": ["Kode PIC", "PIC Code", "Kode Recruiter"],
-    "FPTK Date (Real)": ["FPTK Date (Real)", "FPTK Date Real", "Tanggal FPTK", "FPTK DATE REAL"],
-    "Kode Angka": ["Kode Angka", "Kode", "Position Code", "KODE"],
-    "FPTK Date (Kode)": ["FPTK Date (Kode)", "FPTK Date Kode", "FPTK Date", "FPTK Date (CODE)"],
-    "Kode Unik": ["Kode Unik", "Unique Code", "KODE UNIK"],
-    "Posisi": ["Posisi", "Position", "Nama Posisi", "POSISI"],
-    "Business Unit": ["Business Unit", "PT/Business Unit", "PT / Business Unit", "BU", "BUSINESS UNIT"],
-    "Direktorat": ["Direktorat", "Directorate", "DIREKTORAT"],
-    "Divisi": ["Divisi", "Division", "Divisi (Sesuai SO)", "Division Chris", "DIVISI"],
-    "Department": ["Department", "Departemen", "DEPARTMENT"],
-    "Level FPTK": ["Level FPTK", "Level Posisi", "Level FPTK (Sesuai SO)", "LEVEL FPTK"],
-    "Level Number": ["Level Number", "Level No", "Nomor Level", "LEVEL NUMBER"],
-    "Alasan Permintaan FPTK": ["Alasan Permintaan FPTK", "Alasan FPTK", "Category", "Status FPTK", "ALASAN PERMINTAAN FPTK"],
-    "Category FPTK": ["Category FPTK", "CATEGORY FPTK"],
-    "PIC Recruiter": ["PIC Recruiter", "PIC Rekruter", "Recruiter", "PIC RECRUITER"],
-    "Filter Kategorisasi FPTK": ["Filter Kategorisasi FPTK", "Filter Kategori FPTK", "Kategorisasi FPTK", "FILTER KATEGORISASI FPTK"],
-    "Vacancy": ["Vacancy", "Jumlah Posisi", "Jumlah Vacancy"],
-    "Status": ["Status", "Status Rekrutmen", "Status Vacancy"],
-    "Offering Date": ["Offering Date", "Tanggal Offering", "OFFERING DATE"],
-    "FPTK Cancel Date": ["FPTK Cancel Date", "Cancel Date", "FPTK CANCEL DATE"],
-    "Nama Kandidat": ["Nama Kandidat", "Kandidat", "Candidate Name", "NAMA KANDIDAT"],
-}
 
-def find_header_column(df: pd.DataFrame, canonical: str) -> str:
-    """Cari nama kolom di DataFrame berdasarkan alias mapping."""
-    aliases = HEADER_ALIASES.get(canonical, [canonical])
-    for col in df.columns:
-        col_clean = str(col).strip()
-        for alias in aliases:
-            if col_clean.lower() == alias.lower():
-                return col_clean
-            # partial match (spasi diabaikan)
-            if alias.lower().replace(" ", "") in col_clean.lower().replace(" ", ""):
-                return col_clean
-    return None
-
-def get_column_value(row, canonical: str, default=None):
-    """Ambil nilai dari row berdasarkan canonical header."""
-    col = find_header_column(pd.DataFrame([row]), canonical)
-    if col and col in row:
-        return row[col]
-    return default
-
-def validate_fptk_file(df: pd.DataFrame, db, user_id: int, is_sto: bool = False):
+def validate_fptk_file(
+    df: pd.DataFrame, 
+    db, 
+    user_id: int, 
+    is_sto: bool = False
+) -> Tuple[bool, List[Dict[str, Any]]]:
     """
-    Strict validation dengan alias header untuk FPTK.
-    Returns: (validated_rows, errors)
+    Validasi file FPTK dengan error detail per row
+    
+    Returns:
+        (is_valid, errors): 
+            - is_valid: True jika semua data valid
+            - errors: List error detail dengan format:
+                {
+                    "row": int,
+                    "field": str,
+                    "value": Any,
+                    "error": str,
+                    "expected": str (opsional),
+                    "example": str (opsional)
+                }
     """
     errors = []
-    validated_rows = []
-
-    # Cek header wajib dengan alias
-    required_canonical = [
-        "Kode PIC", "FPTK Date (Real)", "Kode Unik", "Posisi",
-        "Business Unit", "Direktorat", "Divisi", "Department",
-        "Level FPTK", "Level Number", "Alasan Permintaan FPTK",
-        "Category FPTK", "PIC Recruiter", "Vacancy", "Status"
-    ]
-
-    missing_headers = []
-    for canon in required_canonical:
-        if not find_header_column(df, canon):
-            missing_headers.append(canon)
-    if missing_headers:
-        errors.append({
-            "row": 0,
-            "field": "HEADER",
-            "message": f"Kolom tidak ditemukan: {', '.join(missing_headers)}"
-        })
-        return [], errors
-
-    # Proses setiap row
-    for idx, row in df.iterrows():
-        row_num = idx + 2  # Excel row number (header=1)
-        row_errors = []
-        row_data = {}
-
-        # Helper untuk ambil nilai dari row
-        def get_val(canonical: str):
-            col = find_header_column(df, canonical)
-            if col and col in row:
-                return row[col]
-            return None
-
-        # Kode PIC
-        kode_pic = str(get_val("Kode PIC") or "").strip()
-        if not kode_pic:
-            row_errors.append({"row": row_num, "field": "Kode PIC", "message": "Wajib diisi"})
-        row_data['kode_pic'] = kode_pic
-
-        # FPTK Date Real
-        fptk_date = parse_date_dmy(get_val("FPTK Date (Real)"))
-        if not fptk_date:
-            row_errors.append({"row": row_num, "field": "FPTK Date (Real)", "message": "Wajib diisi dan valid (dd/mm/yyyy)"})
-        row_data['fptk_date_real'] = fptk_date
-
-        # Kode Unik
-        kode_unik = normalize_key(get_val("Kode Unik"))
-        if not kode_unik:
-            row_errors.append({"row": row_num, "field": "Kode Unik", "message": "Wajib diisi"})
-        row_data['kode_unik'] = kode_unik
-
-        # Posisi
-        posisi = str(get_val("Posisi") or "").strip()
-        if not posisi:
-            row_errors.append({"row": row_num, "field": "Posisi", "message": "Wajib diisi"})
-        row_data['posisi'] = posisi
-
-        # Business Unit
-        bu = str(get_val("Business Unit") or "").strip()
-        if not bu:
-            row_errors.append({"row": row_num, "field": "Business Unit", "message": "Wajib diisi"})
-        row_data['business_unit'] = bu
-
-        # Direktorat
-        direktorat = str(get_val("Direktorat") or "").strip()
-        if not direktorat:
-            row_errors.append({"row": row_num, "field": "Direktorat", "message": "Wajib diisi"})
-        row_data['direktorat'] = direktorat
-
-        # Divisi
-        divisi = str(get_val("Divisi") or "").strip()
-        if not divisi:
-            row_errors.append({"row": row_num, "field": "Divisi", "message": "Wajib diisi"})
-        row_data['divisi'] = divisi
-
-        # Department
-        department = str(get_val("Department") or "").strip()
-        if not department:
-            row_errors.append({"row": row_num, "field": "Department", "message": "Wajib diisi"})
-        row_data['department'] = department
-
-        # Level FPTK
-        level_fptk = str(get_val("Level FPTK") or "").strip()
-        if not level_fptk:
-            row_errors.append({"row": row_num, "field": "Level FPTK", "message": "Wajib diisi"})
-        elif not re.match(r'^[0-9]+[A-Za-z]$', level_fptk):
-            row_errors.append({"row": row_num, "field": "Level FPTK", "message": f"Format harus 1A/2B/3A (input: {level_fptk})"})
-        row_data['level_fptk'] = level_fptk
-
-        # Level Number
-        level_num = safe_int(get_val("Level Number"))
-        if level_num <= 0:
-            row_errors.append({"row": row_num, "field": "Level Number", "message": "Wajib angka > 0"})
-        row_data['level_number'] = level_num
-
-        # Alasan
-        alasan = str(get_val("Alasan Permintaan FPTK") or "").strip()
-        if not alasan:
-            row_errors.append({"row": row_num, "field": "Alasan Permintaan FPTK", "message": "Wajib diisi"})
-        row_data['alasan_permintaan_fptk'] = alasan
-
-        # Category FPTK
-        category = str(get_val("Category FPTK") or "").strip()
-        if not category:
-            row_errors.append({"row": row_num, "field": "Category FPTK", "message": "Wajib diisi"})
-        row_data['category_fptk'] = category
-
-        # PIC Recruiter
-        pic = str(get_val("PIC Recruiter") or "").strip()
-        if not pic:
-            row_errors.append({"row": row_num, "field": "PIC Recruiter", "message": "Wajib diisi"})
-        row_data['pic_recruiter'] = pic
-
-        # Vacancy
-        vacancy = safe_int(get_val("Vacancy"))
-        if vacancy <= 0:
-            row_errors.append({"row": row_num, "field": "Vacancy", "message": "Harus angka > 0"})
-        row_data['vacancy'] = vacancy
-
-        # Status
-        status = str(get_val("Status") or "").strip()
-        if not status:
-            row_errors.append({"row": row_num, "field": "Status", "message": "Wajib diisi"})
-        elif status not in ["OP", "Closed", "Cancel"]:
-            row_errors.append({"row": row_num, "field": "Status", "message": f"Hanya OP/Closed/Cancel (input: {status})"})
-        row_data['status'] = status
-
-        # Closed → Offering Date
-        if status == "Closed":
-            offering = parse_date_dmy(get_val("Offering Date"))
-            if not offering:
-                row_errors.append({"row": row_num, "field": "Offering Date", "message": "Wajib diisi jika Status = Closed"})
-            row_data['offering_date'] = offering
-
-        # Cancel → FPTK Cancel Date
-        if status == "Cancel":
-            cancel = parse_date_dmy(get_val("FPTK Cancel Date"))
-            if not cancel:
-                row_errors.append({"row": row_num, "field": "FPTK Cancel Date", "message": "Wajib diisi jika Status = Cancel"})
-            row_data['fptk_cancel_date'] = cancel
-
-        # Jika ada error di row ini, skip row
-        if row_errors:
-            errors.extend(row_errors)
-            continue
-
-        validated_rows.append(row_data)
-
-    return validated_rows, errors
-
-
-# ============================================================
-# VALIDASI DB SOURCING
-# ============================================================
-SOURCING_HEADER_ALIASES = {
-    "Sourcing Date": ["Sourcing Date", "Tanggal Sourcing", "Tanggal Input"],
-    "Kode Unik (copy value dari FPTK)": ["Kode Unik (copy value dari FPTK)", "Kode Unik", "Unique Code"],
-    "Posisi": ["Posisi", "Position", "Nama Posisi"],
-    "Nama": ["Nama", "Nama Kandidat", "Candidate Name"],
-}
-
-def find_sourcing_header_column(df: pd.DataFrame, canonical: str) -> str:
-    """Cari nama kolom di DataFrame berdasarkan alias mapping untuk sourcing."""
-    aliases = SOURCING_HEADER_ALIASES.get(canonical, [canonical])
-    for col in df.columns:
-        col_clean = str(col).strip()
-        for alias in aliases:
-            if col_clean.lower() == alias.lower():
-                return col_clean
-            # partial match
-            if alias.lower().replace(" ", "") in col_clean.lower().replace(" ", ""):
-                return col_clean
-    return None
-
-def validate_db_sourcing_rows(df: pd.DataFrame):
-    """
-    Validasi DB Sourcing: Sourcing Date mandatory.
-    Returns: (valid_rows, errors)
-    """
-    errors = []
-    valid_rows = []
-
-    # Cek header Sourcing Date
-    src_date_col = find_sourcing_header_column(df, "Sourcing Date")
-    if not src_date_col:
-        errors.append({
-            "row": 0,
-            "field": "HEADER",
-            "message": "Kolom Sourcing Date tidak ditemukan"
-        })
-        return [], errors
-
-    # Cek apakah ada data
+    
     if df.empty:
-        return [], errors
-
-    for idx, row in df.iterrows():
-        row_num = idx + 2
-        row_errors = []
-
-        # Sourcing Date
-        raw_date = row.get(src_date_col)
-        sourcing_date = parse_date_dmy(raw_date)
-        if not sourcing_date:
-            row_errors.append({
-                "row": row_num,
-                "field": "Sourcing Date",
-                "message": "Wajib diisi dan valid (dd/mm/yyyy)"
+        errors.append({
+            "row": 0,
+            "field": "file",
+            "value": "",
+            "error": "File kosong, tidak ada data yang ditemukan",
+            "expected": "Minimal 1 baris data FPTK"
+        })
+        return False, errors
+    
+    # ============================================================
+    # REQUIRED COLUMNS MAPPING
+    # ============================================================
+    required_columns = {
+        "kode_unik": ["Kode Unik", "KodeUNIK"],
+        "posisi": ["Posisi"],
+        "kode_pic": ["Kode PIC"],
+        "fptk_date_real": ["FPTK Date (Real)"],
+        "fptk_date_kode": ["FPTK Date (Kode)"],
+        "kode_angka": ["Kode Angka"],
+        "business_unit": ["Business Unit", "PT / Business Unit"],
+        "direktorat": ["Direktorat"],
+        "divisi": ["Divisi"],
+        "department": ["Department"],
+        "level_fptk": ["Level FPTK"],
+        "level_number": ["Level Number"],
+        "alasan_permintaan_fptk": ["Alasan Permintaan FPTK"],
+        "category_fptk": ["Category FPTK"],
+        "pic_recruiter": ["PIC Recruiter"],
+        "filter_kategorisasi_fptk": ["Filter Kategorisasi FPTK"],
+        "vacancy": ["Vacancy"],
+        "status": ["Status"],
+        "week_fptk_date": ["Week FPTK Date (Kode)", "Week FPTK Date"],
+        "month_fptk_date": ["Month FPTK Date"],
+    }
+    
+    optional_columns = {
+        "fptk_cancel_date": ["FPTK Cancel Date"],
+        "week_cancel_date": ["Week Cancel Date"],
+        "month_cancel_date": ["Month Cancel Date"],
+        "offering_date": ["Offering Date"],
+        "week_offering_date": ["Week Offering Date"],
+        "month_offering": ["Month Offering"],
+        "jumlah_sla": ["Jumlah SLA"],
+        "deadline_sla": ["Deadline pemenuhan SLA"],
+        "detail_sla": ["Detail SLA"],
+        "keterangan_lulus_sla": ["Keterangan Lulus SLA"],
+        "keterangan_tidak_lulus_sla": ["Keterangan Tidak Lulus SLA"],
+        "keterangan_cancel": ["Keterangan Cancel"],
+        "nama_kandidat": ["Nama Kandidat"],
+        "estimasi_join": ["Estimasi Join"],
+        "kebutuhan_laptop": ["Kebutuhan Laptop (V)"],
+        "lokasi_onboarding": ["Lokasi Onboarding"],
+        "tanggal_upload_web": ["Tanggal Upload ke Website"],
+        "user_manager": ["User (Manager)"],
+        "indirect_user": ["Indirect User"],
+        "lokasi_kerja": ["Lokasi Kerja"],
+        "lokasi_hr": ["Lokasi HR"],
+        "status_karyawan": ["Status Karyawan"],
+        "kode_bu": ["Kode BU"],
+        "fptk_availability": ["FPTK Availability"],
+        "remark": ["Remark"],
+        "source_file": ["Source File"],
+        "is_sto": ["is_sto"],
+    }
+    
+    # ============================================================
+    # CHECK COLUMNS EXIST
+    # ============================================================
+    df_cols = [normalize_key(c) for c in df.columns]
+    df_cols_original = list(df.columns)
+    
+    missing_columns = []
+    for col_key, possible_names in required_columns.items():
+        found = False
+        for name in possible_names:
+            if normalize_key(name) in df_cols:
+                found = True
+                break
+        if not found:
+            missing_columns.append({
+                "field": col_key,
+                "expected": possible_names[0],
+                "possible": possible_names,
+                "error": f"Kolom '{possible_names[0]}' tidak ditemukan"
             })
+    
+    if missing_columns:
+        for miss in missing_columns:
+            errors.append({
+                "row": 0,
+                "field": miss["field"],
+                "value": "",
+                "error": f"Kolom '{miss['expected']}' tidak ditemukan di file. Pastikan file memiliki kolom: {', '.join(miss['possible'])}",
+                "expected": "Kolom header harus sesuai dengan template",
+                "example": f"Kolom yang ditemukan: {', '.join(df_cols_original[:10])}..."
+            })
+        return False, errors
+    
+    # ============================================================
+    # VALIDATE EACH ROW
+    # ============================================================
+    date_format_example = "DD/MM/YYYY (contoh: 15/08/2026 atau 15-08-2026)"
+    
+    for idx, row in df.iterrows():
+        row_num = idx + 2  # +1 karena header, +1 karena index 0
+        
+        # ============================================================
+        # 1. VALIDATE KODE UNIK
+        # ============================================================
+        kode_unik = row.get("Kode Unik") or row.get("KodeUNIK")
+        if pd.isna(kode_unik) or str(kode_unik).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Kode Unik",
+                "value": kode_unik,
+                "error": "Kode Unik tidak boleh kosong",
+                "expected": "Format: [Kode PIC][4 huruf posisi][tanggal DDMMYY]",
+                "example": "CORPOmeSales101024"
+            })
+        else:
+            # Cek duplikat
+            existing = db.query(FPTK).filter(FPTK.kode_unik == str(kode_unik)).first()
+            if existing:
+                errors.append({
+                    "row": row_num,
+                    "field": "Kode Unik",
+                    "value": kode_unik,
+                    "error": f"Kode Unik '{kode_unik}' sudah ada di database",
+                    "expected": "Kode Unik harus unik",
+                    "example": "Gunakan kode unik yang berbeda"
+                })
+        
+        # ============================================================
+        # 2. VALIDATE POSISI
+        # ============================================================
+        posisi = row.get("Posisi")
+        if pd.isna(posisi) or str(posisi).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Posisi",
+                "value": posisi,
+                "error": "Posisi tidak boleh kosong",
+                "expected": "Nama posisi minimal 3 karakter",
+                "example": "Area Sales Promotion Supervisor"
+            })
+        
+        # ============================================================
+        # 3. VALIDATE KODE PIC
+        # ============================================================
+        kode_pic = row.get("Kode PIC")
+        if pd.isna(kode_pic) or str(kode_pic).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Kode PIC",
+                "value": kode_pic,
+                "error": "Kode PIC tidak boleh kosong",
+                "expected": "Kode PIC (contoh: CORPOme, MPPau)",
+                "example": "CORPOme, MPPau, CMDSal"
+            })
+        
+        # ============================================================
+        # 4. VALIDATE FPTK DATE (REAL)
+        # ============================================================
+        fptk_date_real = row.get("FPTK Date (Real)")
+        if pd.isna(fptk_date_real):
+            errors.append({
+                "row": row_num,
+                "field": "FPTK Date (Real)",
+                "value": fptk_date_real,
+                "error": "FPTK Date (Real) tidak boleh kosong",
+                "expected": "Format tanggal yang valid",
+                "example": f"Contoh: 15/08/2026 atau {datetime.now().strftime('%d/%m/%Y')}"
+            })
+        elif not _is_valid_date(fptk_date_real):
+            errors.append({
+                "row": row_num,
+                "field": "FPTK Date (Real)",
+                "value": fptk_date_real,
+                "error": f"Format tanggal '{fptk_date_real}' tidak valid",
+                "expected": "Format DD/MM/YYYY atau DD-MM-YYYY",
+                "example": "Contoh: 15/08/2026"
+            })
+        
+        # ============================================================
+        # 5. VALIDATE BUSINESS UNIT
+        # ============================================================
+        bu = row.get("Business Unit") or row.get("PT / Business Unit")
+        if pd.isna(bu) or str(bu).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Business Unit",
+                "value": bu,
+                "error": "Business Unit tidak boleh kosong",
+                "expected": "Business Unit yang valid",
+                "example": "CORP, MP, CMD, JESS, MS"
+            })
+        
+        # ============================================================
+        # 6. VALIDATE DIREKTORAT
+        # ============================================================
+        direktorat = row.get("Direktorat")
+        if pd.isna(direktorat) or str(direktorat).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Direktorat",
+                "value": direktorat,
+                "error": "Direktorat tidak boleh kosong",
+                "expected": "Nama Direktorat yang valid",
+                "example": "Corporate, Commercial MP, Commercial CMD"
+            })
+        
+        # ============================================================
+        # 7. VALIDATE LEVEL FPTK
+        # ============================================================
+        level = row.get("Level FPTK")
+        if pd.isna(level) or str(level).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Level FPTK",
+                "value": level,
+                "error": "Level FPTK tidak boleh kosong",
+                "expected": "Level FPTK (1A sampai 5B)",
+                "example": "1A, 1B, 2A, 2B, 3A, 3B, 4A, 4B, 5A, 5B"
+            })
+        else:
+            level_str = str(level).strip().upper()
+            if not re.match(r'^[1-5][A-B]$', level_str):
+                errors.append({
+                    "row": row_num,
+                    "field": "Level FPTK",
+                    "value": level,
+                    "error": f"Level FPTK '{level}' tidak valid",
+                    "expected": "Level FPTK harus format [1-5][A-B]",
+                    "example": "1A, 2B, 3A, 4B, 5A"
+                })
+        
+        # ============================================================
+        # 8. VALIDATE VACANCY
+        # ============================================================
+        vacancy = row.get("Vacancy")
+        if pd.isna(vacancy) or safe_int(vacancy) <= 0:
+            errors.append({
+                "row": row_num,
+                "field": "Vacancy",
+                "value": vacancy,
+                "error": f"Vacancy '{vacancy}' tidak valid",
+                "expected": "Angka positif (minimal 1)",
+                "example": "1, 2, 3, dst"
+            })
+        
+        # ============================================================
+        # 9. VALIDATE STATUS
+        # ============================================================
+        status = row.get("Status")
+        if pd.isna(status) or str(status).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Status",
+                "value": status,
+                "error": "Status tidak boleh kosong",
+                "expected": "Status: OP, Closed, atau Cancel",
+                "example": "OP, Closed, Cancel"
+            })
+        else:
+            status_str = str(status).strip()
+            if status_str not in ["OP", "Closed", "Cancel"]:
+                errors.append({
+                    "row": row_num,
+                    "field": "Status",
+                    "value": status,
+                    "error": f"Status '{status}' tidak valid",
+                    "expected": "Status harus: OP, Closed, atau Cancel",
+                    "example": "OP, Closed, Cancel"
+                })
+        
+        # ============================================================
+        # 10. VALIDATE OFFERING DATE (jika status Closed)
+        # ============================================================
+        if str(status).strip() == "Closed":
+            offering_date = row.get("Offering Date")
+            if pd.isna(offering_date):
+                errors.append({
+                    "row": row_num,
+                    "field": "Offering Date",
+                    "value": offering_date,
+                    "error": "Offering Date wajib diisi karena Status = Closed",
+                    "expected": "Tanggal Offering",
+                    "example": "15/08/2026"
+                })
+            elif not _is_valid_date(offering_date):
+                errors.append({
+                    "row": row_num,
+                    "field": "Offering Date",
+                    "value": offering_date,
+                    "error": f"Format Offering Date '{offering_date}' tidak valid",
+                    "expected": "Format DD/MM/YYYY atau DD-MM-YYYY",
+                    "example": "15/08/2026"
+                })
+        
+        # ============================================================
+        # 11. VALIDATE CANCEL DATE (jika status Cancel)
+        # ============================================================
+        if str(status).strip() == "Cancel":
+            cancel_date = row.get("FPTK Cancel Date")
+            if pd.isna(cancel_date):
+                errors.append({
+                    "row": row_num,
+                    "field": "FPTK Cancel Date",
+                    "value": cancel_date,
+                    "error": "FPTK Cancel Date wajib diisi karena Status = Cancel",
+                    "expected": "Tanggal Cancel",
+                    "example": "15/08/2026"
+                })
+            elif not _is_valid_date(cancel_date):
+                errors.append({
+                    "row": row_num,
+                    "field": "FPTK Cancel Date",
+                    "value": cancel_date,
+                    "error": f"Format Cancel Date '{cancel_date}' tidak valid",
+                    "expected": "Format DD/MM/YYYY atau DD-MM-YYYY",
+                    "example": "15/08/2026"
+                })
+        
+        # ============================================================
+        # 12. VALIDATE LEVEL NUMBER
+        # ============================================================
+        level_num = row.get("Level Number")
+        if not pd.isna(level_num):
+            try:
+                int_val = int(level_num)
+                if int_val < 1 or int_val > 5:
+                    errors.append({
+                        "row": row_num,
+                        "field": "Level Number",
+                        "value": level_num,
+                        "error": f"Level Number '{level_num}' harus antara 1-5",
+                        "expected": "Angka 1-5",
+                        "example": "1, 2, 3, 4, 5"
+                    })
+            except (ValueError, TypeError):
+                errors.append({
+                    "row": row_num,
+                    "field": "Level Number",
+                    "value": level_num,
+                    "error": f"Level Number '{level_num}' harus angka",
+                    "expected": "Angka 1-5",
+                    "example": "1, 2, 3, 4, 5"
+                })
+        
+        # ============================================================
+        # 13. VALIDATE WEEK FPTK DATE
+        # ============================================================
+        week = row.get("Week FPTK Date (Kode)") or row.get("Week FPTK Date")
+        if not pd.isna(week):
+            try:
+                int_val = int(week)
+                if int_val < 1 or int_val > 53:
+                    errors.append({
+                        "row": row_num,
+                        "field": "Week FPTK Date",
+                        "value": week,
+                        "error": f"Week FPTK Date '{week}' harus antara 1-53",
+                        "expected": "Angka 1-53",
+                        "example": "1-53"
+                    })
+            except (ValueError, TypeError):
+                errors.append({
+                    "row": row_num,
+                    "field": "Week FPTK Date",
+                    "value": week,
+                    "error": f"Week FPTK Date '{week}' harus angka",
+                    "expected": "Angka 1-53",
+                    "example": "1, 2, 3, ... 53"
+                })
+    
+    # ============================================================
+    # SUMMARY
+    # ============================================================
+    if errors:
+        # Tambahkan error summary di awal
+        error_count = len(errors)
+        unique_rows = len(set(e["row"] for e in errors if e["row"] > 0))
+        errors.insert(0, {
+            "row": 0,
+            "field": "SUMMARY",
+            "value": "",
+            "error": f"Total {error_count} error pada {unique_rows} baris data",
+            "expected": f"Semua {len(df)} baris harus valid",
+            "example": "Perbaiki error di bawah ini"
+        })
+        return False, errors
+    
+    return True, []
 
-        # Jika error, skip row
-        if row_errors:
-            errors.extend(row_errors)
-            continue
 
-        # Simpan data valid
-        row_data = row.to_dict()
-        row_data['sourcing_date'] = sourcing_date
-        valid_rows.append(row_data)
-
-    return valid_rows, errors
+def _is_valid_date(value) -> bool:
+    """Cek apakah value adalah tanggal yang valid"""
+    if pd.isna(value):
+        return False
+    
+    # Jika sudah datetime object
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return True
+    
+    # Coba parse dari string
+    if isinstance(value, str):
+        return parse_date_dmy(value) is not None
+    
+    return False
