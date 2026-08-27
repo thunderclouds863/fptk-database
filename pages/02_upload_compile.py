@@ -225,29 +225,104 @@ def show_upload_compile():
                         
                         validated, errors = validate_fptk_file(df, db, user.id, is_sto)
                         
-                        if errors:
-                            st.error(f"❌ {file.name}: {len([e for e in errors if e.get('field') != 'SUMMARY'])} error (file ditolak)")
-                            
-                            st.markdown("### 📋 Detail Error:")
-                            
-                            for err in errors:
-                                if err.get("field") == "SUMMARY":
-                                    st.warning(f"📌 {err.get('error', '')}")
-                                    continue
-                                
+                        warnings = [
+                            e for e in errors
+                            if e.get("warning") == True
+                        ]
+                        
+                        real_errors = [
+                            e for e in errors
+                            if e.get("warning") != True
+                        ]
+                        
+                        
+                        # ==============================
+                        # WARNING (TIDAK BLOCK UPLOAD)
+                        # ==============================
+                        if warnings:
+                        
+                            st.warning(
+                                f"⚠️ {file.name}: ditemukan {len(warnings)} warning. "
+                                "Data tetap diproses, mohon segera lakukan pengecekan."
+                            )
+                        
+                            st.markdown("### ⚠️ Warning Detail:")
+                        
+                            for err in warnings:
+                        
                                 row = err.get("row", "?")
                                 field = err.get("field", "Unknown")
                                 value = err.get("value", "")
                                 error_msg = err.get("error", "")
                                 expected = err.get("expected", "")
                                 example = err.get("example", "")
-                                
-                                with st.expander(f"⚠️ Row {row} - {field}", expanded=False):
+                        
+                                with st.expander(
+                                    f"⚠️ Row {row} - {field}",
+                                    expanded=False
+                                ):
+                                    st.markdown(f"""
+                                    | **Field** | **Value** | **Warning** | **Expected** | **Example** |
+                                    |-----------|-----------|-------------|--------------|-------------|
+                                    | {field} | `{value}` | {error_msg} | {expected} | {example} |
+                                    """)
+                        
+                        
+                        
+                        # ==============================
+                        # ERROR (BLOCK UPLOAD)
+                        # ==============================
+                        if real_errors:
+                        
+                            st.error(
+                                f"❌ {file.name}: "
+                                f"{len([e for e in real_errors if e.get('field') != 'SUMMARY'])} "
+                                "error (file ditolak)"
+                            )
+                        
+                            st.markdown("### 📋 Detail Error:")
+                        
+                            for err in real_errors:
+                        
+                                if err.get("field") == "SUMMARY":
+                                    st.warning(
+                                        f"📌 {err.get('error', '')}"
+                                    )
+                                    continue
+                        
+                                row = err.get("row", "?")
+                                field = err.get("field", "Unknown")
+                                value = err.get("value", "")
+                                error_msg = err.get("error", "")
+                                expected = err.get("expected", "")
+                                example = err.get("example", "")
+                        
+                                with st.expander(
+                                    f"⚠️ Row {row} - {field}",
+                                    expanded=False
+                                ):
                                     st.markdown(f"""
                                     | **Field** | **Value** | **Error** | **Expected** | **Example** |
                                     |-----------|-----------|-----------|--------------|-------------|
                                     | {field} | `{value}` | {error_msg} | {expected} | {example} |
                                     """)
+                        
+                            error_df = pd.DataFrame([
+                                {
+                                    "Row": e.get("row", ""),
+                                    "Field": e.get("field", ""),
+                                    "Value": e.get("value", ""),
+                                    "Error": e.get("error", ""),
+                                    "Expected": e.get("expected", ""),
+                                    "Example": e.get("example", "")
+                                }
+                                for e in real_errors
+                                if e.get("field") != "SUMMARY"
+                            ])
+                        
+                            # STOP hanya kalau error asli
+                            if not error_df.empty:
+                                return
                             
                             error_df = pd.DataFrame([
                                 {
