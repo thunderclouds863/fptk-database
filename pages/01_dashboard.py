@@ -289,41 +289,64 @@ def show_dashboard():
     try:
         c1, c2 = st.columns(2)
             
-        with c1:
-            st.subheader("✅ SLA Compliance")
+        with col1:
+            st.subheader("✅ Detail SLA Distribution")
             if 'detail_sla' in df and df['detail_sla'].notna().any():
-                detail_counts = df['detail_sla'].value_counts()
+                detail_counts = df['detail_sla'].value_counts().reset_index()
+                detail_counts.columns = ['Detail SLA', 'Count']
                 
-                # Definisi Lulus vs Tidak Lulus (sesuai VBA)
-                lulus_keywords = ["OP Belum Lewat SLA", "Closed Lulus SLA"]
-                tidak_lulus_keywords = ["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"]
+                # Urutkan sesuai dengan yang diinginkan
+                sla_order = [
+                    "OP Belum Lewat SLA",
+                    "OP Tidak Lulus SLA",
+                    "Closed Lulus SLA",
+                    "Closed Tidak Lulus SLA",
+                    "Cancel FPTK"
+                ]
                 
-                # Hitung Lulus
-                lulus = 0
-                for keyword in lulus_keywords:
-                    lulus += detail_counts.get(keyword, 0)
+                # Filter hanya yang ada di data
+                sla_order_existing = [s for s in sla_order if s in detail_counts['Detail SLA'].values]
+                detail_counts = detail_counts[detail_counts['Detail SLA'].isin(sla_order_existing)]
                 
-                # Hitung Tidak Lulus
-                tidak_lulus = 0
-                for keyword in tidak_lulus_keywords:
-                    tidak_lulus += detail_counts.get(keyword, 0)
-                
-                # Cancel FPTK diabaikan (tidak masuk perhitungan)
-                
-                if lulus + tidak_lulus > 0:
-                    sla_data = pd.DataFrame([
-                        {"Status": "Lulus SLA", "Count": lulus},
-                        {"Status": "Tidak Lulus SLA", "Count": tidak_lulus}
-                    ])
-                    fig = px.pie(sla_data, values='Count', names='Status', title='SLA Compliance',
-                                 color='Status', color_discrete_map={'Lulus SLA': '#2ecc71', 'Tidak Lulus SLA': '#e74c3c'})
-                    fig.update_layout(height=350)
+                if not detail_counts.empty:
+                    # Warna untuk setiap kategori
+                    color_map = {
+                        "OP Belum Lewat SLA": "#2ecc71",      # Hijau
+                        "OP Tidak Lulus SLA": "#e74c3c",       # Merah
+                        "Closed Lulus SLA": "#3498db",         # Biru
+                        "Closed Tidak Lulus SLA": "#e67e22",   # Orange
+                        "Cancel FPTK": "#95a5a6"               # Abu-abu
+                    }
+                    
+                    fig = px.bar(
+                        detail_counts, 
+                        x='Detail SLA', 
+                        y='Count', 
+                        title='Detail SLA Distribution',
+                        color='Detail SLA',
+                        color_discrete_map=color_map,
+                        text='Count'
+                    )
+                    fig.update_layout(height=400, xaxis_tickangle=-45)
+                    fig.update_traces(textposition='outside')
                     st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Tampilkan juga tabel summary
+                    st.dataframe(detail_counts, use_container_width=True, hide_index=True)
+                    
+                    # Hitung summary
+                    lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Belum Lewat SLA", "Closed Lulus SLA"])]['Count'].sum()
+                    tidak_lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"])]['Count'].sum()
+                    cancel = detail_counts[detail_counts['Detail SLA'] == "Cancel FPTK"]['Count'].sum()
+                    
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("✅ Lulus SLA", lulus)
+                    col_b.metric("❌ Tidak Lulus", tidak_lulus)
+                    col_c.metric("⏭️ Cancel", cancel)
                 else:
-                    st.info("Belum ada data Detail SLA untuk OP/Closed")
+                    st.info("Belum ada data Detail SLA")
             else:
-                st.info("Belum ada data Detail SLA")
-        
+                st.info("Belum ada data Detail SLA")        
         with c2:
             if 'fptk_date_real' in df and df['fptk_date_real'].notna().any():
                 df['date'] = pd.to_datetime(df['fptk_date_real'])
