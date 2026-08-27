@@ -9,7 +9,6 @@ from core.models import (
     FPTK,
     DBSourcing,
     DBKodePosisi,
-    Blacklist,
     UploadLog
 )
 from core.utils import (
@@ -27,64 +26,8 @@ from core.utils import (
 import hashlib
 
 
-def safe_value_for_db(value, default=None):
-    """
-    Safely convert ANY value to a database-compatible value.
-    This handles pandas NaN, numpy NaN, and other edge cases.
-    """
-    if value is None:
-        return default
-    
-    # Handle pandas NaN
-    if isinstance(value, float) and math.isnan(value):
-        return default
-    
-    # Handle pandas Series
-    if isinstance(value, pd.Series):
-        if len(value) > 0:
-            return safe_value_for_db(value.iloc[0], default)
-        return default
-    
-    # Handle numpy arrays
-    if isinstance(value, (list, tuple)):
-        if len(value) > 0:
-            return safe_value_for_db(value[0], default)
-        return default
-    
-    # Handle pandas Timestamp
-    if isinstance(value, pd.Timestamp):
-        return value.date()
-    
-    # Handle datetime
-    if isinstance(value, datetime):
-        return value
-    
-    # Handle date
-    if isinstance(value, date):
-        return value
-    
-    # Handle string
-    if isinstance(value, str):
-        return value.strip() if value.strip() else default
-    
-    # Handle numeric
-    if isinstance(value, (int, float)):
-        if math.isnan(value):
-            return default
-        return value
-    
-    return str(value) if value is not None else default
-
-
 def safe_string_for_db(value, default='', max_length=None):
-    """
-    Safely convert to string for database storage with optional truncation.
-    
-    Args:
-        value: Nilai yang akan di-convert
-        default: Nilai default jika value invalid
-        max_length: Maksimal panjang string (None = tidak dibatasi)
-    """
+    """Safely convert to string with truncation."""
     if value is None:
         return default
     if isinstance(value, float) and math.isnan(value):
@@ -100,41 +43,22 @@ def safe_string_for_db(value, default='', max_length=None):
     else:
         result = str(value) if value is not None else default
     
-    # Truncate if max_length is specified
     if max_length is not None and len(result) > max_length:
         result = result[:max_length]
     
     return result
 
 
-def get_string_value(row, field, max_length=None, default=''):
-    """
-    Get string value from row with truncation support.
-    
-    Args:
-        row: Dictionary or Series
-        field: Field name
-        max_length: Max length for truncation
-        default: Default value if empty
-    """
-    val = row.get(field)
-    return safe_string_for_db(val, default, max_length)
-
-
 def safe_numeric_value(value, default=None):
-    """Safely convert ANY value to a proper numeric (int/float) or None."""
+    """Safely convert to numeric or None."""
     if value is None:
         return default
-    
     if isinstance(value, float) and math.isnan(value):
         return default
-    
     if isinstance(value, pd.Series):
         return safe_numeric_value(value.iloc[0], default) if len(value) > 0 else default
-    
     if isinstance(value, str):
         v = value.strip().upper()
-        # If it's a status value (V/X/Y/N), return None
         if v in ['V', 'X', 'Y', 'N', 'YES', 'NO', 'TRUE', 'FALSE']:
             return default
         v = v.replace(',', '.').replace(' ', '')
@@ -145,26 +69,21 @@ def safe_numeric_value(value, default=None):
             return float(v)
         except ValueError:
             return default
-    
     if isinstance(value, (int, float)):
         if math.isnan(value):
             return default
         return float(value)
-    
     return default
 
 
 def safe_int_value(value, default=None):
-    """Safely convert to integer or None"""
+    """Safely convert to integer or None."""
     if value is None:
         return default
-    
     if isinstance(value, float) and math.isnan(value):
         return default
-    
     if isinstance(value, pd.Series):
         return safe_int_value(value.iloc[0], default) if len(value) > 0 else default
-    
     if isinstance(value, str):
         v = value.strip().upper()
         if v in ['V', 'X', 'Y', 'N', 'YES', 'NO', 'TRUE', 'FALSE']:
@@ -176,17 +95,15 @@ def safe_int_value(value, default=None):
             return int(v)
         except ValueError:
             return default
-    
     if isinstance(value, (int, float)):
         if math.isnan(value):
             return default
         return int(value)
-    
     return default
 
 
 def get_boolean_value(val):
-    """Convert to 'V' or 'X' or None"""
+    """Convert to 'V' or 'X' or None."""
     if val is None:
         return None
     if isinstance(val, float) and math.isnan(val):
@@ -468,8 +385,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                         file_name: str, file_hash: str):
     """
     Compile DB Sourcing dari uploaded file.
-    
-    CRITICAL FIX: Semua nilai di-truncate sesuai batas kolom database.
     """
     from core.validator import validate_db_sourcing_file
     
@@ -477,7 +392,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
     imported = 0
     updated = 0
     
-    # Clear any pending transaction before starting
     if db.is_active:
         db.rollback()
     
@@ -494,7 +408,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             "errors": val_errors
         }
     
-    # PAKAI DATA YANG SUDAH VALIDATED
     if isinstance(valid_rows, pd.DataFrame):
         df = valid_rows.copy()
     
@@ -506,7 +419,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             continue
         
         try:
-            # Cek existing (optional, untuk update)
             existing = db.query(DBSourcing).filter(
                 DBSourcing.kode_unik == kode_unik,
                 DBSourcing.nama == nama
@@ -517,49 +429,34 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 sourcing_date = datetime.now().date()
             
             # ============================================================
-            # SAFE CONVERSIONS - WITH TRUNCATION
+            # SAFE CONVERSIONS
             # ============================================================
-            
-            # --- NUMERIC FIELDS ---
             no_val = safe_int_value(row.get('no'), imported + 1)
             tahun_lulus_val = safe_int_value(row.get('tahun_lulus'))
             ipk_val = safe_numeric_value(row.get('ipk'))
             
-            # --- STRING FIELDS - WITH PROPER MAX LENGTH ---
-            # VARCHAR(255)
+            # String fields with truncation
             posisi_val = safe_string_for_db(row.get('posisi'), max_length=255)
-            nama_univ_top10_val = safe_string_for_db(row.get('nama_universitas_top10'), max_length=255)
-            nama_univ_lain_val = safe_string_for_db(row.get('nama_universitas_lainnya'), max_length=255)
-            email_val = safe_string_for_db(row.get('email'), max_length=255)
-            last_position_val = safe_string_for_db(row.get('last_position'), max_length=255)
-            last_company_val = safe_string_for_db(row.get('last_company'), max_length=255)
-            
-            # VARCHAR(100)
             model_rekrutmen_val = safe_string_for_db(row.get('model_rekrutmen'), max_length=100)
             rekruter_val = safe_string_for_db(row.get('rekruter'), max_length=100)
             sumber_sourcing_val = safe_string_for_db(row.get('sumber_sourcing'), max_length=100)
-            jurusan_val = safe_string_for_db(row.get('jurusan'), max_length=100)
-            domisili_val = safe_string_for_db(row.get('domisili'), max_length=100)
-            
-            # VARCHAR(50)
+            nama_univ_top10_val = safe_string_for_db(row.get('nama_universitas_top10'), max_length=255)
+            nama_univ_lain_val = safe_string_for_db(row.get('nama_universitas_lainnya'), max_length=255)
             jenjang_val = safe_string_for_db(row.get('jenjang_pendidikan'), max_length=50)
+            jurusan_val = safe_string_for_db(row.get('jurusan'), max_length=100)
             skor_inggris_val = safe_string_for_db(row.get('skor_bahasa_inggris'), max_length=50)
-            last_tenure_val = safe_string_for_db(row.get('last_tenure'), max_length=50)
-            total_tenure_val = safe_string_for_db(row.get('total_tenure'), max_length=50)
-            
-            # CRITICAL: VARCHAR(20) - THESE ARE THE PROBLEM CHILDREN!
             university_tier_val = safe_string_for_db(row.get('university_tier'), max_length=20)
             ipk_tier_val = safe_string_for_db(row.get('ipk_tier'), max_length=20)
-            
-            # VARCHAR(20) - NOMOR HP
             nomor_hp_val = safe_string_for_db(row.get('nomor_hp'), max_length=20)
-            
-            # VARCHAR(10) - PERNAH DI FMCG
+            email_val = safe_string_for_db(row.get('email'), max_length=255)
+            domisili_val = safe_string_for_db(row.get('domisili'), max_length=100)
+            last_position_val = safe_string_for_db(row.get('last_position'), max_length=255)
+            last_company_val = safe_string_for_db(row.get('last_company'), max_length=255)
+            last_tenure_val = safe_string_for_db(row.get('last_tenure'), max_length=50)
+            total_tenure_val = safe_string_for_db(row.get('total_tenure'), max_length=50)
             pernah_di_fmcg_val = safe_string_for_db(row.get('pernah_di_fmcg'), max_length=10)
             
-            # ============================================================
-            # BOOLEAN-LIKE FIELDS (V/X) - VARCHAR(3)
-            # ============================================================
+            # Boolean fields
             sourcing_hr_val = get_boolean_value(row.get('sourcing_hr'))
             shortlist_cv_val = get_boolean_value(row.get('shortlist_cv'))
             psikotes_val = get_boolean_value(row.get('psikotes'))
@@ -568,8 +465,22 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             offering_val = get_boolean_value(row.get('offering'))
             day1_val = get_boolean_value(row.get('day1'))
             
+            # ============================================================
+            # BLACKLIST: Cek dari Excel (opsional)
+            # ============================================================
+            is_blacklisted = False
+            blacklist_raw = row.get('is_blacklisted')
+            if blacklist_raw is not None:
+                if isinstance(blacklist_raw, bool):
+                    is_blacklisted = blacklist_raw
+                elif isinstance(blacklist_raw, str):
+                    is_blacklisted = blacklist_raw.strip().upper() in ['YES', 'TRUE', 'Y', '1']
+                elif isinstance(blacklist_raw, (int, float)):
+                    is_blacklisted = bool(blacklist_raw)
+            
+            blacklist_reason = safe_string_for_db(row.get('blacklist_reason'), max_length=500)
+            
             if existing:
-                # Update existing record
                 existing.no = no_val
                 existing.sourcing_date = sourcing_date
                 existing.kode_unik = kode_unik
@@ -602,11 +513,21 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 existing.user_interview = user_interview_val
                 existing.offering = offering_val
                 existing.day1 = day1_val
+                # Blacklist update
+                if is_blacklisted and not existing.is_blacklisted:
+                    existing.is_blacklisted = True
+                    existing.blacklisted_at = datetime.now()
+                    existing.blacklisted_by = user_id
+                    existing.blacklist_reason = blacklist_reason or 'Dari file upload'
+                elif not is_blacklisted and existing.is_blacklisted:
+                    existing.is_blacklisted = False
+                    existing.blacklisted_at = None
+                    existing.blacklisted_by = None
+                    existing.blacklist_reason = None
                 existing.last_updated_at = datetime.now()
                 existing.last_compile_action = "UPDATE"
                 updated += 1
             else:
-                # Insert new record
                 new_sourcing = DBSourcing(
                     no=no_val,
                     sourcing_date=sourcing_date,
@@ -640,6 +561,11 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     user_interview=user_interview_val,
                     offering=offering_val,
                     day1=day1_val,
+                    # Blacklist
+                    is_blacklisted=is_blacklisted,
+                    blacklisted_at=datetime.now() if is_blacklisted else None,
+                    blacklisted_by=user_id if is_blacklisted else None,
+                    blacklist_reason=blacklist_reason if is_blacklisted else None,
                     source_user_id=user_id,
                     source_cycle_id=cycle_id,
                     source_file=safe_string_for_db(file_name, max_length=255),
@@ -674,7 +600,6 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
     errors = []
     imported = 0
     
-    # Clear any pending transaction
     if db.is_active:
         db.rollback()
     
@@ -737,48 +662,70 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
         return {"success": False, "imported": 0, "errors": [str(e)]}
 
 
-def compile_blacklist(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
-                      file_name: str, file_hash: str):
-    """Compile Blacklist Candidate dari uploaded file"""
-    from core.validator import validate_blacklist_file
+# ============================================================
+# FUNGSI BLACKLIST SEDERHANA - HANYA UPDATE FLAG
+# ============================================================
+
+def tag_blacklist(db: Session, kode_unik: str, user_id: int, reason: str = None):
+    """
+    Tag satu kandidat sebagai blacklist.
     
-    errors = []
-    imported = 0
+    Args:
+        db: Database session
+        kode_unik: Kode unik kandidat
+        user_id: ID user yang melakukan tagging
+        reason: Alasan blacklist (optional)
+    """
+    candidate = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).first()
+    if not candidate:
+        return {"success": False, "error": f"Kandidat dengan kode_unik '{kode_unik}' tidak ditemukan"}
     
-    # Clear any pending transaction
-    if db.is_active:
-        db.rollback()
+    candidate.is_blacklisted = True
+    candidate.blacklisted_at = datetime.now()
+    candidate.blacklisted_by = user_id
+    if reason:
+        candidate.blacklist_reason = safe_string_for_db(reason, max_length=500)
+    candidate.last_updated_at = datetime.now()
     
-    valid_rows, val_errors = validate_blacklist_file(
-        df,
-        db,
-        user_id
-    )
-    if val_errors:
-        return {"success": False, "imported": 0, "errors": val_errors}
+    db.commit()
+    return {"success": True, "message": f"Kandidat {candidate.nama} berhasil di-blacklist"}
+
+
+def untag_blacklist(db: Session, kode_unik: str, user_id: int):
+    """
+    Hapus tag blacklist dari kandidat.
     
-    for _, row in df.iterrows():
-        key = safe_string_for_db(row.get('key_value', ''), max_length=255)
-        if not key:
-            continue
-        
-        try:
-            existing = db.query(Blacklist).filter(Blacklist.key_value == key).first()
-            if not existing:
-                new_bl = Blacklist(key_value=key)
-                db.add(new_bl)
-                imported += 1
-        except Exception as e:
-            errors.append(str(e))
-            db.rollback()
+    Args:
+        db: Database session
+        kode_unik: Kode unik kandidat
+        user_id: ID user yang melakukan untag
+    """
+    candidate = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).first()
+    if not candidate:
+        return {"success": False, "error": f"Kandidat dengan kode_unik '{kode_unik}' tidak ditemukan"}
     
-    if errors:
-        db.rollback()
-        return {"success": False, "imported": 0, "errors": errors}
+    candidate.is_blacklisted = False
+    candidate.blacklisted_at = None
+    candidate.blacklisted_by = None
+    candidate.blacklist_reason = None
+    candidate.last_updated_at = datetime.now()
     
-    try:
-        db.commit()
-        return {"success": True, "imported": imported, "errors": []}
-    except Exception as e:
-        db.rollback()
-        return {"success": False, "imported": 0, "errors": [str(e)]}
+    db.commit()
+    return {"success": True, "message": f"Kandidat {candidate.nama} berhasil di-unblacklist"}
+
+
+def get_blacklisted_candidates(db: Session, limit: int = 100):
+    """
+    Ambil daftar kandidat yang di-blacklist.
+    
+    Args:
+        db: Database session
+        limit: Maksimal jumlah data
+    """
+    candidates = db.query(DBSourcing).filter(
+        DBSourcing.is_blacklisted == True
+    ).order_by(
+        DBSourcing.blacklisted_at.desc()
+    ).limit(limit).all()
+    
+    return candidates
