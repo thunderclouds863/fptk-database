@@ -153,55 +153,108 @@ def show_upload_compile():
         )
         is_sto = st.checkbox("☑️ File ini adalah file STO (Tulang Punggung)")
         
-        if st.button("🚀 Compile", type="primary"):
-            if not uploaded_files:
-                st.warning("Pilih file dulu!")
-            else:
-                for file in uploaded_files:
-                    try:
-                        df = pd.read_excel(file, sheet_name="FPTK", header=None)
-                        header_row = None
-                        for i, row in df.iterrows():
-                            row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
-                            if "Kode Unik" in row_text and "Posisi" in row_text:
-                                header_row = i
-                                break
-                        
-                        if header_row is None:
-                            st.error(f"❌ {file.name}: Header tidak ditemukan")
-                            continue
-                        
-                        df.columns = df.iloc[header_row].astype(str).str.strip()
-                        df = df.iloc[header_row+1:].reset_index(drop=True)
-                        
-                        validated, errors = validate_fptk_file(df, db, user.id, is_sto)
-                        if errors:
-                            st.error(f"❌ {file.name}: {len(errors)} error (file ditolak)")
-                            continue
-                        
-                        file_bytes = file.read()
-                        result = compile_fptk(
-                            db, df, user.id, cycle.id,
-                            sanitize_filename(file.name), file_bytes, is_sto
-                        )
-                        
-                        if result["success"]:
-                            st.success(
-                                f"✅ {file.name}: Imported {result.get('imported',0)}, "
-                                f"Updated {result.get('updated',0)}"
-                            )
-                            mark_user_uploading(db, user.id, cycle.id)
-                        else:
-                            st.error(f"❌ {file.name}: Compile gagal")
-                    except Exception as e:
-                        st.error(f"❌ {file.name}: {str(e)}")
+if st.button("🚀 Compile", type="primary"):
+    if not uploaded_files:
+        st.warning("Pilih file dulu!")
+    else:
+        for file in uploaded_files:
+            try:
+                df = pd.read_excel(file, sheet_name="FPTK", header=None)
+                header_row = None
+                for i, row in df.iterrows():
+                    row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
+                    if "Kode Unik" in row_text and "Posisi" in row_text:
+                        header_row = i
+                        break
                 
-                st.success("✅ Compile selesai!")
-                if st.button("📌 Saya Selesai Upload", type="primary"):
-                    mark_user_done(db, user.id, cycle.id)
-                    st.success("Status Anda diupdate ke Done!")
-                    st.rerun()
+                if header_row is None:
+                    st.error(f"❌ {file.name}: Header tidak ditemukan")
+                    st.info(f"📌 Pastikan sheet pertama (FPTK) memiliki kolom: Kode Unik, Posisi, Kode PIC, FPTK Date (Real), Business Unit, Direktorat, Level FPTK, Vacancy, Status")
+                    continue
+                
+                df.columns = df.iloc[header_row].astype(str).str.strip()
+                df = df.iloc[header_row+1:].reset_index(drop=True)
+                
+                validated, errors = validate_fptk_file(df, db, user.id, is_sto)
+                
+                if errors:
+                    st.error(f"❌ {file.name}: {len([e for e in errors if e.get('field') != 'SUMMARY'])} error (file ditolak)")
+                    
+                    # ============================================================
+                    # TAMPILKAN ERROR DETAIL
+                    # ============================================================
+                    st.markdown("### 📋 Detail Error:")
+                    
+                    for err in errors:
+                        if err.get("field") == "SUMMARY":
+                            st.warning(f"📌 {err.get('error', '')}")
+                            continue
+                        
+                        row = err.get("row", "?")
+                        field = err.get("field", "Unknown")
+                        value = err.get("value", "")
+                        error_msg = err.get("error", "")
+                        expected = err.get("expected", "")
+                        example = err.get("example", "")
+                        
+                        # Buat expander per error
+                        with st.expander(f"⚠️ Row {row} - {field}", expanded=False):
+                            st.markdown(f"""
+                            | **Field** | **Value** | **Error** | **Expected** | **Example** |
+                            |-----------|-----------|-----------|--------------|-------------|
+                            | {field} | `{value}` | {error_msg} | {expected} | {example} |
+                            """)
+                    
+                    # Tambahkan tombol download error detail
+                    error_df = pd.DataFrame([
+                        {
+                            "Row": e.get("row", ""),
+                            "Field": e.get("field", ""),
+                            "Value": e.get("value", ""),
+                            "Error": e.get("error", ""),
+                            "Expected": e.get("expected", ""),
+                            "Example": e.get("example", "")
+                        }
+                        for e in errors if e.get("field") != "SUMMARY"
+                    ])
+                    
+                    if not error_df.empty:
+                        csv = error_df.to_csv(index=False)
+                        st.download_button(
+                            label="📥 Download Error Detail (CSV)",
+                            data=csv,
+                            file_name=f"errors_{file.name}.csv",
+                            mime="text/csv"
+                        )
+                    
+                    st.info("💡 **Tips:** Perbaiki error di atas, lalu upload ulang file yang sudah diperbaiki.")
+                    continue
+                
+                # Proses compile kalo valid
+                file_bytes = file.read()
+                result = compile_fptk(
+                    db, df, user.id, cycle.id,
+                    sanitize_filename(file.name), file_bytes, is_sto
+                )
+                
+                if result["success"]:
+                    st.success(
+                        f"✅ {file.name}: Imported {result.get('imported',0)}, "
+                        f"Updated {result.get('updated',0)}"
+                    )
+                    mark_user_uploading(db, user.id, cycle.id)
+                else:
+                    st.error(f"❌ {file.name}: Compile gagal - {result.get('error', 'Unknown error')}")
+                    
+            except Exception as e:
+                st.error(f"❌ {file.name}: {str(e)}")
+                st.info("💡 Pastikan file Excel memiliki sheet bernama 'FPTK' dan format yang benar.")
         
+        st.success("✅ Compile selesai!")
+        if st.button("📌 Saya Selesai Upload", type="primary"):
+            mark_user_done(db, user.id, cycle.id)
+            st.success("Status Anda diupdate ke Done!")
+            st.rerun()        
         # Upload History
         st.markdown("---")
         st.subheader("📜 Riwayat Upload")
