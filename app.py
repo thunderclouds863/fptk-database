@@ -799,11 +799,11 @@ elif page == "funnel_report":
 
     try:
         funnel_report = importlib.import_module(
-            "pages.15_funneling_report"
+            "pages.funnel_report"
         )
         funnel_report.show_funneling_report()
     except ModuleNotFoundError:
-        st.error("❌ File pages/15_funneling_report.py tidak ditemukan!")
+        st.error("❌ File pages/funnel_report.py tidak ditemukan!")
 
 
 # ============================================================
@@ -814,11 +814,11 @@ elif page == "monitoring_sourcing":
 
     try:
         monitoring_sourcing = importlib.import_module(
-            "pages.14_monitoring_sourcing"
+            "pages.monitoring_sourcing"
         )
         monitoring_sourcing.show_monitoring_sourcing()
     except ModuleNotFoundError:
-        st.error("❌ File pages/14_monitoring_sourcing.py tidak ditemukan!")
+        st.error("❌ File pages/monitoring_sourcing.py tidak ditemukan!")
 
 
 # ============================================================
@@ -829,11 +829,11 @@ elif page == "upload_evidence":
 
     try:
         upload_evidence = importlib.import_module(
-            "pages.13_upload_evidence"
+            "pages.upload_evidence"
         )
         upload_evidence.show_upload_evidence()
     except ModuleNotFoundError:
-        st.error("❌ File pages/13_upload_evidence.py tidak ditemukan!")
+        st.error("❌ File pages/upload_evidence.py tidak ditemukan!")
 
 
 # ============================================================
@@ -844,11 +844,11 @@ elif page == "transfer_fptk":
 
     try:
         transfer_fptk = importlib.import_module(
-            "pages.17_fptk_transfer"
+            "pages.transfer_fptk"
         )
         transfer_fptk.show_fptk_transfer()
     except ModuleNotFoundError:
-        st.error("❌ File pages/17_fptk_transfer.py tidak ditemukan!")
+        st.error("❌ File pages/transfer_fptk.py tidak ditemukan!")
 
 # ============================================================
 # EXPORT MENU
