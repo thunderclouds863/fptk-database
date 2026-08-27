@@ -8,6 +8,7 @@ from core.database import Base
 
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
@@ -19,6 +20,7 @@ class User(Base):
 
 class UploadCycle(Base):
     __tablename__ = "upload_cycles"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     cycle_name = Column(String(100), nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"))
@@ -28,6 +30,7 @@ class UploadCycle(Base):
 
 class UploadStatus(Base):
     __tablename__ = "upload_status"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     cycle_id = Column(Integer, ForeignKey("upload_cycles.id", ondelete="CASCADE"))
     user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"))
@@ -38,6 +41,7 @@ class UploadStatus(Base):
 
 class UploadLog(Base):
     __tablename__ = "upload_logs"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
     user_id = Column(Integer, ForeignKey("users.id"))
@@ -51,6 +55,7 @@ class UploadLog(Base):
 
 class FPTK(Base):
     __tablename__ = "fptk"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     kode_unik = Column(String(50), nullable=False, index=True)
     posisi = Column(String(255), nullable=False, index=True)
@@ -124,6 +129,7 @@ class DBKodePosisi(Base):
 
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     no = Column(Integer)
     sourcing_date = Column(Date, nullable=False, index=True)
@@ -205,6 +211,7 @@ class DBSourcing(Base):
 
 class MasterDropdown(Base):
     __tablename__ = "master_dropdown"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     kode_pic = Column(String(50))
     bu = Column(String(255))
@@ -242,12 +249,14 @@ class MasterDropdown(Base):
 
 class Blacklist(Base):
     __tablename__ = "blacklist"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     key_value = Column(String(255), unique=True, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     action = Column(String(50))
@@ -261,6 +270,7 @@ class AuditLog(Base):
 
 class Evidence(Base):
     __tablename__ = "evidences"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     kode_unik = Column(String(50), index=True)
     posisi = Column(String(255))
