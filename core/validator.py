@@ -1,6 +1,6 @@
 # core/validator.py
 
-import re
+import re  # ✅ IMPORT RE DI AWAL
 import pandas as pd
 from datetime import datetime, date, timedelta
 from typing import Tuple, List, Dict, Any, Optional
@@ -107,6 +107,84 @@ def get_similarity_ratio(a: str, b: str) -> float:
     return common / total
 
 
+def _is_valid_date(value) -> bool:
+    """Cek apakah value adalah tanggal yang valid"""
+    if pd.isna(value):
+        return False
+    
+    # Jika sudah datetime object
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return True
+    
+    # Jika sudah date object
+    if isinstance(value, date):
+        return True
+    
+    # Jika numeric (Excel serial date)
+    if isinstance(value, (int, float)):
+        try:
+            from datetime import datetime as dt
+            base = dt(1899, 12, 30)
+            result = (base + timedelta(days=float(value))).date()
+            return result is not None
+        except:
+            pass
+    
+    # Coba parse dari string
+    if isinstance(value, str):
+        return parse_date_dmy(value) is not None
+    
+    return False
+
+
+def safe_level_fptk_from_string(value):
+    """Ambil level_fptk dari string, return None jika tidak valid"""
+    if value is None or pd.isna(value):
+        return None
+    
+    value_str = str(value).strip().upper()
+    
+    # Cek format 1A-5B
+    if re.match(r'^[1-5][A-B]$', value_str):
+        return value_str
+    
+    # Coba extract angka
+    match = re.search(r'(\d+)', value_str)
+    if match:
+        num = int(match.group(1))
+        if 1 <= num <= 5:
+            return f"{num}A"
+    
+    return None
+
+
+def safe_level_number_from_string(value):
+    """Ambil angka dari level_number, return None jika tidak valid"""
+    if value is None or pd.isna(value):
+        return None
+    
+    # Jika sudah angka
+    if isinstance(value, (int, float)):
+        try:
+            int_val = int(value)
+            if 1 <= int_val <= 5:
+                return int_val
+            return None
+        except:
+            return None
+    
+    # Jika string, coba extract angka
+    if isinstance(value, str):
+        match = re.search(r'(\d+)', value)
+        if match:
+            num = int(match.group(1))
+            if 1 <= num <= 5:
+                return num
+        return None
+    
+    return None
+
+
 def validate_fptk_file(
     df: pd.DataFrame, 
     db, 
@@ -141,7 +219,6 @@ def validate_fptk_file(
         "divisi": ["Divisi", "Divisi (Sesuai SO)", "Divisi Sesuai SO", "Division"],
         "department": ["Department", "Departemen"],
         "level_fptk": ["Level FPTK", "Level"],
-        "level_number": ["Level Number", "Level FPTK Number"],
         "alasan_permintaan_fptk": ["Alasan Permintaan FPTK", "Alasan FPTK", "Reason FPTK"],
         "category_fptk": ["Category FPTK", "Kategori FPTK", "Category"],
         "pic_recruiter": ["PIC Recruiter", "PIC Rekruter", "Recruiter"],
@@ -150,6 +227,7 @@ def validate_fptk_file(
     }
     
     optional_mappings = {
+        "level_number": ["Level Number", "Level FPTK Number"],
         "filter_kategorisasi_fptk": ["Filter Kategorisasi FPTK", "Filter Kategorisasi"],
         "week_fptk_date": ["Week FPTK Date (Kode)", "Week FPTK Date", "Week"],
         "month_fptk_date": ["Month FPTK Date", "Month", "Bulan FPTK"],
@@ -502,53 +580,35 @@ def validate_fptk_file(
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY",
                     "example": "15/08/2026"
                 })
-
+        
         # ============================================================
-        # 12. VALIDATE LEVEL NUMBER 
+        # 12. VALIDATE LEVEL NUMBER - AUTO FIX
         # ============================================================
-        level_num = row.get("level_number")
-        if not pd.isna(level_num):
-            try:
-                int_val = int(level_num)
-                if int_val < 1 or int_val > 5:
-                    errors.append({
-                        "row": row_num,
-                        "field": "Level Number",
-                        "value": level_num,
-                        "error": f"Level Number '{level_num}' harus antara 1-5",
-                        "expected": "Angka 1-5",
-                        "example": "1, 2, 3, 4, 5"
-                    })
-            except (ValueError, TypeError):
-                # Jika level_number bukan angka, coba extract dari level_fptk
-                level_fptk = row.get("level_fptk")
-                if level_fptk and not pd.isna(level_fptk):
-                    import re
-                    match = re.search(r'(\d+)', str(level_fptk))
-                    if match:
-                        num = int(match.group(1))
-                        if 1 <= num <= 5:
-                            # Auto fix: ganti level_number dengan angka dari level_fptk
-                            df.at[idx, 'level_number'] = num
-                            continue
+        raw_level_number = row.get("level_number")
+        level_num = safe_level_number_from_string(raw_level_number)
+        
+        if level_num is None:
+            # Jika level_number kosong, coba dari level_fptk
+            level_fptk_val = row.get("level_fptk")
+            level_num = safe_level_number_from_string(level_fptk_val)
+            
+            if level_num is not None:
+                # Auto fix: set level_number dari level_fptk
+                df.at[idx, 'level_number'] = level_num
+            else:
+                # Default ke 1
+                df.at[idx, 'level_number'] = 1
                 errors.append({
                     "row": row_num,
                     "field": "Level Number",
-                    "value": level_num,
-                    "error": f"Level Number '{level_num}' harus angka",
+                    "value": raw_level_number,
+                    "error": f"Level Number '{raw_level_number}' tidak valid, auto-set ke 1",
                     "expected": "Angka 1-5 atau kosong (auto-dari Level FPTK)",
                     "example": "1, 2, 3, 4, 5"
                 })
         else:
-            # Jika level_number kosong, coba dari level_fptk
-            level_fptk = row.get("level_fptk")
-            if level_fptk and not pd.isna(level_fptk):
-                import re
-                match = re.search(r'(\d+)', str(level_fptk))
-                if match:
-                    num = int(match.group(1))
-                    if 1 <= num <= 5:
-                        df.at[idx, 'level_number'] = num
+            # Pastikan level_number sudah benar
+            df.at[idx, 'level_number'] = level_num
     
     # ============================================================
     # SUMMARY
@@ -572,36 +632,6 @@ def validate_fptk_file(
         return False, errors
     
     return True, []
-
-
-def _is_valid_date(value) -> bool:
-    """Cek apakah value adalah tanggal yang valid"""
-    if pd.isna(value):
-        return False
-    
-    # Jika sudah datetime object
-    if isinstance(value, (datetime, pd.Timestamp)):
-        return True
-    
-    # Jika sudah date object
-    if isinstance(value, date):
-        return True
-    
-    # Jika numeric (Excel serial date)
-    if isinstance(value, (int, float)):
-        try:
-            from datetime import datetime as dt
-            base = dt(1899, 12, 30)
-            result = (base + timedelta(days=float(value))).date()
-            return result is not None
-        except:
-            pass
-    
-    # Coba parse dari string
-    if isinstance(value, str):
-        return parse_date_dmy(value) is not None
-    
-    return False
 
 
 def validate_db_sourcing_file(
