@@ -3,6 +3,7 @@ import importlib
 import time
 import base64
 from core.session_manager import get_session_manager
+import os
 
 from core.database import SessionLocal, init_db
 from core.auth import (
