@@ -5,7 +5,13 @@ import math
 import re
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
-from core.models import FPTK, UploadLog, DBSourcing, DBKodePosisi, Blacklist
+from core.models import (
+    FPTK,
+    DBSourcing,
+    DBKodePosisi,
+    Blacklist,
+    UploadLog
+)
 from core.utils import safe_int, calculate_detail_sla, parse_date_dmy
 import hashlib
 
@@ -88,9 +94,7 @@ def safe_level_fptk(value):
 
 def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                  file_name: str, file_bytes: bytes, is_sto: bool = False):
-    """
-    Compile FPTK dari rows (list of dict) atau DataFrame.
-    """
+    """Compile FPTK dari rows (list of dict) atau DataFrame."""
     if isinstance(rows_or_df, list):
         df = pd.DataFrame(rows_or_df)
     else:
@@ -112,8 +116,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         kode_unik = row.get('kode_unik', '')
         posisi = row.get('posisi', '')
         status = row.get('status', '')
-        
-        # Sanitize dates
+
         fptk_date_real = sanitize_date_value(row.get('fptk_date_real'))
         offering_date = sanitize_date_value(row.get('offering_date'))
         fptk_cancel_date = sanitize_date_value(row.get('fptk_cancel_date'))
@@ -123,7 +126,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             skipped += 1
             continue
 
-        # Cek existing
         existing = db.query(FPTK).filter(
             FPTK.kode_unik == kode_unik,
             FPTK.posisi == posisi
@@ -137,9 +139,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             skipped += 1
             continue
 
-        # ============================================================
-        # SAFE LEVEL NUMBER
-        # ============================================================
         raw_level_number = row.get('level_number')
         level_num = safe_level_number(raw_level_number)
         
@@ -152,9 +151,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                     if 1 <= num <= 5:
                         level_num = num
 
-        # ============================================================
-        # SAFE LEVEL FPTK
-        # ============================================================
         raw_level_fptk = row.get('level_fptk')
         level_fptk = safe_level_fptk(raw_level_fptk)
         
@@ -170,7 +166,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         else:
             sla_days = 30
 
-        # Hitung deadline SLA
         if fptk_date_real:
             if isinstance(fptk_date_real, date):
                 deadline_sla = fptk_date_real + timedelta(days=sla_days)
@@ -181,7 +176,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         else:
             deadline_sla = deadline_sla_input
 
-        # Pastikan semua tanggal adalah date object
         if deadline_sla and isinstance(deadline_sla, datetime):
             deadline_sla = deadline_sla.date()
         if offering_date and isinstance(offering_date, datetime):
@@ -191,7 +185,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         if fptk_date_real and isinstance(fptk_date_real, datetime):
             fptk_date_real = fptk_date_real.date()
 
-        # Hitung Detail SLA
         detail_sla = calculate_detail_sla(
             status=status,
             deadline_sla=deadline_sla,
@@ -202,9 +195,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
         kode_bu = row.get('kode_pic', '')[:4] if row.get('kode_pic') else ''
 
-        # ============================================================
-        # FILTER KATEGORISASI
-        # ============================================================
         filter_kat = row.get('filter_kategorisasi_fptk', '')
         if filter_kat is None or pd.isna(filter_kat):
             filter_kat = ''
@@ -230,7 +220,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         else:
             avail = None
 
-        # Jumlah SLA
         jumlah_sla = row.get('jumlah_sla')
         if pd.isna(jumlah_sla) or jumlah_sla is None:
             jumlah_sla = sla_days
@@ -240,18 +229,15 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             except:
                 jumlah_sla = sla_days
 
-        # Vacancy - safe int
         vacancy = row.get('vacancy')
         try:
             vacancy = int(vacancy) if vacancy and not pd.isna(vacancy) else 1
         except:
             vacancy = 1
 
-        # Level Number - pastikan integer
         level_number = int(level_num) if level_num else 1
 
         if existing:
-            # UPDATE
             existing.kode_pic = row.get('kode_pic')
             existing.fptk_date_real = fptk_date_real
             existing.fptk_date_kode = fptk_date_real
@@ -282,7 +268,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             existing.last_compile_action = "UPDATE"
             updated += 1
         else:
-            # INSERT
             kode_angka = row.get('kode_angka')
             if pd.isna(kode_angka) or not kode_angka:
                 kode_angka = (row.get('kode_pic', '')[:4] + str(vacancy))
@@ -326,7 +311,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             db.add(new_fptk)
             imported += 1
 
-    # COMMIT
     try:
         db.commit()
     except Exception as e:
@@ -359,107 +343,130 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
 def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
                         file_name: str, file_hash: str):
     """Compile DB Sourcing dari uploaded file"""
+    from core.validator import validate_db_sourcing_file
+    
     errors = []
     imported = 0
     
-    if df.empty:
-        return {"success": False, "imported": 0, "errors": ["File kosong"]}
+    valid_rows, val_errors = validate_db_sourcing_file(df)
+    if val_errors:
+        return {"success": False, "imported": 0, "errors": val_errors}
     
-    # Process rows
-    for idx, row in df.iterrows():
-        row_num = idx + 2
-        
-        # Skip jika tidak ada Kode Unik atau Nama
+    for _, row in df.iterrows():
         kode_unik = row.get('kode_unik', '')
         nama = row.get('nama', '')
         
-        if not kode_unik:
-            errors.append(f"Row {row_num}: Kode Unik kosong")
-            continue
-        if not nama:
-            errors.append(f"Row {row_num}: Nama kosong")
+        if not kode_unik or not nama:
             continue
         
         try:
-            # Sourcing date
+            # Cek existing (optional, untuk update)
+            existing = db.query(DBSourcing).filter(
+                DBSourcing.kode_unik == kode_unik,
+                DBSourcing.nama == nama
+            ).first()
+            
             sourcing_date = sanitize_date_value(row.get('sourcing_date'))
             if not sourcing_date:
                 sourcing_date = datetime.now().date()
             
-            # No urut
-            last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
-            next_no = (last_no.no + 1) if last_no and last_no.no else 1
-            
-            new_sourcing = DBSourcing(
-                no=next_no,
-                sourcing_date=sourcing_date,
-                kode_unik=kode_unik,
-                posisi=row.get('posisi', ''),
-                model_rekrutmen=row.get('model_rekrutmen', ''),
-                rekruter=row.get('rekruter', ''),
-                sumber_sourcing=row.get('sumber_sourcing', ''),
-                nama=nama,
-                nama_universitas_top10=row.get('nama_universitas_top10', ''),
-                nama_universitas_lainnya=row.get('nama_universitas_lainnya', ''),
-                jenjang_pendidikan=row.get('jenjang_pendidikan', ''),
-                jurusan=row.get('jurusan', ''),
-                tahun_lulus=row.get('tahun_lulus'),
-                ipk=row.get('ipk'),
-                skor_bahasa_inggris=row.get('skor_bahasa_inggris', ''),
-                university_tier=row.get('university_tier', ''),
-                ipk_tier=row.get('ipk_tier', ''),
-                nomor_hp=row.get('nomor_hp', ''),
-                email=row.get('email', ''),
-                domisili=row.get('domisili', ''),
-                last_position=row.get('last_position', ''),
-                last_company=row.get('last_company', ''),
-                last_tenure=row.get('last_tenure', ''),
-                total_tenure=row.get('total_tenure', ''),
-                pernah_di_fmcg=row.get('pernah_di_fmcg', ''),
-                sourcing_hr=row.get('sourcing_hr', ''),
-                shortlist_cv=row.get('shortlist_cv', ''),
-                psikotes=row.get('psikotes', ''),
-                hr_interview=row.get('hr_interview', ''),
-                user_interview=row.get('user_interview', ''),
-                offering=row.get('offering', ''),
-                day1=row.get('day1', ''),
-                source_user_id=user_id,
-                source_cycle_id=cycle_id,
-                source_file=file_name,
-                source_file_hash=file_hash,
-                created_at=datetime.now(),
-                last_compile_action="COMPILE"
-            )
-            db.add(new_sourcing)
+            if existing:
+                # Update
+                existing.posisi = row.get('posisi', '')
+                existing.model_rekrutmen = row.get('model_rekrutmen', '')
+                existing.rekruter = row.get('rekruter', '')
+                existing.sumber_sourcing = row.get('sumber_sourcing', '')
+                existing.nama_universitas_top10 = row.get('nama_universitas_top10', '')
+                existing.nama_universitas_lainnya = row.get('nama_universitas_lainnya', '')
+                existing.jenjang_pendidikan = row.get('jenjang_pendidikan', '')
+                existing.jurusan = row.get('jurusan', '')
+                existing.tahun_lulus = row.get('tahun_lulus')
+                existing.ipk = row.get('ipk')
+                existing.skor_bahasa_inggris = row.get('skor_bahasa_inggris', '')
+                existing.university_tier = row.get('university_tier', '')
+                existing.ipk_tier = row.get('ipk_tier', '')
+                existing.nomor_hp = row.get('nomor_hp', '')
+                existing.email = row.get('email', '')
+                existing.domisili = row.get('domisili', '')
+                existing.last_position = row.get('last_position', '')
+                existing.last_company = row.get('last_company', '')
+                existing.last_tenure = row.get('last_tenure', '')
+                existing.total_tenure = row.get('total_tenure', '')
+                existing.pernah_di_fmcg = row.get('pernah_di_fmcg', '')
+                existing.sourcing_hr = row.get('sourcing_hr', '')
+                existing.shortlist_cv = row.get('shortlist_cv', '')
+                existing.psikotes = row.get('psikotes', '')
+                existing.hr_interview = row.get('hr_interview', '')
+                existing.user_interview = row.get('user_interview', '')
+                existing.offering = row.get('offering', '')
+                existing.day1 = row.get('day1', '')
+                existing.last_updated_at = datetime.now()
+            else:
+                # Insert
+                new_sourcing = DBSourcing(
+                    no=row.get('no', imported + 1),
+                    sourcing_date=sourcing_date,
+                    kode_unik=kode_unik,
+                    posisi=row.get('posisi', ''),
+                    model_rekrutmen=row.get('model_rekrutmen', ''),
+                    rekruter=row.get('rekruter', ''),
+                    sumber_sourcing=row.get('sumber_sourcing', ''),
+                    nama=nama,
+                    nama_universitas_top10=row.get('nama_universitas_top10', ''),
+                    nama_universitas_lainnya=row.get('nama_universitas_lainnya', ''),
+                    jenjang_pendidikan=row.get('jenjang_pendidikan', ''),
+                    jurusan=row.get('jurusan', ''),
+                    tahun_lulus=row.get('tahun_lulus'),
+                    ipk=row.get('ipk'),
+                    skor_bahasa_inggris=row.get('skor_bahasa_inggris', ''),
+                    university_tier=row.get('university_tier', ''),
+                    ipk_tier=row.get('ipk_tier', ''),
+                    nomor_hp=row.get('nomor_hp', ''),
+                    email=row.get('email', ''),
+                    domisili=row.get('domisili', ''),
+                    last_position=row.get('last_position', ''),
+                    last_company=row.get('last_company', ''),
+                    last_tenure=row.get('last_tenure', ''),
+                    total_tenure=row.get('total_tenure', ''),
+                    pernah_di_fmcg=row.get('pernah_di_fmcg', ''),
+                    sourcing_hr=row.get('sourcing_hr', ''),
+                    shortlist_cv=row.get('shortlist_cv', ''),
+                    psikotes=row.get('psikotes', ''),
+                    hr_interview=row.get('hr_interview', ''),
+                    user_interview=row.get('user_interview', ''),
+                    offering=row.get('offering', ''),
+                    day1=row.get('day1', ''),
+                    source_user_id=user_id,
+                    source_cycle_id=cycle_id,
+                    source_file=file_name,
+                    source_file_hash=file_hash,
+                    created_at=datetime.now(),
+                    last_compile_action="COMPILE"
+                )
+                db.add(new_sourcing)
             imported += 1
         except Exception as e:
-            errors.append(f"Row {row_num}: {str(e)}")
+            errors.append(str(e))
     
-    try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        errors.append(f"Commit error: {str(e)}")
-        return {"success": False, "imported": imported, "errors": errors}
-    
+    db.commit()
     return {"success": True, "imported": imported, "errors": errors}
 
 
 def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
                            file_name: str, file_hash: str):
     """Compile DB Kode Posisi dari uploaded file"""
+    from core.validator import validate_db_kode_posisi_file
+    
     errors = []
     imported = 0
     
-    if df.empty:
-        return {"success": False, "imported": 0, "errors": ["File kosong"]}
+    valid_rows, val_errors = validate_db_kode_posisi_file(df)
+    if val_errors:
+        return {"success": False, "imported": 0, "errors": val_errors}
     
-    for idx, row in df.iterrows():
-        row_num = idx + 2
+    for _, row in df.iterrows():
         position = row.get('position', '')
-        
         if not position:
-            errors.append(f"Row {row_num}: Position kosong")
             continue
         
         try:
@@ -493,48 +500,28 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
                 db.add(new_pos)
             imported += 1
         except Exception as e:
-            errors.append(f"Row {row_num}: {str(e)}")
+            errors.append(str(e))
     
-    try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        errors.append(f"Commit error: {str(e)}")
-        return {"success": False, "imported": imported, "errors": errors}
-    
+    db.commit()
     return {"success": True, "imported": imported, "errors": errors}
 
 
 def compile_blacklist(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
                       file_name: str, file_hash: str):
     """Compile Blacklist Candidate dari uploaded file"""
+    from core.validator import validate_blacklist_file
+    
     errors = []
     imported = 0
     
-    if df.empty:
-        return {"success": False, "imported": 0, "errors": ["File kosong"]}
+    valid_rows, val_errors = validate_blacklist_file(df)
+    if val_errors:
+        return {"success": False, "imported": 0, "errors": val_errors}
     
-    # Cari kolom key
-    key_col = None
-    for col in df.columns:
-        col_lower = col.lower().strip()
-        if col_lower in ['key', 'key_value', 'unique_key', 'blacklist_key', 'nama', 'name']:
-            key_col = col
-            break
-    
-    if key_col is None:
-        errors.append("Kolom key (Key, Key Value, Nama) tidak ditemukan")
-        return {"success": False, "imported": 0, "errors": errors}
-    
-    for idx, row in df.iterrows():
-        row_num = idx + 2
-        key = row.get(key_col, '')
-        
+    for _, row in df.iterrows():
+        key = row.get('key_value', '')
         if not key:
-            errors.append(f"Row {row_num}: Key kosong")
             continue
-        
-        key = str(key).strip()
         
         try:
             existing = db.query(Blacklist).filter(Blacklist.key_value == key).first()
@@ -543,13 +530,7 @@ def compile_blacklist(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int
                 db.add(new_bl)
                 imported += 1
         except Exception as e:
-            errors.append(f"Row {row_num}: {str(e)}")
+            errors.append(str(e))
     
-    try:
-        db.commit()
-    except Exception as e:
-        db.rollback()
-        errors.append(f"Commit error: {str(e)}")
-        return {"success": False, "imported": imported, "errors": errors}
-    
+    db.commit()
     return {"success": True, "imported": imported, "errors": errors}
