@@ -429,6 +429,16 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                         row.get(field),
                         type(row.get(field))
                     )
+                print("========== DB COLUMN TYPE CHECK ==========")
+
+                for col in DBSourcing.__table__.columns:
+                    print(
+                        col.name,
+                        "=>",
+                        col.type
+                    )
+                
+                print("==========================================")
                 new_sourcing = DBSourcing(
                     no=no_val,
                     sourcing_date=sourcing_date,
