@@ -289,7 +289,7 @@ def show_dashboard():
     try:
         c1, c2 = st.columns(2)
             
-        with col1:
+        with c1:
             st.subheader("✅ Detail SLA Distribution")
             if 'detail_sla' in df and df['detail_sla'].notna().any():
                 detail_counts = df['detail_sla'].value_counts().reset_index()
