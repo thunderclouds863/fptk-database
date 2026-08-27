@@ -17,8 +17,7 @@ def show_dashboard():
     except Exception as e:
         st.error(f"❌ Gagal koneksi ke database: {str(e)}")
         return
-    
-    try:
+        try:
         user = get_current_user(db)
     except Exception as e:
         st.error(f"❌ Gagal mendapatkan user: {str(e)}")
@@ -74,7 +73,7 @@ def show_dashboard():
             st.session_state.export_data = True
 
     # ============================================================
-    # BUILD QUERY
+    # BUILD QUERY FPTK
     # ============================================================
     try:
         query = db.query(FPTK)
@@ -101,7 +100,9 @@ def show_dashboard():
     
     total = len(df)
     
-    # Sourcing query
+    # ============================================================
+    # BUILD QUERY SOURCING
+    # ============================================================
     try:
         sourcing_query = db.query(DBSourcing)
         if pic_filter != "Semua":
@@ -115,20 +116,58 @@ def show_dashboard():
         total_sourcing = 0
     
     # ============================================================
-    # METRIC CARDS
+    # METRIC CARDS (6 cards)
     # ============================================================
-    op = len(df[df['status'] == 'OP']) if 'status' in df and not df.empty else 0
-    closed = len(df[df['status'] == 'Closed']) if 'status' in df and not df.empty else 0
-    cancel = len(df[df['status'] == 'Cancel']) if 'status' in df and not df.empty else 0
-    total_pic = len(df['pic_recruiter'].unique()) if 'pic_recruiter' in df and not df.empty else 0
+    if not df.empty and 'status' in df:
+        total = len(df)
+        op = len(df[df['status'] == 'OP'])
+        closed = len(df[df['status'] == 'Closed'])
+        cancel = len(df[df['status'] == 'Cancel'])
+        
+        # Fulfillment Rate = Closed / (Total - Cancel)
+        denominator = total - cancel
+        if denominator > 0:
+            fulfillment_rate = (closed / denominator) * 100
+        else:
+            fulfillment_rate = 0
+        
+        # Closed Sesuai SLA Rate
+        # Hitung dari detail_sla column
+        if 'detail_sla' in df.columns and not df.empty:
+            closed_df = df[df['status'] == 'Closed']
+            closed_lulus = len(closed_df[closed_df['detail_sla'] == 'Closed Lulus SLA'])
+            closed_tidak = len(closed_df[closed_df['detail_sla'] == 'Closed Tidak Lulus SLA'])
+            total_closed_sla = closed_lulus + closed_tidak
+            if total_closed_sla > 0:
+                closed_sla_rate = (closed_lulus / total_closed_sla) * 100
+            else:
+                closed_sla_rate = 0
+        else:
+            closed_sla_rate = 0
+        
+        # Total Sourcing
+        total_sourcing = sourcing_query.count() if 'sourcing_query' in dir() else 0
+        
+        # PIC Active
+        total_pic = len(df['pic_recruiter'].unique()) if 'pic_recruiter' in df else 0
+    else:
+        total = 0
+        op = 0
+        closed = 0
+        cancel = 0
+        fulfillment_rate = 0
+        closed_sla_rate = 0
+        total_sourcing = 0
+        total_pic = 0
     
+    # Display 6 metric cards
     c1, c2, c3, c4, c5, c6 = st.columns(6)
     c1.metric("Total FPTK", f"{total:,}")
     c2.metric("OP", f"{op:,}")
     c3.metric("Closed", f"{closed:,}")
     c4.metric("Cancel", f"{cancel:,}")
-    c5.metric("Total Sourcing", f"{total_sourcing:,}")
-    c6.metric("PIC Active", f"{total_pic}")
+    c5.metric("Fulfillment Rate", f"{fulfillment_rate:.1f}%")
+    c6.metric("Closed Sesuai SLA", f"{closed_sla_rate:.1f}%")
     st.markdown("---")
     
     # ============================================================
