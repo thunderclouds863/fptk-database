@@ -411,8 +411,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 existing.last_compile_action = "UPDATE"
                 updated += 1
             else:
-               print("DEBUG PIPELINE VALUES")
-
+                print("DEBUG PIPELINE VALUES")
                 for field in [
                     "sourcing_hr",
                     "shortlist_cv",
