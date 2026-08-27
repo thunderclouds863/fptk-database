@@ -111,6 +111,21 @@ class FPTK(Base):
     source_cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
     is_sto = Column(Boolean, default=False)
 
+class DBKodePosisi(Base):
+    __tablename__ = "db_kode_posisi"
+    __table_args__ = {'extend_existing': True}
+    id = Column(Integer, primary_key=True, index=True)
+    kode = Column(String(50))
+    position = Column(String(255), nullable=False, index=True)
+    location = Column(String(100))
+    business_unit = Column(String(100), index=True)
+    division_chris = Column(String(100))
+    department_chris = Column(String(100))
+    user_manager = Column(String(100))
+    indirect_user = Column(String(100))
+    directorate = Column(String(100))
+    year = Column(Integer)
+    
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
     __table_args__ = {"extend_existing": True}
