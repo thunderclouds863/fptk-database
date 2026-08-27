@@ -992,3 +992,69 @@ def validate_db_kode_posisi_file(
         return False, errors
     
     return True, []
+
+def validate_db_sourcing_file(df: pd.DataFrame):
+    """Validasi file DB Sourcing"""
+    errors = []
+    valid_rows = []
+    
+    required_cols = ['kode_unik', 'nama']
+    for col in required_cols:
+        if col not in df.columns:
+            errors.append({"field": "HEADER", "error": f"Kolom '{col}' tidak ditemukan"})
+            return [], errors
+    
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        if not row.get('kode_unik'):
+            errors.append({"row": row_num, "field": "kode_unik", "error": "Kode Unik wajib diisi"})
+            continue
+        if not row.get('nama'):
+            errors.append({"row": row_num, "field": "nama", "error": "Nama wajib diisi"})
+            continue
+        valid_rows.append(row)
+    
+    return valid_rows, errors
+
+
+def validate_db_kode_posisi_file(df: pd.DataFrame):
+    """Validasi file DB Kode Posisi"""
+    errors = []
+    valid_rows = []
+    
+    required_cols = ['position']
+    for col in required_cols:
+        if col not in df.columns:
+            errors.append({"field": "HEADER", "error": f"Kolom '{col}' tidak ditemukan"})
+            return [], errors
+    
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        if not row.get('position'):
+            errors.append({"row": row_num, "field": "position", "error": "Position wajib diisi"})
+            continue
+        valid_rows.append(row)
+    
+    return valid_rows, errors
+
+
+def validate_blacklist_file(df: pd.DataFrame):
+    """Validasi file Blacklist"""
+    errors = []
+    valid_rows = []
+    
+    if 'key_value' not in df.columns and 'key' not in df.columns:
+        errors.append({"field": "HEADER", "error": "Kolom 'key_value' tidak ditemukan"})
+        return [], errors
+    
+    key_col = 'key_value' if 'key_value' in df.columns else 'key'
+    
+    for idx, row in df.iterrows():
+        row_num = idx + 2
+        key = row.get(key_col, '')
+        if not key:
+            errors.append({"row": row_num, "field": "key_value", "error": "Key wajib diisi"})
+            continue
+        valid_rows.append({**row.to_dict(), 'key_value': key})
+    
+    return valid_rows, errors
