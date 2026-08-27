@@ -2,7 +2,7 @@
 
 import re
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, date, timedelta
 from typing import Tuple, List, Dict, Any, Optional
 from difflib import get_close_matches
 
@@ -136,7 +136,6 @@ def validate_fptk_file(
         "posisi": ["Posisi", "Posisi - Kebutuhan TA", "Posisi Kebutuhan", "Position"],
         "kode_pic": ["Kode PIC", "PIC Code", "Kode PIC Recruiter"],
         "fptk_date_real": ["FPTK Date (Real)", "FPTK DATE (Real)", "FPTK Date Real", "Tanggal FPTK"],
-        "fptk_date_kode": ["FPTK Date (Kode)", "FPTK DATE (Kode)", "FPTK Date Kode"],
         "business_unit": ["Business Unit", "PT / Business Unit", "BU", "Business"],
         "direktorat": ["Direktorat", "DIRECTORATE", "Directorate"],
         "divisi": ["Divisi", "Divisi (Sesuai SO)", "Divisi Sesuai SO", "Division"],
@@ -257,8 +256,6 @@ def validate_fptk_file(
     # ============================================================
     # VALIDATE EACH ROW
     # ============================================================
-    date_format_example = "DD/MM/YYYY (contoh: 15/08/2026 atau 15-08-2026)"
-    
     for idx, row in df.iterrows():
         row_num = idx + 2  # +1 karena header, +1 karena index 0
         
@@ -505,6 +502,32 @@ def validate_fptk_file(
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY",
                     "example": "15/08/2026"
                 })
+        
+        # ============================================================
+        # 12. VALIDATE LEVEL NUMBER (opsional, bisa auto dari level)
+        # ============================================================
+        level_num = row.get("level_number")
+        if not pd.isna(level_num):
+            try:
+                int_val = int(level_num)
+                if int_val < 1 or int_val > 5:
+                    errors.append({
+                        "row": row_num,
+                        "field": "Level Number",
+                        "value": level_num,
+                        "error": f"Level Number '{level_num}' harus antara 1-5",
+                        "expected": "Angka 1-5",
+                        "example": "1, 2, 3, 4, 5"
+                    })
+            except (ValueError, TypeError):
+                errors.append({
+                    "row": row_num,
+                    "field": "Level Number",
+                    "value": level_num,
+                    "error": f"Level Number '{level_num}' harus angka",
+                    "expected": "Angka 1-5",
+                    "example": "1, 2, 3, 4, 5"
+                })
     
     # ============================================================
     # SUMMARY
@@ -530,6 +553,36 @@ def validate_fptk_file(
     return True, []
 
 
+def _is_valid_date(value) -> bool:
+    """Cek apakah value adalah tanggal yang valid"""
+    if pd.isna(value):
+        return False
+    
+    # Jika sudah datetime object
+    if isinstance(value, (datetime, pd.Timestamp)):
+        return True
+    
+    # Jika sudah date object
+    if isinstance(value, date):
+        return True
+    
+    # Jika numeric (Excel serial date)
+    if isinstance(value, (int, float)):
+        try:
+            from datetime import datetime as dt
+            base = dt(1899, 12, 30)
+            result = (base + timedelta(days=float(value))).date()
+            return result is not None
+        except:
+            pass
+    
+    # Coba parse dari string
+    if isinstance(value, str):
+        return parse_date_dmy(value) is not None
+    
+    return False
+
+
 def validate_db_sourcing_file(
     df: pd.DataFrame,
     db,
@@ -551,7 +604,7 @@ def validate_db_sourcing_file(
         return False, errors
     
     required_mappings = {
-        "kode_unik": ["Kode Unik (copy value dari FPTK)", "Kode Unik", "Unique Code"],
+        "kode_unik": ["Kode Unik", "Unique Code"],
         "nama": ["Nama", "Nama Kandidat", "Candidate Name"],
         "sourcing_date": ["Sourcing Date", "Tanggal Sourcing", "Tanggal Input"],
     }
@@ -888,28 +941,3 @@ def validate_db_kode_posisi_file(
         return False, errors
     
     return True, []
-
-
-def _is_valid_date(value) -> bool:
-    """Cek apakah value adalah tanggal yang valid"""
-    if pd.isna(value):
-        return False
-    
-    # Jika sudah datetime object
-    if isinstance(value, (datetime, pd.Timestamp)):
-        return True
-    
-    # Jika numeric (Excel serial date)
-    if isinstance(value, (int, float)):
-        try:
-            from datetime import datetime as dt
-            dt.fromordinal(int(value))
-            return True
-        except:
-            pass
-    
-    # Coba parse dari string
-    if isinstance(value, str):
-        return parse_date_dmy(value) is not None
-    
-    return False
