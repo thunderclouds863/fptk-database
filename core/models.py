@@ -125,7 +125,7 @@ class DBKodePosisi(Base):
     indirect_user = Column(String(100))
     directorate = Column(String(100))
     year = Column(Integer)
-    
+
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
     __table_args__ = {"extend_existing": True}
