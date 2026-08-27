@@ -502,9 +502,9 @@ def validate_fptk_file(
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY",
                     "example": "15/08/2026"
                 })
-        
+
         # ============================================================
-        # 12. VALIDATE LEVEL NUMBER (opsional, bisa auto dari level)
+        # 12. VALIDATE LEVEL NUMBER 
         # ============================================================
         level_num = row.get("level_number")
         if not pd.isna(level_num):
@@ -520,14 +520,35 @@ def validate_fptk_file(
                         "example": "1, 2, 3, 4, 5"
                     })
             except (ValueError, TypeError):
+                # Jika level_number bukan angka, coba extract dari level_fptk
+                level_fptk = row.get("level_fptk")
+                if level_fptk and not pd.isna(level_fptk):
+                    import re
+                    match = re.search(r'(\d+)', str(level_fptk))
+                    if match:
+                        num = int(match.group(1))
+                        if 1 <= num <= 5:
+                            # Auto fix: ganti level_number dengan angka dari level_fptk
+                            df.at[idx, 'level_number'] = num
+                            continue
                 errors.append({
                     "row": row_num,
                     "field": "Level Number",
                     "value": level_num,
                     "error": f"Level Number '{level_num}' harus angka",
-                    "expected": "Angka 1-5",
+                    "expected": "Angka 1-5 atau kosong (auto-dari Level FPTK)",
                     "example": "1, 2, 3, 4, 5"
                 })
+        else:
+            # Jika level_number kosong, coba dari level_fptk
+            level_fptk = row.get("level_fptk")
+            if level_fptk and not pd.isna(level_fptk):
+                import re
+                match = re.search(r'(\d+)', str(level_fptk))
+                if match:
+                    num = int(match.group(1))
+                    if 1 <= num <= 5:
+                        df.at[idx, 'level_number'] = num
     
     # ============================================================
     # SUMMARY
