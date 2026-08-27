@@ -244,7 +244,7 @@ def show_upload_compile():
         with st.form("fptk_manual_form", clear_on_submit=True):
             st.markdown("### Data FPTK")
             
-            col1, col2, col3 = st.columns(3)
+            col1, col2 = st.columns(2)
             
             with col1:
                 # Kode PIC - auto dari login
@@ -325,7 +325,6 @@ def show_upload_compile():
                 status = st.selectbox("Status *", status_options)
                 # Di dalam form, setelah Jumlah SLA / Deadline SLA, tambahkan:
 
-            with col3:
                 # Jumlah SLA (auto-calculate)
                 sla_days = calculate_sla_days(level_number)
                 st.text_input("Jumlah SLA (auto)", value=str(sla_days), disabled=True)
