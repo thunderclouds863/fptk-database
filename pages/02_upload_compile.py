@@ -1,7 +1,6 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
-import re
 from core.database import get_db
 from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog
 from core.auth import get_current_user, is_admin, hash_file, sanitize_filename
@@ -10,10 +9,11 @@ from core.validator import validate_fptk_file
 from core.compiler import compile_fptk
 from core.utils import (
     normalize_key, safe_int, parse_date_dmy,
-    calculate_sla_days,        
-    calculate_deadline_sla,     
-    calculate_detail_sla,       
-    get_sla_option_list       
+    calculate_sla_days,
+    calculate_deadline_sla,
+    calculate_detail_sla,
+    get_sla_option_list,
+    calculate_filter_kategorisasi
 )
 
 # ============================================================
