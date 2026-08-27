@@ -274,9 +274,10 @@ def validate_fptk_file(
     # ============================================================
     for idx, row in df.iterrows():
         row_num = idx + 2
-        
+
         # 1. KODE UNIK
         kode_unik = row.get("kode_unik")
+        
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             errors.append({
                 "row": row_num,
@@ -285,17 +286,42 @@ def validate_fptk_file(
                 "error": "Kode Unik tidak boleh kosong",
                 "expected": "Format: [Kode PIC][4 huruf posisi][tanggal DDMMYY]"
             })
+        
         else:
-            # Cek duplikat di database (untuk FPTK, Kode Unik HARUS UNIK)
-            existing = db.query(FPTK).filter(FPTK.kode_unik == str(kode_unik).strip()).first()
-            if existing:
-                errors.append({
-                    "row": row_num,
-                    "field": "Kode Unik",
-                    "value": kode_unik,
-                    "error": f"Kode Unik '{kode_unik}' sudah ada di database",
-                    "expected": "Kode Unik harus unik"
-                })
+            kode_unik_clean = str(kode_unik).strip()
+        
+            existing_same_code = db.query(FPTK).filter(
+                FPTK.kode_unik == kode_unik_clean
+            ).all()
+        
+            if existing_same_code:
+        
+                existing_positions = [
+                    x.posisi for x in existing_same_code
+                ]
+        
+                posisi_upload = str(
+                    row.get("posisi")
+                ).strip()
+        
+        
+                # Kode unik sama tapi posisi beda
+                if posisi_upload not in existing_positions:
+        
+                    errors.append({
+                        "row": row_num,
+                        "field": "Kode Unik",
+                        "value": kode_unik,
+                        "warning": True,
+                        "error": (
+                            f"Kode Unik '{kode_unik}' sudah digunakan "
+                            f"dengan posisi berbeda: {', '.join(existing_positions)}"
+                        ),
+                        "expected": (
+                            "Pastikan Kode Unik sesuai posisi. "
+                            "Data tetap akan diinsert, mohon segera edit."
+                        )
+                    })
         
         # 2. POSISI
         posisi = row.get("posisi")
@@ -500,7 +526,12 @@ def validate_fptk_file(
     # ============================================================
     # SUMMARY
     # ============================================================
-    if errors:
+    critical_errors = [
+        e for e in errors
+        if not e.get("warning", False)
+    ]
+    
+    if critical_errors:
         error_count = len(errors)
         unique_rows = len(set(e["row"] for e in errors if e["row"] > 0))
         errors = [e for e in errors if e.get("field") != "SUMMARY"]
@@ -513,8 +544,12 @@ def validate_fptk_file(
             "example": "Perbaiki error di bawah ini"
         })
         return False, errors
+        warnings = [
+        e for e in errors
+        if e.get("warning", False)
+    ]
     
-    return True, []
+    return True, warnings
 
 
 # ============================================================
@@ -736,15 +771,40 @@ def validate_blacklist_file(
                 "expected": "Nama atau identifier untuk blacklist"
             })
         else:
-            existing = db.query(Blacklist).filter(Blacklist.key_value == str(key).strip()).first()
-            if existing:
-                errors.append({
-                    "row": row_num,
-                    "field": "Key",
-                    "value": key,
-                    "error": f"Key '{key}' sudah ada di blacklist",
-                    "expected": "Key harus unik"
-                })
+            existing_data = db.query(FPTK).filter(
+                FPTK.kode_unik == str(kode_unik).strip()
+            ).all()
+            
+            if existing_data:
+            
+                posisi_upload = str(
+                    row.get("posisi")
+                ).strip()
+            
+                existing_positions = [
+                    str(x.posisi).strip()
+                    for x in existing_data
+                ]
+            
+                # CASE KHUSUS:
+                # Kode Unik sama, tapi posisi berbeda
+                if posisi_upload not in existing_positions:
+            
+                    errors.append({
+                        "row": row_num,
+                        "field": "Kode Unik",
+                        "value": kode_unik,
+                        "warning": True,
+                        "error": (
+                            f"Kode Unik '{kode_unik}' "
+                            f"sudah digunakan untuk posisi "
+                            f"{', '.join(existing_positions)}"
+                        ),
+                        "expected": (
+                            "Data tetap diproses karena posisi berbeda. "
+                            "Mohon segera lakukan pengecekan/edit Kode Unik."
+                        )
+                    })
     
     if errors:
         error_count = len(errors)
