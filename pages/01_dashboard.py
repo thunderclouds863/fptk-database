@@ -158,7 +158,7 @@ def show_dashboard():
     
     # Display 6 metric cards
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Total FPTK", total")
+    c1.metric("Total FPTK", f"{total:,}")
     c2.metric("OP", f"{op:,}")
     c3.metric("Closed", f"{closed:,}")
     c4.metric("Cancel", f"{cancel:,}")
