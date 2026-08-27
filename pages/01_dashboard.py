@@ -5,7 +5,6 @@ import plotly.graph_objects as go
 from core.database import get_db
 from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle
 from core.auth import get_current_user, is_admin
-from core.utils import calculate_sla_days, calculate_deadline_sla, calculate_detail_sla
 from datetime import datetime, timedelta
 import traceback
 
@@ -292,129 +291,62 @@ def show_dashboard():
             
         with c1:
             st.subheader("✅ Detail SLA Distribution")
-            
-            # CEK APAKAH KOLOM detail_sla ADA
-            if 'detail_sla' not in df.columns:
-                st.warning("⚠️ Kolom 'Detail SLA' belum ada di database.")
-                st.info("💡 Jalankan 'Upload & Compile' ulang untuk mengisi Detail SLA, atau gunakan menu 'FPTK View' untuk edit manual.")
+            if 'detail_sla' in df and df['detail_sla'].notna().any():
+                detail_counts = df['detail_sla'].value_counts().reset_index()
+                detail_counts.columns = ['Detail SLA', 'Count']
                 
-                # Tampilkan tombol untuk refresh SLA
-                if st.button("🔄 Hitung Ulang SLA untuk Semua Data", key="recalc_sla"):
-                    with st.spinner("Menghitung ulang SLA untuk semua data..."):
-                        try:
-                            # Ambil semua data FPTK
-                            all_fptk = db.query(FPTK).all()
-                            updated_count = 0
-                            for f in all_fptk:
-                                # Hitung ulang SLA
-                                sla_days = calculate_sla_days(f.level_number or 1)
-                                deadline_sla = calculate_deadline_sla(f.fptk_date_real, sla_days)
-                                detail_sla = calculate_detail_sla(
-                                    status=f.status or "OP",
-                                    deadline_sla=deadline_sla,
-                                    offering_date=f.offering_date
-                                )
-                                f.jumlah_sla = sla_days
-                                f.deadline_sla = deadline_sla
-                                f.detail_sla = detail_sla
-                                f.last_updated_at = datetime.now()
-                                updated_count += 1
-                            db.commit()
-                            st.success(f"✅ Berhasil mengupdate {updated_count} data FPTK!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                continue
-            elif df['detail_sla'].isna().all():
-                st.warning("⚠️ Semua data Detail SLA masih kosong.")
-                st.info("💡 Jalankan 'Upload & Compile' ulang, atau gunakan tombol di bawah.")
+                # Urutkan sesuai dengan yang diinginkan
+                sla_order = [
+                    "OP Belum Lewat SLA",
+                    "OP Tidak Lulus SLA",
+                    "Closed Lulus SLA",
+                    "Closed Tidak Lulus SLA",
+                    "Cancel FPTK"
+                ]
                 
-                if st.button("🔄 Hitung Ulang SLA untuk Semua Data", key="recalc_sla_empty"):
-                    with st.spinner("Menghitung ulang SLA untuk semua data..."):
-                        try:
-                            all_fptk = db.query(FPTK).all()
-                            updated_count = 0
-                            for f in all_fptk:
-                                sla_days = calculate_sla_days(f.level_number or 1)
-                                deadline_sla = calculate_deadline_sla(f.fptk_date_real, sla_days)
-                                detail_sla = calculate_detail_sla(
-                                    status=f.status or "OP",
-                                    deadline_sla=deadline_sla,
-                                    offering_date=f.offering_date
-                                )
-                                f.jumlah_sla = sla_days
-                                f.deadline_sla = deadline_sla
-                                f.detail_sla = detail_sla
-                                f.last_updated_at = datetime.now()
-                                updated_count += 1
-                            db.commit()
-                            st.success(f"✅ Berhasil mengupdate {updated_count} data FPTK!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                continue
+                # Filter hanya yang ada di data
+                sla_order_existing = [s for s in sla_order if s in detail_counts['Detail SLA'].values]
+                detail_counts = detail_counts[detail_counts['Detail SLA'].isin(sla_order_existing)]
+                
+                if not detail_counts.empty:
+                    # Warna untuk setiap kategori
+                    color_map = {
+                        "OP Belum Lewat SLA": "#2ecc71",      # Hijau
+                        "OP Tidak Lulus SLA": "#e74c3c",       # Merah
+                        "Closed Lulus SLA": "#3498db",         # Biru
+                        "Closed Tidak Lulus SLA": "#e67e22",   # Orange
+                        "Cancel FPTK": "#95a5a6"               # Abu-abu
+                    }
                     
-            # Filter data yang tidak kosong
-            detail_df = df[df['detail_sla'].notna()]
-            
-            if detail_df.empty:
-                st.info("Belum ada data Detail SLA yang terisi.")
-                st.info("💡 Gunakan tombol di atas untuk menghitung ulang SLA.")
-                continue
-                
-            detail_counts = detail_df['detail_sla'].value_counts().reset_index()
-            detail_counts.columns = ['Detail SLA', 'Count']
-            
-            # Urutkan sesuai dengan yang diinginkan
-            sla_order = [
-                "OP Belum Lewat SLA",
-                "OP Tidak Lulus SLA",
-                "Closed Lulus SLA",
-                "Closed Tidak Lulus SLA",
-                "Cancel FPTK"
-            ]
-            
-            # Filter hanya yang ada di data
-            sla_order_existing = [s for s in sla_order if s in detail_counts['Detail SLA'].values]
-            detail_counts = detail_counts[detail_counts['Detail SLA'].isin(sla_order_existing)]
-            
-            if not detail_counts.empty:
-                # Warna untuk setiap kategori
-                color_map = {
-                    "OP Belum Lewat SLA": "#2ecc71",      # Hijau
-                    "OP Tidak Lulus SLA": "#e74c3c",       # Merah
-                    "Closed Lulus SLA": "#3498db",         # Biru
-                    "Closed Tidak Lulus SLA": "#e67e22",   # Orange
-                    "Cancel FPTK": "#95a5a6"               # Abu-abu
-                }
-                
-                fig = px.bar(
-                    detail_counts, 
-                    x='Detail SLA', 
-                    y='Count', 
-                    title='Detail SLA Distribution',
-                    color='Detail SLA',
-                    color_discrete_map=color_map,
-                    text='Count'
-                )
-                fig.update_layout(height=400, xaxis_tickangle=-45)
-                fig.update_traces(textposition='outside')
-                st.plotly_chart(fig, use_container_width=True)
-                
-                # Tampilkan juga tabel summary
-                st.dataframe(detail_counts, use_container_width=True, hide_index=True)
-                
-                # Hitung summary
-                lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Belum Lewat SLA", "Closed Lulus SLA"])]['Count'].sum()
-                tidak_lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"])]['Count'].sum()
-                cancel = detail_counts[detail_counts['Detail SLA'] == "Cancel FPTK"]['Count'].sum()
-                
-                col_a, col_b, col_c = st.columns(3)
-                col_a.metric("✅ Lulus SLA", lulus)
-                col_b.metric("❌ Tidak Lulus", tidak_lulus)
-                col_c.metric("⏭️ Cancel", cancel)
+                    fig = px.bar(
+                        detail_counts, 
+                        x='Detail SLA', 
+                        y='Count', 
+                        title='Detail SLA Distribution',
+                        color='Detail SLA',
+                        color_discrete_map=color_map,
+                        text='Count'
+                    )
+                    fig.update_layout(height=400, xaxis_tickangle=-45)
+                    fig.update_traces(textposition='outside')
+                    st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Tampilkan juga tabel summary
+                    st.dataframe(detail_counts, use_container_width=True, hide_index=True)
+                    
+                    # Hitung summary
+                    lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Belum Lewat SLA", "Closed Lulus SLA"])]['Count'].sum()
+                    tidak_lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"])]['Count'].sum()
+                    cancel = detail_counts[detail_counts['Detail SLA'] == "Cancel FPTK"]['Count'].sum()
+                    
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("✅ Lulus SLA", lulus)
+                    col_b.metric("❌ Tidak Lulus", tidak_lulus)
+                    col_c.metric("⏭️ Cancel", cancel)
+                else:
+                    st.info("Belum ada data Detail SLA")
             else:
-                st.info("Data Detail SLA tersedia tapi tidak ada yang cocok dengan kategori yang diharapkan.")       
+                st.info("Belum ada data Detail SLA")        
         with c2:
             if 'fptk_date_real' in df and df['fptk_date_real'].notna().any():
                 df['date'] = pd.to_datetime(df['fptk_date_real'])
