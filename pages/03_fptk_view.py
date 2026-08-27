@@ -92,14 +92,13 @@ def show_sourcing_view():
         
         df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
         
-        # Show all columns except audit columns
-        exclude_cols = ['created_at', 'last_updated_at', 'last_compile_action', 
-                       'source_file', 'source_file_hash', 'source_user_id', 'source_cycle_id']
+        # Show all columns except audit columns and blacklisted_by
+        exclude_cols = [
+            'created_at', 'last_updated_at', 'last_compile_action', 
+            'source_file', 'source_file_hash', 'source_user_id', 'source_cycle_id',
+            'blacklisted_by'  # Tambahkan ini
+        ]
         display_cols = [c for c in df.columns if c not in exclude_cols]
-        
-        # Remove blacklisted_by from display
-        if 'blacklisted_by' in display_cols:
-            display_cols.remove('blacklisted_by')
         
         # Map column names to more readable format
         column_config = {
@@ -179,23 +178,26 @@ def show_sourcing_view():
             "blacklist_reason": "Alasan Blacklist"
         }
         
-        # Create display dataframe with safe renaming
+        # Create display dataframe
         display_df = df[display_cols].copy()
         
-        # Rename columns safely
+        # Rename columns safely WITHOUT duplicates
         new_columns = []
-        used_names = set()
+        seen_names = set()
+        
         for col in display_df.columns:
             new_name = column_config.get(col, col)
-            # If duplicate name exists, add a suffix
-            if new_name in used_names:
-                # Find original column name to use instead
-                new_columns.append(col)
+            
+            # If this name already exists, use original column name
+            if new_name in seen_names:
+                new_columns.append(col)  # Keep original name
             else:
                 new_columns.append(new_name)
-                used_names.add(new_name)
+                seen_names.add(new_name)
+        
         display_df.columns = new_columns
         
+        # Display the dataframe
         st.dataframe(
             display_df,
             use_container_width=True,
