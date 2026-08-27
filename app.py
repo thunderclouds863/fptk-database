@@ -823,3 +823,72 @@ elif page == "transfer_fptk":
         transfer_fptk.show_fptk_transfer()
     except ModuleNotFoundError:
         st.error("❌ File pages/17_fptk_transfer.py tidak ditemukan!")
+
+# ============================================================
+# EXPORT MENU
+# ============================================================
+
+st.markdown("---")
+st.markdown("### 📥 Export Data")
+
+if st.button("📊 Export All Data", use_container_width=True):
+    with st.spinner("Mengekspor data..."):
+        db = SessionLocal()
+        try:
+            from core.export_excel import export_database_to_excel
+            filepath = export_database_to_excel(db)
+            
+            # Baca file untuk download
+            with open(filepath, "rb") as f:
+                file_data = f.read()
+            
+            st.download_button(
+                label="📥 Download Excel",
+                data=file_data,
+                file_name=os.path.basename(filepath),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            st.success(f"✅ Export berhasil! File: {os.path.basename(filepath)}")
+        finally:
+            db.close()
+
+# ============================================================
+# SINGLE SHEET EXPORT (Opsional)
+# ============================================================
+
+with st.expander("📋 Export Sheet Spesifik"):
+    sheet_options = [
+        "Blacklist Candidate",
+        "DB Kode Posisi", 
+        "FPTK",
+        "DB Sourcing",
+        "Master Dropdown",
+        "Evidence"
+    ]
+    selected_sheet = st.selectbox("Pilih Sheet", sheet_options)
+    
+    if st.button(f"Export {selected_sheet}"):
+        with st.spinner(f"Mengekspor {selected_sheet}..."):
+            db = SessionLocal()
+            try:
+                from core.export_excel import export_single_sheet
+                df = export_single_sheet(db, selected_sheet)
+                
+                # Convert ke Excel
+                from io import BytesIO
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name=selected_sheet, index=False)
+                output.seek(0)
+                
+                st.download_button(
+                    label=f"📥 Download {selected_sheet}.xlsx",
+                    data=output.getvalue(),
+                    file_name=f"{selected_sheet}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                st.success(f"✅ Export {selected_sheet} berhasil!")
+            finally:
+                db.close()
