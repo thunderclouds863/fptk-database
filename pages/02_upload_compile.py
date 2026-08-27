@@ -6,7 +6,21 @@ from core.database import get_db
 from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog
 from core.auth import get_current_user, is_admin, hash_file, sanitize_filename
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
+# Untuk FPTK
 from core.validator import validate_fptk_file
+valid, errors = validate_fptk_file(df_fptk, db, user.id)
+
+# Untuk DB Sourcing
+from core.validator import validate_db_sourcing_file
+valid, errors = validate_db_sourcing_file(df_sourcing, db, user.id)
+
+# Untuk Blacklist
+from core.validator import validate_blacklist_file
+valid, errors = validate_blacklist_file(df_blacklist, db, user.id)
+
+# Untuk DB Kode Posisi
+from core.validator import validate_db_kode_posisi_file
+valid, errors = validate_db_kode_posisi_file(df_db_kode_posisi, db, user.id)
 from core.compiler import compile_fptk
 from core.utils import (
     normalize_key, safe_int, parse_date_dmy,
