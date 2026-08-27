@@ -2,6 +2,7 @@
 
 import pandas as pd
 import re
+import math
 from datetime import datetime, date, timedelta
 import streamlit as st
 
@@ -78,6 +79,69 @@ def safe_float(value, default=0.0):
         return float(str(value).replace(',', '.'))
     except (ValueError, TypeError):
         return default
+
+def safe_string(value, default=''):
+    """
+    Safely convert value to string, return default if invalid.
+    This handles NaN, None, and other edge cases.
+    """
+    if value is None:
+        return default
+    if isinstance(value, float) and math.isnan(value):
+        return default
+    if isinstance(value, pd.Series):
+        value = value.iloc[0] if len(value) > 0 else default
+    if isinstance(value, (list, tuple)):
+        value = value[0] if len(value) > 0 else default
+    if value is None:
+        return default
+    return str(value).strip()
+
+def safe_boolean_char(value):
+    """
+    Convert various boolean representations to 'V'/'X' or None.
+    V = Valid/True, X = Invalid/False
+    
+    This is CRITICAL for preventing 'V' from being inserted into numeric columns.
+    """
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return 'V' if value else 'X'
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, (int, float)):
+        return 'V' if value else 'X'
+    if isinstance(value, str):
+        val = value.strip().upper()
+        if val in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
+            return 'V'
+        if val in ['X', 'N', 'NO', 'FALSE', '0']:
+            return 'X'
+        return None
+    if isinstance(value, pd.Series):
+        return safe_boolean_char(value.iloc[0]) if len(value) > 0 else None
+    return None
+
+def safe_date(value):
+    """Safely convert to date, return None if invalid"""
+    if value is None:
+        return None
+    if isinstance(value, float) and math.isnan(value):
+        return None
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    if isinstance(value, str):
+        return parse_date_dmy(value)
+    return None
+
+def sanitize_date_value(val):
+    """Konversi nan/NaT ke None untuk SQLAlchemy, return date object"""
+    return safe_date(val)
 
 # ============================================================
 # FUNGSI SLA - MIRIP VBA
