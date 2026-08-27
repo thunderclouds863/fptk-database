@@ -2,6 +2,7 @@ import streamlit as st
 import importlib
 import time
 import base64
+from core.session_manager import get_session_manager
 
 from core.database import SessionLocal, init_db
 from core.auth import (
@@ -32,23 +33,25 @@ st.set_page_config(
 # ============================================================
 
 init_db()
+session_mgr = get_session_manager()
 
 
 # ============================================================
-# SESSION STATE - INITIALIZATION
+# SESSION STATE - SYNC DENGAN SESSION MANAGER
 # ============================================================
 
+# Inisialisasi session_state dari session_manager
 if "user_id" not in st.session_state:
-    st.session_state.user_id = None
+    st.session_state.user_id = session_mgr.user_id
 
 if "username" not in st.session_state:
-    st.session_state.username = None
+    st.session_state.username = session_mgr.username
 
 if "role" not in st.session_state:
-    st.session_state.role = None
+    st.session_state.role = session_mgr.role
 
 if "user_display" not in st.session_state:
-    st.session_state.user_display = None
+    st.session_state.user_display = session_mgr.user_display
 
 if "page" not in st.session_state:
     st.session_state.page = "Dashboard"
@@ -423,6 +426,12 @@ if not st.session_state.user_id:
 
                     if user:
 
+                        session_mgr.login(
+                            user.id,
+                            user.username,
+                            user.role,
+                            user.display_name or user.username
+                        )
                         st.session_state.user_id = user.id
                         st.session_state.username = user.username
                         st.session_state.role = user.role
@@ -647,10 +656,26 @@ with st.sidebar:
         use_container_width=True
     ):
 
+        session_mgr.logout()
         st.session_state.clear()
 
         st.rerun()
+# ============================================================
+# SYNC SESSION STATE DENGAN SESSION MANAGER
+# ============================================================
 
+if st.session_state.user_id and not session_mgr.is_logged_in:
+    session_mgr.login(
+        st.session_state.user_id,
+        st.session_state.username,
+        st.session_state.role,
+        st.session_state.user_display
+    )
+elif not st.session_state.user_id and session_mgr.is_logged_in:
+    st.session_state.user_id = session_mgr.user_id
+    st.session_state.username = session_mgr.username
+    st.session_state.role = session_mgr.role
+    st.session_state.user_display = session_mgr.user_display
 
 # ============================================================
 # PAGE RENDERING
