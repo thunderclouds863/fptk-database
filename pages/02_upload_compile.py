@@ -84,44 +84,44 @@ def show_upload_compile():
         st.warning("Silakan login terlebih dahulu.")
         return
 
-        # ====================================
-        # ADMIN TEMPLATE MANAGEMENT
-        # ====================================
-        
-        if is_admin(db):
-        
-            st.markdown("---")
-        
-            st.subheader(
-                "⚙️ Admin - Template Excel"
-            )
-        
-        
-            template_file = st.file_uploader(
-                "Upload Template Excel",
-                type=["xlsx"],
-                key="admin_template_upload"
-            )
-        
-        
-            if template_file:
-        
-                if st.button(
-                    "💾 Simpan Template",
-                    key="save_template_btn"
-                ):
-        
-                    save_template(
-                        db,
-                        template_file,
-                        user.id
-                    )
-        
-                    st.success(
-                        "✅ Template berhasil diperbarui"
-                    )
-        
-                    st.rerun()
+   # ====================================
+    # ADMIN TEMPLATE MANAGEMENT
+    # ====================================
+    
+    if is_admin(db):
+    
+        st.markdown("---")
+    
+        st.subheader(
+            "⚙️ Admin - Template Excel"
+        )
+    
+    
+        template_file = st.file_uploader(
+            "Upload Template Excel",
+            type=["xlsx"],
+            key="admin_template_upload"
+        )
+    
+    
+        if template_file:
+    
+            if st.button(
+                "💾 Simpan Template",
+                key="save_template_btn"
+            ):
+    
+                save_template(
+                    db,
+                    template_file,
+                    user.id
+                )
+    
+                st.success(
+                    "✅ Template berhasil diperbarui"
+                )
+    
+                st.rerun()
     
     master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
     
