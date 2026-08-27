@@ -114,6 +114,7 @@ class FPTK(Base):
 
 class DBKodePosisi(Base):
     __tablename__ = "db_kode_posisi"
+    __table_args__ = {'extend_existing': True}
     id = Column(Integer, primary_key=True, index=True)
     kode = Column(String(50))
     position = Column(String(255), nullable=False, index=True)
