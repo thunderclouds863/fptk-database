@@ -110,7 +110,7 @@ def show_fptk_view():
         use_container_width=True,
         height=400,
         column_config={
-            "id": "ID",
+            "id": "fptk_date_real.strftime('%d/%m/%Y')",
             "kode_unik": "Kode Unik",
             "posisi": "Posisi",
             "pic_recruiter": "PIC",
