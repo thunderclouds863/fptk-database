@@ -76,21 +76,133 @@ def safe_value_for_db(value, default=None):
     return str(value) if value is not None else default
 
 
-def safe_string_for_db(value, default=''):
-    """Safely convert to string for database storage"""
+def safe_string_for_db(value, default='', max_length=None):
+    """
+    Safely convert to string for database storage with optional truncation.
+    
+    Args:
+        value: Nilai yang akan di-convert
+        default: Nilai default jika value invalid
+        max_length: Maksimal panjang string (None = tidak dibatasi)
+    """
     if value is None:
         return default
     if isinstance(value, float) and math.isnan(value):
         return default
     if isinstance(value, pd.Series):
-        return safe_string_for_db(value.iloc[0], default) if len(value) > 0 else default
+        return safe_string_for_db(value.iloc[0], default, max_length) if len(value) > 0 else default
     if isinstance(value, (list, tuple)):
-        return safe_string_for_db(value[0], default) if len(value) > 0 else default
+        return safe_string_for_db(value[0], default, max_length) if len(value) > 0 else default
     if isinstance(value, str):
-        return value.strip()
+        result = value.strip()
+    elif isinstance(value, (int, float)):
+        result = str(value)
+    else:
+        result = str(value) if value is not None else default
+    
+    # Truncate if max_length is specified
+    if max_length is not None and len(result) > max_length:
+        result = result[:max_length]
+    
+    return result
+
+
+def get_string_value(row, field, max_length=None, default=''):
+    """
+    Get string value from row with truncation support.
+    
+    Args:
+        row: Dictionary or Series
+        field: Field name
+        max_length: Max length for truncation
+        default: Default value if empty
+    """
+    val = row.get(field)
+    return safe_string_for_db(val, default, max_length)
+
+
+def safe_numeric_value(value, default=None):
+    """Safely convert ANY value to a proper numeric (int/float) or None."""
+    if value is None:
+        return default
+    
+    if isinstance(value, float) and math.isnan(value):
+        return default
+    
+    if isinstance(value, pd.Series):
+        return safe_numeric_value(value.iloc[0], default) if len(value) > 0 else default
+    
+    if isinstance(value, str):
+        v = value.strip().upper()
+        # If it's a status value (V/X/Y/N), return None
+        if v in ['V', 'X', 'Y', 'N', 'YES', 'NO', 'TRUE', 'FALSE']:
+            return default
+        v = v.replace(',', '.').replace(' ', '')
+        v = re.sub(r'[^\d.]', '', v)
+        if not v:
+            return default
+        try:
+            return float(v)
+        except ValueError:
+            return default
+    
     if isinstance(value, (int, float)):
-        return str(value)
-    return str(value)
+        if math.isnan(value):
+            return default
+        return float(value)
+    
+    return default
+
+
+def safe_int_value(value, default=None):
+    """Safely convert to integer or None"""
+    if value is None:
+        return default
+    
+    if isinstance(value, float) and math.isnan(value):
+        return default
+    
+    if isinstance(value, pd.Series):
+        return safe_int_value(value.iloc[0], default) if len(value) > 0 else default
+    
+    if isinstance(value, str):
+        v = value.strip().upper()
+        if v in ['V', 'X', 'Y', 'N', 'YES', 'NO', 'TRUE', 'FALSE']:
+            return default
+        v = re.sub(r'[^\d]', '', v)
+        if not v:
+            return default
+        try:
+            return int(v)
+        except ValueError:
+            return default
+    
+    if isinstance(value, (int, float)):
+        if math.isnan(value):
+            return default
+        return int(value)
+    
+    return default
+
+
+def get_boolean_value(val):
+    """Convert to 'V' or 'X' or None"""
+    if val is None:
+        return None
+    if isinstance(val, float) and math.isnan(val):
+        return None
+    if isinstance(val, bool):
+        return 'V' if val else 'X'
+    if isinstance(val, (int, float)):
+        return 'V' if val else 'X'
+    if isinstance(val, str):
+        v = val.strip().upper()
+        if v in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
+            return 'V'
+        if v in ['X', 'N', 'NO', 'FALSE', '0']:
+            return 'X'
+        return None
+    return None
 
 
 def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
@@ -114,9 +226,9 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
     for idx, row in df.iterrows():
         row_num = idx + 2
 
-        kode_unik = safe_string(row.get('kode_unik', ''))
-        posisi = safe_string(row.get('posisi', ''))
-        status = safe_string(row.get('status', ''))
+        kode_unik = safe_string_for_db(row.get('kode_unik', ''), max_length=100)
+        posisi = safe_string_for_db(row.get('posisi', ''), max_length=500)
+        status = safe_string_for_db(row.get('status', ''), max_length=50)
 
         fptk_date_real = safe_date(row.get('fptk_date_real'))
         offering_date = safe_date(row.get('offering_date'))
@@ -179,9 +291,9 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
 
         week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
         month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
-        kode_bu = safe_string(row.get('kode_pic', ''))[:4] if row.get('kode_pic') else ''
+        kode_bu = safe_string_for_db(row.get('kode_pic', ''), max_length=50)[:4] if row.get('kode_pic') else ''
 
-        filter_kat = safe_string(row.get('filter_kategorisasi_fptk', ''))
+        filter_kat = safe_string_for_db(row.get('filter_kategorisasi_fptk', ''), max_length=100)
         
         posisi_lower = posisi.lower()
         if not filter_kat:
@@ -194,26 +306,26 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             elif level_num == 4:
                 filter_kat = 'Level 4'
 
-        avail = safe_boolean_char(row.get('fptk_availability', ''))
+        avail = get_boolean_value(row.get('fptk_availability', ''))
 
-        jumlah_sla = safe_int(row.get('jumlah_sla'), sla_days)
-        vacancy = safe_int(row.get('vacancy'), 1)
+        jumlah_sla = safe_int_value(row.get('jumlah_sla'), sla_days)
+        vacancy = safe_int_value(row.get('vacancy'), 1)
         level_number = int(level_num) if level_num else 1
 
         if existing:
-            existing.kode_pic = safe_string(row.get('kode_pic'))
+            existing.kode_pic = safe_string_for_db(row.get('kode_pic'), max_length=50)
             existing.fptk_date_real = fptk_date_real
             existing.fptk_date_kode = fptk_date_real
             existing.posisi = posisi
-            existing.business_unit = safe_string(row.get('business_unit'))
-            existing.direktorat = safe_string(row.get('direktorat'))
-            existing.divisi = safe_string(row.get('divisi'))
-            existing.department = safe_string(row.get('department'))
+            existing.business_unit = safe_string_for_db(row.get('business_unit'), max_length=100)
+            existing.direktorat = safe_string_for_db(row.get('direktorat'), max_length=100)
+            existing.divisi = safe_string_for_db(row.get('divisi'), max_length=100)
+            existing.department = safe_string_for_db(row.get('department'), max_length=100)
             existing.level_fptk = level_fptk
             existing.level_number = level_number
-            existing.alasan_permintaan_fptk = safe_string(row.get('alasan_permintaan_fptk'))
-            existing.category_fptk = safe_string(row.get('category_fptk'))
-            existing.pic_recruiter = safe_string(row.get('pic_recruiter'))
+            existing.alasan_permintaan_fptk = safe_string_for_db(row.get('alasan_permintaan_fptk'), max_length=200)
+            existing.category_fptk = safe_string_for_db(row.get('category_fptk'), max_length=100)
+            existing.pic_recruiter = safe_string_for_db(row.get('pic_recruiter'), max_length=100)
             existing.vacancy = vacancy
             existing.status = status
             existing.offering_date = offering_date
@@ -231,31 +343,31 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             existing.last_compile_action = "UPDATE"
             existing.source_user_id = user_id
             existing.source_cycle_id = cycle_id
-            existing.source_file = safe_string(file_name)
+            existing.source_file = safe_string_for_db(file_name, max_length=255)
             existing.source_file_hash = file_hash
             existing.is_sto = is_sto
             updated += 1
         else:
             kode_angka = row.get('kode_angka')
             if pd.isna(kode_angka) or not kode_angka:
-                kode_angka = (safe_string(row.get('kode_pic', ''))[:4] + str(vacancy))
+                kode_angka = (safe_string_for_db(row.get('kode_pic', ''), max_length=50)[:4] + str(vacancy))
 
             new_fptk = FPTK(
                 kode_unik=kode_unik,
                 posisi=posisi,
-                kode_pic=safe_string(row.get('kode_pic')),
+                kode_pic=safe_string_for_db(row.get('kode_pic'), max_length=50),
                 fptk_date_real=fptk_date_real,
                 fptk_date_kode=fptk_date_real,
-                kode_angka=safe_string(kode_angka),
-                business_unit=safe_string(row.get('business_unit')),
-                direktorat=safe_string(row.get('direktorat')),
-                divisi=safe_string(row.get('divisi')),
-                department=safe_string(row.get('department')),
+                kode_angka=safe_string_for_db(kode_angka, max_length=50),
+                business_unit=safe_string_for_db(row.get('business_unit'), max_length=100),
+                direktorat=safe_string_for_db(row.get('direktorat'), max_length=100),
+                divisi=safe_string_for_db(row.get('divisi'), max_length=100),
+                department=safe_string_for_db(row.get('department'), max_length=100),
                 level_fptk=level_fptk,
                 level_number=level_number,
-                alasan_permintaan_fptk=safe_string(row.get('alasan_permintaan_fptk')),
-                category_fptk=safe_string(row.get('category_fptk')),
-                pic_recruiter=safe_string(row.get('pic_recruiter')),
+                alasan_permintaan_fptk=safe_string_for_db(row.get('alasan_permintaan_fptk'), max_length=200),
+                category_fptk=safe_string_for_db(row.get('category_fptk'), max_length=100),
+                pic_recruiter=safe_string_for_db(row.get('pic_recruiter'), max_length=100),
                 filter_kategorisasi_fptk=filter_kat,
                 vacancy=vacancy,
                 status=status,
@@ -270,7 +382,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 fptk_availability=avail,
                 source_user_id=user_id,
                 source_cycle_id=cycle_id,
-                source_file=safe_string(file_name),
+                source_file=safe_string_for_db(file_name, max_length=255),
                 source_file_hash=file_hash,
                 is_sto=is_sto,
                 created_at=datetime.now(),
@@ -289,7 +401,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
     log = UploadLog(
         cycle_id=cycle_id,
         user_id=user_id,
-        file_name=safe_string(file_name),
+        file_name=safe_string_for_db(file_name, max_length=255),
         file_size_bytes=len(file_bytes) if file_bytes else 0,
         file_hash=file_hash,
         status="SUCCESS" if not errors else "PARTIAL",
@@ -357,7 +469,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
     """
     Compile DB Sourcing dari uploaded file.
     
-    CRITICAL FIX: Semua nilai 'nan' dan 'V'/'X' ditangani dengan benar.
+    CRITICAL FIX: Semua nilai di-truncate sesuai batas kolom database.
     """
     from core.validator import validate_db_sourcing_file
     
@@ -387,8 +499,8 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
         df = valid_rows.copy()
     
     for idx, row in df.iterrows():
-        kode_unik = safe_string(row.get('kode_unik', ''))
-        nama = safe_string(row.get('nama', ''))
+        kode_unik = safe_string_for_db(row.get('kode_unik', ''), max_length=100)
+        nama = safe_string_for_db(row.get('nama', ''), max_length=255)
         
         if not kode_unik or not nama:
             continue
@@ -405,114 +517,67 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 sourcing_date = datetime.now().date()
             
             # ============================================================
-            # SAFE CONVERSIONS - HANDLE EVERYTHING
+            # SAFE CONVERSIONS - WITH TRUNCATION
             # ============================================================
             
             # --- NUMERIC FIELDS ---
-            no_val = safe_int(row.get('no'), imported + 1)
+            no_val = safe_int_value(row.get('no'), imported + 1)
+            tahun_lulus_val = safe_int_value(row.get('tahun_lulus'))
+            ipk_val = safe_numeric_value(row.get('ipk'))
             
-            # Handle tahun_lulus - convert to int or None
-            tahun_lulus_raw = row.get('tahun_lulus')
-            if tahun_lulus_raw is None or pd.isna(tahun_lulus_raw):
-                tahun_lulus_val = None
-            elif isinstance(tahun_lulus_raw, (int, float)):
-                tahun_lulus_val = int(tahun_lulus_raw) if not math.isnan(tahun_lulus_raw) else None
-            elif isinstance(tahun_lulus_raw, str):
-                try:
-                    tahun_lulus_val = int(float(tahun_lulus_raw))
-                except:
-                    tahun_lulus_val = None
-            else:
-                tahun_lulus_val = None
+            # --- STRING FIELDS - WITH PROPER MAX LENGTH ---
+            # VARCHAR(255)
+            posisi_val = safe_string_for_db(row.get('posisi'), max_length=255)
+            nama_univ_top10_val = safe_string_for_db(row.get('nama_universitas_top10'), max_length=255)
+            nama_univ_lain_val = safe_string_for_db(row.get('nama_universitas_lainnya'), max_length=255)
+            email_val = safe_string_for_db(row.get('email'), max_length=255)
+            last_position_val = safe_string_for_db(row.get('last_position'), max_length=255)
+            last_company_val = safe_string_for_db(row.get('last_company'), max_length=255)
             
-            # Handle ipk - convert to float or None
-            ipk_raw = row.get('ipk')
-            if ipk_raw is None or pd.isna(ipk_raw):
-                ipk_val = None
-            elif isinstance(ipk_raw, (int, float)):
-                ipk_val = float(ipk_raw) if not math.isnan(ipk_raw) else None
-            elif isinstance(ipk_raw, str):
-                try:
-                    ipk_val = float(ipk_raw.replace(',', '.'))
-                except:
-                    ipk_val = None
-            else:
-                ipk_val = None
+            # VARCHAR(100)
+            model_rekrutmen_val = safe_string_for_db(row.get('model_rekrutmen'), max_length=100)
+            rekruter_val = safe_string_for_db(row.get('rekruter'), max_length=100)
+            sumber_sourcing_val = safe_string_for_db(row.get('sumber_sourcing'), max_length=100)
+            jurusan_val = safe_string_for_db(row.get('jurusan'), max_length=100)
+            domisili_val = safe_string_for_db(row.get('domisili'), max_length=100)
             
-            def get_string_value(row, field, max_length=None):
-                val = row.get(field)
+            # VARCHAR(50)
+            jenjang_val = safe_string_for_db(row.get('jenjang_pendidikan'), max_length=50)
+            skor_inggris_val = safe_string_for_db(row.get('skor_bahasa_inggris'), max_length=50)
+            last_tenure_val = safe_string_for_db(row.get('last_tenure'), max_length=50)
+            total_tenure_val = safe_string_for_db(row.get('total_tenure'), max_length=50)
             
-                if val is None:
-                    return ''
+            # CRITICAL: VARCHAR(20) - THESE ARE THE PROBLEM CHILDREN!
+            university_tier_val = safe_string_for_db(row.get('university_tier'), max_length=20)
+            ipk_tier_val = safe_string_for_db(row.get('ipk_tier'), max_length=20)
             
-                if isinstance(val, float) and math.isnan(val):
-                    return ''
+            # VARCHAR(20) - NOMOR HP
+            nomor_hp_val = safe_string_for_db(row.get('nomor_hp'), max_length=20)
             
-                value = str(val).strip()
-            
-                if max_length:
-                    return value[:max_length]
-            
-                return value
-            
-            posisi_val = get_string_value(row, 'posisi')
-            model_rekrutmen_val = get_string_value(row, 'model_rekrutmen')
-            rekruter_val = get_string_value(row, 'rekruter')
-            sumber_sourcing_val = get_string_value(row, 'sumber_sourcing')
-            nama_univ_top10_val = get_string_value(row, 'nama_universitas_top10')
-            nama_univ_lain_val = get_string_value(row, 'nama_universitas_lainnya')
-            jenjang_val = get_string_value(row, 'jenjang_pendidikan')
-            jurusan_val = get_string_value(row, 'jurusan')
-            skor_inggris_val = get_string_value(row, 'skor_bahasa_inggris')
-            university_tier_val = get_string_value(row, 'university_tier')
-            ipk_tier_val = get_string_value(row, 'ipk_tier')
-            nomor_hp_val = get_string_value(row, 'nomor_hp')
-            email_val = get_string_value(row, 'email')
-            domisili_val = get_string_value(row, 'domisili')
-            last_position_val = get_string_value(row, 'last_position')
-            last_company_val = get_string_value(row, 'last_company')
-            last_tenure_val = get_string_value(row, 'last_tenure')
-            total_tenure_val = get_string_value(row, 'total_tenure')
-            pernah_di_fmcg_val = get_string_value(row, 'pernah_di_fmcg')
+            # VARCHAR(10) - PERNAH DI FMCG
+            pernah_di_fmcg_val = safe_string_for_db(row.get('pernah_di_fmcg'), max_length=10)
             
             # ============================================================
-            # BOOLEAN-LIKE FIELDS (V/X) - HANDLE nan dan lainnya
+            # BOOLEAN-LIKE FIELDS (V/X) - VARCHAR(3)
             # ============================================================
-            def get_boolean_char(row, field):
-                val = row.get(field)
-                if val is None:
-                    return None
-                if isinstance(val, float) and math.isnan(val):
-                    return None
-                if isinstance(val, bool):
-                    return 'V' if val else 'X'
-                if isinstance(val, (int, float)):
-                    return 'V' if val else 'X'
-                if isinstance(val, str):
-                    v = val.strip().upper()
-                    if v in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
-                        return 'V'
-                    if v in ['X', 'N', 'NO', 'FALSE', '0']:
-                        return 'X'
-                    return None
-                if isinstance(val, pd.Series):
-                    return get_boolean_char(val, field) if len(val) > 0 else None
-                return None
-            
-            sourcing_hr_val = get_boolean_char(row, 'sourcing_hr')
-            shortlist_cv_val = get_boolean_char(row, 'shortlist_cv')
-            psikotes_val = get_boolean_char(row, 'psikotes')
-            hr_interview_val = get_boolean_char(row, 'hr_interview')
-            user_interview_val = get_boolean_char(row, 'user_interview')
-            offering_val = get_boolean_char(row, 'offering')
-            day1_val = get_boolean_char(row, 'day1')
+            sourcing_hr_val = get_boolean_value(row.get('sourcing_hr'))
+            shortlist_cv_val = get_boolean_value(row.get('shortlist_cv'))
+            psikotes_val = get_boolean_value(row.get('psikotes'))
+            hr_interview_val = get_boolean_value(row.get('hr_interview'))
+            user_interview_val = get_boolean_value(row.get('user_interview'))
+            offering_val = get_boolean_value(row.get('offering'))
+            day1_val = get_boolean_value(row.get('day1'))
             
             if existing:
                 # Update existing record
+                existing.no = no_val
+                existing.sourcing_date = sourcing_date
+                existing.kode_unik = kode_unik
                 existing.posisi = posisi_val
                 existing.model_rekrutmen = model_rekrutmen_val
                 existing.rekruter = rekruter_val
                 existing.sumber_sourcing = sumber_sourcing_val
+                existing.nama = nama
                 existing.nama_universitas_top10 = nama_univ_top10_val
                 existing.nama_universitas_lainnya = nama_univ_lain_val
                 existing.jenjang_pendidikan = jenjang_val
@@ -542,35 +607,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 updated += 1
             else:
                 # Insert new record
-                debug_fields = {
-                    "posisi": posisi_val,
-                    "model_rekrutmen": model_rekrutmen_val,
-                    "rekruter": rekruter_val,
-                    "sumber_sourcing": sumber_sourcing_val,
-                    "nama_universitas_top10": nama_univ_top10_val,
-                    "nama_universitas_lainnya": nama_univ_lain_val,
-                    "jenjang_pendidikan": jenjang_val,
-                    "jurusan": jurusan_val,
-                    "university_tier": university_tier_val,
-                    "ipk_tier": ipk_tier_val,
-                    "nomor_hp": nomor_hp_val,
-                    "email": email_val,
-                    "domisili": domisili_val,
-                    "last_position": last_position_val,
-                    "last_company": last_company_val,
-                    "last_tenure": last_tenure_val,
-                    "total_tenure": total_tenure_val,
-                    "pernah_di_fmcg": pernah_di_fmcg_val
-                }
-                
-                for k,v in debug_fields.items():
-                    if len(str(v)) > 20:
-                        print(
-                            "OVER LIMIT:",
-                            k,
-                            len(str(v)),
-                            v
-                        )
                 new_sourcing = DBSourcing(
                     no=no_val,
                     sourcing_date=sourcing_date,
@@ -606,8 +642,8 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     day1=day1_val,
                     source_user_id=user_id,
                     source_cycle_id=cycle_id,
-                    source_file=safe_string(file_name),
-                    source_file_hash=safe_string(file_hash),
+                    source_file=safe_string_for_db(file_name, max_length=255),
+                    source_file_hash=safe_string_for_db(file_hash, max_length=64),
                     created_at=datetime.now(),
                     last_compile_action="COMPILE"
                 )
@@ -651,7 +687,7 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
         return {"success": False, "imported": 0, "errors": val_errors}
     
     for _, row in df.iterrows():
-        position = safe_string(row.get('position', ''))
+        position = safe_string_for_db(row.get('position', ''), max_length=255)
         if not position:
             continue
         
@@ -661,27 +697,27 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
             ).first()
             
             if existing:
-                existing.kode = safe_string(row.get('kode'))
-                existing.location = safe_string(row.get('location'))
-                existing.business_unit = safe_string(row.get('business_unit'))
-                existing.division_chris = safe_string(row.get('division_chris'))
-                existing.department_chris = safe_string(row.get('department_chris'))
-                existing.user_manager = safe_string(row.get('user_manager'))
-                existing.indirect_user = safe_string(row.get('indirect_user'))
-                existing.directorate = safe_string(row.get('directorate'))
-                existing.year = safe_int(row.get('year'), datetime.now().year)
+                existing.kode = safe_string_for_db(row.get('kode'), max_length=50)
+                existing.location = safe_string_for_db(row.get('location'), max_length=100)
+                existing.business_unit = safe_string_for_db(row.get('business_unit'), max_length=100)
+                existing.division_chris = safe_string_for_db(row.get('division_chris'), max_length=100)
+                existing.department_chris = safe_string_for_db(row.get('department_chris'), max_length=100)
+                existing.user_manager = safe_string_for_db(row.get('user_manager'), max_length=100)
+                existing.indirect_user = safe_string_for_db(row.get('indirect_user'), max_length=100)
+                existing.directorate = safe_string_for_db(row.get('directorate'), max_length=100)
+                existing.year = safe_int_value(row.get('year'), datetime.now().year)
             else:
                 new_pos = DBKodePosisi(
-                    kode=safe_string(row.get('kode')),
+                    kode=safe_string_for_db(row.get('kode'), max_length=50),
                     position=position,
-                    location=safe_string(row.get('location')),
-                    business_unit=safe_string(row.get('business_unit')),
-                    division_chris=safe_string(row.get('division_chris')),
-                    department_chris=safe_string(row.get('department_chris')),
-                    user_manager=safe_string(row.get('user_manager')),
-                    indirect_user=safe_string(row.get('indirect_user')),
-                    directorate=safe_string(row.get('directorate')),
-                    year=safe_int(row.get('year'), datetime.now().year)
+                    location=safe_string_for_db(row.get('location'), max_length=100),
+                    business_unit=safe_string_for_db(row.get('business_unit'), max_length=100),
+                    division_chris=safe_string_for_db(row.get('division_chris'), max_length=100),
+                    department_chris=safe_string_for_db(row.get('department_chris'), max_length=100),
+                    user_manager=safe_string_for_db(row.get('user_manager'), max_length=100),
+                    indirect_user=safe_string_for_db(row.get('indirect_user'), max_length=100),
+                    directorate=safe_string_for_db(row.get('directorate'), max_length=100),
+                    year=safe_int_value(row.get('year'), datetime.now().year)
                 )
                 db.add(new_pos)
             imported += 1
@@ -722,7 +758,7 @@ def compile_blacklist(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int
         return {"success": False, "imported": 0, "errors": val_errors}
     
     for _, row in df.iterrows():
-        key = safe_string(row.get('key_value', ''))
+        key = safe_string_for_db(row.get('key_value', ''), max_length=255)
         if not key:
             continue
         
