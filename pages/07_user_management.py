@@ -6,6 +6,103 @@ from core.auth import get_current_user, is_admin, create_user, reset_password, h
 import pandas as pd
 from datetime import datetime
 
+# ============================================================
+# DIALOG KONFIRMASI HAPUS (POP-UP)
+# ============================================================
+@st.dialog("⚠️ Konfirmasi Hapus User")
+def confirm_delete_user(user_id: int, username: str):
+    st.warning(f"Yakin ingin menghapus user **{username}**?")
+    st.caption("Semua data terkait (FPTK, Sourcing, Evidence, Upload Logs, dll) akan ikut terhapus.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Ya, Hapus", type="primary", use_container_width=True):
+            db = next(get_db())
+            try:
+                # Hapus data terkait
+                db.query(Evidence).filter(Evidence.user_id == user_id).delete()
+                db.query(AuditLog).filter(AuditLog.user_id == user_id).delete()
+                db.query(UploadStatus).filter(UploadStatus.user_id == user_id).delete()
+                db.query(UploadLog).filter(UploadLog.user_id == user_id).delete()
+                db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).delete()
+                db.query(FPTK).filter(FPTK.source_user_id == user_id).delete()
+                
+                user_to_delete = db.query(User).filter(User.id == user_id).first()
+                if user_to_delete:
+                    db.delete(user_to_delete)
+                    db.commit()
+                    st.success(f"✅ User '{username}' berhasil dihapus!")
+                    st.rerun()
+                else:
+                    st.error("User tidak ditemukan!")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                db.rollback()
+            finally:
+                db.close()
+    
+    with col2:
+        if st.button("❌ Batal", use_container_width=True):
+            st.rerun()
+
+# ============================================================
+# DIALOG EDIT USER (POP-UP)
+# ============================================================
+@st.dialog("✏️ Edit User")
+def edit_user_dialog(user_id: int):
+    db = next(get_db())
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        st.error("User tidak ditemukan!")
+        db.close()
+        return
+    
+    with st.form("edit_user_form"):
+        col1, col2 = st.columns(2)
+        with col1:
+            new_username = st.text_input("Username", value=user.username)
+            new_display = st.text_input("Display Name", value=user.display_name or "")
+            new_role = st.selectbox("Role", ["user", "admin"], index=0 if user.role == "user" else 1)
+        with col2:
+            new_pic = st.text_input("PIC Recruiter", value=user.pic_recruiter or "")
+            reset_pw = st.checkbox("Reset Password")
+            new_password = st.text_input("Password Baru (min 6 karakter)", type="password", disabled=not reset_pw)
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.form_submit_button("💾 Simpan", type="primary", use_container_width=True):
+                try:
+                    # Cek username duplikat
+                    if new_username != user.username:
+                        existing = db.query(User).filter(User.username == new_username).first()
+                        if existing:
+                            st.error(f"Username '{new_username}' sudah digunakan!")
+                            st.stop()
+                    
+                    user.username = new_username
+                    user.display_name = new_display
+                    user.role = new_role
+                    user.pic_recruiter = new_pic
+                    
+                    if reset_pw and new_password and len(new_password) >= 6:
+                        user.password_hash = hash_password(new_password)
+                    
+                    db.commit()
+                    st.success("✅ User berhasil diupdate!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    db.rollback()
+        
+        with col2:
+            if st.form_submit_button("❌ Batal", use_container_width=True):
+                st.rerun()
+    
+    db.close()
+
+# ============================================================
+# MAIN FUNCTION
+# ============================================================
 def show_user_management():
     st.title("👥 User Management")
     st.markdown("Kelola akun user (Edit, Reset Password, Hapus).")
@@ -21,32 +118,19 @@ def show_user_management():
         return
     
     # ============================================================
-    # SESSION STATE
-    # ============================================================
-    if "edit_user_id" not in st.session_state:
-        st.session_state.edit_user_id = None
-    if "show_edit_form" not in st.session_state:
-        st.session_state.show_edit_form = False
-    if "delete_user_id" not in st.session_state:
-        st.session_state.delete_user_id = None
-    if "show_delete_popover" not in st.session_state:
-        st.session_state.show_delete_popover = False
-    
-    # ============================================================
     # DAFTAR USER DENGAN TABEL RAPI
     # ============================================================
     st.subheader("📋 Daftar User")
     users = db.query(User).order_by(User.username).all()
     
     if users:
-        # Buat data untuk tabel
+        # Buat data untuk ditampilkan
         data = []
         for u in users:
-            can_delete = u.id != user.id
             data.append({
                 "ID": u.id,
                 "Username": u.username,
-                "Role": "🛡️ Admin" if u.role == "admin" else "👤 User",
+                "Role": u.role,
                 "Display Name": u.display_name or u.username,
                 "PIC": u.pic_recruiter or "-",
                 "Last Login": u.last_login.strftime("%d/%m/%Y %H:%M") if u.last_login else "-",
@@ -54,190 +138,100 @@ def show_user_management():
             })
         df = pd.DataFrame(data)
         
-        # Tampilkan tabel dengan styling
-        st.dataframe(
-            df,
-            use_container_width=True,
-            height=400,
-            column_config={
-                "ID": st.column_config.NumberColumn("ID", width="small"),
-                "Username": st.column_config.TextColumn("Username", width="small"),
-                "Role": st.column_config.TextColumn("Role", width="small"),
-                "Display Name": st.column_config.TextColumn("Display Name", width="medium"),
-                "PIC": st.column_config.TextColumn("PIC", width="small"),
-                "Last Login": st.column_config.TextColumn("Last Login", width="medium"),
-                "Created": st.column_config.TextColumn("Created", width="medium"),
-            },
-            hide_index=True,
-        )
+        # Gunakan st.dataframe dengan column_config untuk tombol custom
+        # Karena st.dataframe tidak support tombol, kita pakai kombinasi
+        # Tampilkan tabel dengan st.columns untuk setiap baris
+        
+        # Header
+        cols = st.columns([0.5, 1.2, 0.7, 1.2, 0.8, 1.2, 1.2, 0.8, 0.8])
+        with cols[0]: st.markdown("**ID**")
+        with cols[1]: st.markdown("**Username**")
+        with cols[2]: st.markdown("**Role**")
+        with cols[3]: st.markdown("**Display Name**")
+        with cols[4]: st.markdown("**PIC**")
+        with cols[5]: st.markdown("**Last Login**")
+        with cols[6]: st.markdown("**Created**")
+        with cols[7]: st.markdown("**Edit**")
+        with cols[8]: st.markdown("**Hapus**")
+        
+        st.divider()
+        
+        # Data rows
+        for idx, row in df.iterrows():
+            cols = st.columns([0.5, 1.2, 0.7, 1.2, 0.8, 1.2, 1.2, 0.8, 0.8])
+            
+            with cols[0]:
+                st.write(row["ID"])
+            with cols[1]:
+                st.write(row["Username"])
+            with cols[2]:
+                st.write(row["Role"])
+            with cols[3]:
+                st.write(row["Display Name"])
+            with cols[4]:
+                st.write(row["PIC"])
+            with cols[5]:
+                st.write(row["Last Login"])
+            with cols[6]:
+                st.write(row["Created"])
+            
+            # Tombol Edit
+            with cols[7]:
+                if st.button("✏️", key=f"edit_{row['ID']}", help="Edit user", use_container_width=True):
+                    edit_user_dialog(row["ID"])
+            
+            # Tombol Hapus (jangan hapus diri sendiri)
+            with cols[8]:
+                if row["ID"] != user.id:
+                    if st.button("🗑️", key=f"delete_{row['ID']}", help="Hapus user", use_container_width=True):
+                        confirm_delete_user(row["ID"], row["Username"])
+                else:
+                    st.write("-")
+            
+            # st.divider() tipis
+            st.markdown("---")
         
         # ============================================================
-        # TOMBOL AKSI DI BAWAH TABEL (Edit / Hapus per User)
+        # TAMBAH USER BARU
         # ============================================================
         st.markdown("---")
-        st.markdown("**Pilih user untuk diedit atau dihapus:**")
+        st.subheader("➕ Tambah User Baru")
         
-        # Dropdown pilih user
-        user_options = {}
-        for u in users:
-            label = f"{u.username} ({u.role}) - {u.display_name or u.username}"
-            user_options[label] = u.id
-        
-        col1, col2, col3 = st.columns([3, 1, 1])
-        with col1:
-            selected_user_label = st.selectbox("Pilih User", list(user_options.keys()), key="user_action_select")
-            selected_user_id = user_options[selected_user_label]
-            selected_user_obj = db.query(User).filter(User.id == selected_user_id).first()
-        
-        with col2:
-            # Tombol Edit
-            if st.button("✏️ Edit", use_container_width=True, type="primary"):
-                st.session_state.edit_user_id = selected_user_id
-                st.session_state.show_edit_form = True
-                st.rerun()
-        
-        with col3:
-            # Tombol Hapus (disabled jika user sedang login)
-            if selected_user_id == user.id:
-                st.button("🗑️ Hapus", use_container_width=True, disabled=True, help="Tidak bisa menghapus diri sendiri")
-            else:
-                if st.button("🗑️ Hapus", use_container_width=True, type="secondary"):
-                    st.session_state.delete_user_id = selected_user_id
-                    st.session_state.show_delete_popover = True
-                    st.rerun()
-        
-        # ============================================================
-        # POPUP KONFIRMASI HAPUS
-        # ============================================================
-        if st.session_state.show_delete_popover and st.session_state.delete_user_id:
-            delete_user = db.query(User).filter(User.id == st.session_state.delete_user_id).first()
-            if delete_user:
-                with st.popover("⚠️ Konfirmasi Hapus", use_container_width=True):
-                    st.warning(f"Yakin ingin menghapus user **{delete_user.username}**?")
-                    st.caption(f"Role: {delete_user.role}")
-                    st.caption(f"Display: {delete_user.display_name or '-'}")
-                    st.caption(f"PIC: {delete_user.pic_recruiter or '-'}")
-                    st.caption("⚠️ Semua data terkait (FPTK, Sourcing, Evidence, dll) akan dihapus.")
-                    
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if st.button("✅ Ya, Hapus", type="primary", use_container_width=True):
-                            try:
-                                # Hapus data terkait
-                                db.query(Evidence).filter(Evidence.user_id == st.session_state.delete_user_id).delete()
-                                db.query(AuditLog).filter(AuditLog.user_id == st.session_state.delete_user_id).delete()
-                                db.query(UploadStatus).filter(UploadStatus.user_id == st.session_state.delete_user_id).delete()
-                                db.query(UploadLog).filter(UploadLog.user_id == st.session_state.delete_user_id).delete()
-                                db.query(DBSourcing).filter(DBSourcing.source_user_id == st.session_state.delete_user_id).delete()
-                                db.query(FPTK).filter(FPTK.source_user_id == st.session_state.delete_user_id).delete()
-                                db.delete(delete_user)
-                                db.commit()
-                                
-                                st.success(f"✅ User '{delete_user.username}' berhasil dihapus!")
-                                st.session_state.show_delete_popover = False
-                                st.session_state.delete_user_id = None
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
-                                db.rollback()
-                    with col2:
-                        if st.button("❌ Batal", use_container_width=True):
-                            st.session_state.show_delete_popover = False
-                            st.session_state.delete_user_id = None
-                            st.rerun()
-        
-        # ============================================================
-        # FORM EDIT USER (Muncul saat tombol Edit diklik)
-        # ============================================================
-        if st.session_state.show_edit_form and st.session_state.edit_user_id:
-            edit_user = db.query(User).filter(User.id == st.session_state.edit_user_id).first()
-            if edit_user:
-                st.markdown("---")
-                st.subheader(f"✏️ Edit User: {edit_user.username}")
-                
-                with st.form("edit_user_form"):
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        new_username = st.text_input("Username", value=edit_user.username)
-                        new_display = st.text_input("Display Name", value=edit_user.display_name or "")
-                        new_pic = st.text_input("PIC Recruiter", value=edit_user.pic_recruiter or "")
-                    with col2:
-                        new_role = st.selectbox("Role", ["user", "admin"], index=0 if edit_user.role == "user" else 1)
-                        reset_pw = st.checkbox("Reset Password")
-                        new_password = st.text_input("Password Baru (min 6 karakter)", type="password", disabled=not reset_pw)
-                    
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        if st.form_submit_button("💾 Simpan", type="primary", use_container_width=True):
-                            try:
-                                # Cek username duplikat
-                                if new_username != edit_user.username:
-                                    existing = db.query(User).filter(User.username == new_username).first()
-                                    if existing:
-                                        st.error(f"Username '{new_username}' sudah digunakan!")
-                                        st.stop()
-                                
-                                edit_user.username = new_username
-                                edit_user.display_name = new_display
-                                edit_user.role = new_role
-                                edit_user.pic_recruiter = new_pic if new_pic else None
-                                
-                                if reset_pw and new_password and len(new_password) >= 6:
-                                    edit_user.password_hash = hash_password(new_password)
-                                
-                                db.commit()
-                                st.success("✅ User berhasil diupdate!")
-                                st.session_state.show_edit_form = False
-                                st.session_state.edit_user_id = None
-                                st.rerun()
-                            except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
-                                db.rollback()
-                    
-                    with col2:
-                        if st.form_submit_button("❌ Batal", use_container_width=True):
-                            st.session_state.show_edit_form = False
-                            st.session_state.edit_user_id = None
-                            st.rerun()
-    
-    # ============================================================
-    # TAMBAH USER BARU
-    # ============================================================
-    st.markdown("---")
-    st.subheader("➕ Tambah User Baru")
-    
-    with st.form("add_user"):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            new_username = st.text_input("Username *")
-        with col2:
-            new_password = st.text_input("Password *", type="password")
-        with col3:
-            new_role = st.selectbox("Role", ["user", "admin"])
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            new_display = st.text_input("Display Name", placeholder="Nama tampilan (opsional)")
-        with col2:
-            new_pic = st.text_input("PIC Recruiter", placeholder="Untuk user role (opsional)")
-        
-        if st.form_submit_button("Tambah User", type="primary"):
-            errors = []
-            if not new_username:
-                errors.append("Username wajib diisi")
-            if not new_password or len(new_password) < 6:
-                errors.append("Password minimal 6 karakter")
+        with st.form("add_user"):
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                new_username = st.text_input("Username *")
+            with col2:
+                new_password = st.text_input("Password *", type="password")
+            with col3:
+                new_role = st.selectbox("Role", ["user", "admin"])
             
-            if errors:
-                for err in errors:
-                    st.error(f"❌ {err}")
-            else:
-                result = create_user(db, new_username, new_password, new_role, new_pic, new_display)
-                if result:
-                    st.success(f"✅ User '{new_username}' berhasil dibuat!")
-                    st.rerun()
+            col1, col2 = st.columns(2)
+            with col1:
+                new_display = st.text_input("Display Name", placeholder="Nama tampilan (opsional)")
+            with col2:
+                new_pic = st.text_input("PIC Recruiter", placeholder="Untuk user role (opsional)")
+            
+            if st.form_submit_button("Tambah User", type="primary"):
+                errors = []
+                if not new_username:
+                    errors.append("Username wajib diisi")
+                if not new_password or len(new_password) < 6:
+                    errors.append("Password minimal 6 karakter")
+                
+                if errors:
+                    for err in errors:
+                        st.error(f"❌ {err}")
                 else:
-                    st.error("Username sudah digunakan!")
+                    result = create_user(db, new_username, new_password, new_role, new_pic, new_display)
+                    if result:
+                        st.success(f"✅ User '{new_username}' berhasil dibuat!")
+                        st.rerun()
+                    else:
+                        st.error("Username sudah digunakan!")
+    
+    else:
+        st.info("Belum ada user.")
     
     # ============================================================
     # SUMMARY STATISTICS
@@ -245,11 +239,13 @@ def show_user_management():
     st.markdown("---")
     st.subheader("📊 Statistik User")
     
-    total_users = len(users)
-    admin_count = len([u for u in users if u.role == "admin"])
-    user_count = len([u for u in users if u.role == "user"])
+    total_users = len(users) if users else 0
+    admin_count = len([u for u in users if u.role == "admin"]) if users else 0
+    user_count = len([u for u in users if u.role == "user"]) if users else 0
     
     col1, col2, col3 = st.columns(3)
     col1.metric("Total User", total_users)
     col2.metric("Admin", admin_count)
     col3.metric("User", user_count)
+    
+    db.close()
