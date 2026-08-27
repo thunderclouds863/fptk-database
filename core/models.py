@@ -130,6 +130,7 @@ class DBKodePosisi(Base):
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
     __table_args__ = {"extend_existing": True}
+    
     id = Column(Integer, primary_key=True, index=True)
     no = Column(Integer)
     sourcing_date = Column(Date, nullable=False, index=True)
@@ -156,51 +157,55 @@ class DBSourcing(Base):
     last_company = Column(String(255))
     total_tenure = Column(String(50))
     pernah_di_fmcg = Column(String(3))
-    sourcing_freelance = Column(String(3))
+    
+    # ===== PIPELINE STAGE (String, NOT Numeric) =====
+    sourcing_freelance = Column(String(3))  # ✅ String (V/X)
     tanggal_sourcing_freelance = Column(Date)
-    sourcing_hr = Column(String(3))
+    sourcing_hr = Column(String(3))  # ✅ String (V/X)
     detail_keterangan_sourcing_hr = Column(Text)
     tanggal_sourcing = Column(Date)
-    shortlist_cv = Column(String(3))
+    shortlist_cv = Column(String(3))  # ✅ String
     detail_keterangan_shortlist_cv = Column(Text)
     tanggal_shortlist_cv = Column(Date)
-    psikotes = Column(String(3))
+    psikotes = Column(String(3))  # ✅ String
     kode_psikotes = Column(String(50))
     detail_keterangan_psikotes = Column(Text)
     tanggal_psikotes = Column(Date)
-    nilai_logika = Column(String(20))
+    nilai_logika = Column(String(20))  # String (bisa "85")
     nilai_iq = Column(String(20))
     nilai_daya_tangkap = Column(String(20))
     nilai_ra = Column(String(20))
     disc = Column(String(20))
-    hr_interview = Column(String(3))
+    hr_interview = Column(String(3))  # ✅ String
     detail_keterangan_hr_interview = Column(Text)
     tanggal_hr_interview = Column(Date)
-    technical_test_case_study = Column(String(3))
+    technical_test_case_study = Column(String(3))  # ✅ String
     detail_keterangan_technical_test = Column(Text)
     tanggal_technical_test = Column(Date)
-    market_visit = Column(String(3))
+    market_visit = Column(String(3))  # ✅ String
     detail_market_visit = Column(Text)
     tanggal_market_visit = Column(Date)
-    user_interview = Column(String(3))
+    user_interview = Column(String(3))  # ✅ String
     detail_keterangan_user_interview = Column(Text)
     tanggal_user_interview = Column(Date)
-    panel_interview = Column(String(3))
+    panel_interview = Column(String(3))  # ✅ String
     detail_keterangan_panel_interview = Column(Text)
     tanggal_panel_interview = Column(Date)
-    reference_check = Column(String(3))
+    reference_check = Column(String(3))  # ✅ String
     detail_keterangan_reference_check = Column(Text)
     tanggal_reference_check = Column(Date)
-    mcu = Column(String(3))
+    mcu = Column(String(3))  # ✅ String
     detail_keterangan_mcu = Column(Text)
     tanggal_mcu = Column(Date)
-    offering = Column(String(3))
+    offering = Column(String(3))  # ✅ String
     detail_keterangan_offering = Column(Text)
     tanggal_offering = Column(Date)
     notes = Column(Text)
-    day1 = Column(String(3))
+    day1 = Column(String(3))  # ✅ String
     detail_keterangan_day1 = Column(Text)
     tanggal_day1 = Column(Date)
+    
+    # Audit
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_updated_at = Column(TIMESTAMP)
     last_compile_action = Column(String(20))
