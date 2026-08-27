@@ -439,18 +439,21 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             else:
                 ipk_val = None
             
-            # --- STRING FIELDS - handle everything properly ---
-            def get_string_value(row, field):
+            def get_string_value(row, field, max_length=None):
                 val = row.get(field)
+            
                 if val is None:
                     return ''
+            
                 if isinstance(val, float) and math.isnan(val):
                     return ''
-                if isinstance(val, pd.Series):
-                    return get_string_value(val, field) if len(val) > 0 else ''
-                if isinstance(val, (list, tuple)):
-                    return str(val[0]) if len(val) > 0 else ''
-                return str(val).strip()
+            
+                value = str(val).strip()
+            
+                if max_length:
+                    return value[:max_length]
+            
+                return value
             
             posisi_val = get_string_value(row, 'posisi')
             model_rekrutmen_val = get_string_value(row, 'model_rekrutmen')
@@ -539,6 +542,35 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 updated += 1
             else:
                 # Insert new record
+                debug_fields = {
+                    "posisi": posisi_val,
+                    "model_rekrutmen": model_rekrutmen_val,
+                    "rekruter": rekruter_val,
+                    "sumber_sourcing": sumber_sourcing_val,
+                    "nama_universitas_top10": nama_univ_top10_val,
+                    "nama_universitas_lainnya": nama_univ_lain_val,
+                    "jenjang_pendidikan": jenjang_val,
+                    "jurusan": jurusan_val,
+                    "university_tier": university_tier_val,
+                    "ipk_tier": ipk_tier_val,
+                    "nomor_hp": nomor_hp_val,
+                    "email": email_val,
+                    "domisili": domisili_val,
+                    "last_position": last_position_val,
+                    "last_company": last_company_val,
+                    "last_tenure": last_tenure_val,
+                    "total_tenure": total_tenure_val,
+                    "pernah_di_fmcg": pernah_di_fmcg_val
+                }
+                
+                for k,v in debug_fields.items():
+                    if len(str(v)) > 20:
+                        print(
+                            "OVER LIMIT:",
+                            k,
+                            len(str(v)),
+                            v
+                        )
                 new_sourcing = DBSourcing(
                     no=no_val,
                     sourcing_date=sourcing_date,
