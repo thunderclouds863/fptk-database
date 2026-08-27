@@ -244,7 +244,7 @@ def show_upload_compile():
         with st.form("fptk_manual_form", clear_on_submit=True):
             st.markdown("### Data FPTK")
             
-            col1, col2 = st.columns(2)
+            col1, col2, col3 = st.columns(3)
             
             with col1:
                 # Kode PIC - auto dari login
@@ -323,6 +323,25 @@ def show_upload_compile():
                 
                 # Status
                 status = st.selectbox("Status *", status_options)
+                # Di dalam form, setelah Jumlah SLA / Deadline SLA, tambahkan:
+
+            with col3:
+                # Jumlah SLA (auto-calculate)
+                sla_days = calculate_sla_days(level_number)
+                st.text_input("Jumlah SLA (auto)", value=str(sla_days), disabled=True)
+                # Deadline SLA (auto-calculate)
+                if fptk_date and sla_days:
+                    deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
+                    st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
+                # Detail SLA - DROPDOWN (bisa diisi manual)
+                detail_sla_options = [
+                    "OP Belum Lewat SLA",
+                    "OP Tidak Lulus SLA",
+                    "Closed Lulus SLA",
+                    "Closed Tidak Lulus SLA",
+                    "Cancel FPTK"
+                ]
+                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options)
             
             # Conditional fields
             if status == "Closed":
