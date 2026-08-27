@@ -109,7 +109,6 @@ class FPTK(Base):
     source_user_id = Column(Integer, ForeignKey("users.id"))
     source_cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
     is_sto = Column(Boolean, default=False)
-    __table_args__ = (UniqueConstraint('kode_unik', 'posisi'),)
 
 class DBKodePosisi(Base):
     __tablename__ = "db_kode_posisi"
@@ -125,7 +124,6 @@ class DBKodePosisi(Base):
     indirect_user = Column(String(100))
     directorate = Column(String(100))
     year = Column(Integer)
-    __table_args__ = (UniqueConstraint('position', 'location', 'business_unit'),)
 
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
