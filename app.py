@@ -801,7 +801,7 @@ elif page == "funnel_report":
         funnel_report = importlib.import_module(
             "pages.funnel_report"
         )
-        funnel_report.show_funneling_report()
+        funnel_report.show_funnel_report()
     except ModuleNotFoundError:
         st.error("❌ File pages/funnel_report.py tidak ditemukan!")
 
@@ -846,7 +846,7 @@ elif page == "transfer_fptk":
         transfer_fptk = importlib.import_module(
             "pages.transfer_fptk"
         )
-        transfer_fptk.show_fptk_transfer()
+        transfer_fptk.show_transfer_fptk()
     except ModuleNotFoundError:
         st.error("❌ File pages/transfer_fptk.py tidak ditemukan!")
 
