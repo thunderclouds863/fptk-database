@@ -289,27 +289,40 @@ def show_dashboard():
     try:
         c1, c2 = st.columns(2)
         
-        with c1:
-            st.subheader("✅ SLA Compliance")
-            if 'detail_sla' in df and df['detail_sla'].notna().any():
-                detail_counts = df['detail_sla'].value_counts()
-                lulus_keywords = ["Lulus", "Belum Lewat"]
-                lulus = sum(detail_counts[detail_counts.index.str.contains('|'.join(lulus_keywords), case=False, na=False)]) if len(detail_counts) > 0 else 0
-                tidak_lulus = sum(detail_counts[~detail_counts.index.str.contains('|'.join(lulus_keywords), case=False, na=False)]) if len(detail_counts) > 0 else 0
-                
-                if lulus + tidak_lulus > 0:
-                    sla_data = pd.DataFrame([
-                        {"Status": "Lulus SLA", "Count": lulus},
-                        {"Status": "Tidak Lulus SLA", "Count": tidak_lulus}
-                    ])
-                    fig = px.pie(sla_data, values='Count', names='Status', title='SLA Compliance',
-                                 color='Status', color_discrete_map={'Lulus SLA': '#2ecc71', 'Tidak Lulus SLA': '#e74c3c'})
-                    fig.update_layout(height=350)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.info("Belum ada data Detail SLA")
+    with col1:
+        st.subheader("✅ SLA Compliance")
+        if 'detail_sla' in df and df['detail_sla'].notna().any():
+            detail_counts = df['detail_sla'].value_counts()
+            
+            # Definisi Lulus vs Tidak Lulus (sesuai VBA)
+            lulus_keywords = ["OP Belum Lewat SLA", "Closed Lulus SLA"]
+            tidak_lulus_keywords = ["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"]
+            
+            # Hitung Lulus
+            lulus = 0
+            for keyword in lulus_keywords:
+                lulus += detail_counts.get(keyword, 0)
+            
+            # Hitung Tidak Lulus
+            tidak_lulus = 0
+            for keyword in tidak_lulus_keywords:
+                tidak_lulus += detail_counts.get(keyword, 0)
+            
+            # Cancel FPTK diabaikan (tidak masuk perhitungan)
+            
+            if lulus + tidak_lulus > 0:
+                sla_data = pd.DataFrame([
+                    {"Status": "Lulus SLA", "Count": lulus},
+                    {"Status": "Tidak Lulus SLA", "Count": tidak_lulus}
+                ])
+                fig = px.pie(sla_data, values='Count', names='Status', title='SLA Compliance',
+                             color='Status', color_discrete_map={'Lulus SLA': '#2ecc71', 'Tidak Lulus SLA': '#e74c3c'})
+                fig.update_layout(height=350)
+                st.plotly_chart(fig, use_container_width=True)
             else:
-                st.info("Belum ada data Detail SLA")
+                st.info("Belum ada data Detail SLA untuk OP/Closed")
+        else:
+            st.info("Belum ada data Detail SLA")
         
         with c2:
             if 'fptk_date_real' in df and df['fptk_date_real'].notna().any():
