@@ -204,6 +204,10 @@ class DBSourcing(Base):
     day1 = Column(String(3))  # ✅ String
     detail_keterangan_day1 = Column(Text)
     tanggal_day1 = Column(Date)
+    is_blacklisted = Column(Boolean, default=False, nullable=True)
+    blacklisted_at = Column(DateTime, nullable=True)
+    blacklisted_by = Column(Integer, nullable=True)  # user_id yang menandai
+    blacklist_reason = Column(String(500), nullable=True)  # alasan blacklist
     
     # Audit
     created_at = Column(TIMESTAMP, server_default=func.now())
