@@ -2,6 +2,7 @@
 
 import pandas as pd
 import math
+import re 
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
 from core.models import FPTK, UploadLog
