@@ -3,7 +3,7 @@ import math
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta
 from core.models import FPTK, UploadLog
-from core.utils import safe_int
+from core.utils import safe_int, calculate_detail_sla
 import hashlib
 
 def sanitize_date_value(val):
@@ -41,6 +41,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
 
         kode_unik = row.get('kode_unik', '')
         posisi = row.get('posisi', '')
+        status = row.get('status', '')
         fptk_date_real = sanitize_date_value(row.get('fptk_date_real'))
         offering_date = sanitize_date_value(row.get('offering_date'))
         fptk_cancel_date = sanitize_date_value(row.get('fptk_cancel_date'))
@@ -74,6 +75,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             sla_days = 30
 
         deadline_sla = fptk_date_real + timedelta(days=sla_days) if fptk_date_real else None
+
         # Hitung Detail SLA
         detail_sla = calculate_detail_sla(
             status=status,
@@ -81,11 +83,9 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             offering_date=offering_date
         )
 
-        # Set ke object
-        new_fptk.detail_sla = detail_sla
-            week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
-            month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
-            kode_bu = row.get('kode_pic', '')[:4] if row.get('kode_pic') else ''
+        week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
+        month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
+        kode_bu = row.get('kode_pic', '')[:4] if row.get('kode_pic') else ''
 
         filter_kat = row.get('filter_kategorisasi_fptk', '')
         posisi_lower = posisi.lower()
@@ -123,11 +123,12 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             existing.category_fptk = row.get('category_fptk')
             existing.pic_recruiter = row.get('pic_recruiter')
             existing.vacancy = row.get('vacancy')
-            existing.status = row.get('status')
+            existing.status = status
             existing.offering_date = offering_date
             existing.fptk_cancel_date = fptk_cancel_date
             existing.jumlah_sla = sla_days
             existing.deadline_sla = deadline_sla
+            existing.detail_sla = detail_sla
             existing.week_fptk_date = week_num
             existing.month_fptk_date = month_name
             existing.kode_bu = kode_bu
@@ -156,11 +157,12 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 category_fptk=row.get('category_fptk'),
                 pic_recruiter=row.get('pic_recruiter'),
                 vacancy=row.get('vacancy'),
-                status=row.get('status'),
+                status=status,
                 offering_date=offering_date,
                 fptk_cancel_date=fptk_cancel_date,
                 jumlah_sla=sla_days,
                 deadline_sla=deadline_sla,
+                detail_sla=detail_sla,
                 week_fptk_date=week_num,
                 month_fptk_date=month_name,
                 kode_bu=kode_bu,
