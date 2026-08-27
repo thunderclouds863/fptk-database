@@ -238,87 +238,86 @@ def show_upload_compile():
                         )
                         
                         if result["success"]:
-                            st.success(
-                                f"✅ {file.name}: Imported {result.get('imported',0)}, "
-                                f"Updated {result.get('updated',0)}"
-                                # ============================================================
-                                # COMPILE DB SOURCING
-                                # ============================================================
-                                with st.spinner(f"🔄 Compile DB Sourcing dari {file.name}..."):
-                                    try:
-                                        # Cari sheet DB Sourcing di file yang sama
-                                        sourcing_df = None
-                                        with pd.ExcelFile(file) as xls:
-                                            if "DB Sourcing" in xls.sheet_names:
-                                                sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
-                                        
-                                        if sourcing_df is not None and not sourcing_df.empty:
-                                            sourcing_result = compile_db_sourcing(
-                                                db, sourcing_df, user.id, cycle.id,
-                                                sanitize_filename(file.name), file_hash
-                                            )
-                                            if sourcing_result["success"]:
-                                                st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
+                            st.success(f"✅ {file.name}: FPTK Imported {result.get('imported',0)}, Updated {result.get('updated',0)}")
+                            
+                            # ============================================================
+                            # COMPILE DB SOURCING
+                            # ============================================================
+                            with st.spinner(f"🔄 Compile DB Sourcing dari {file.name}..."):
+                                try:
+                                    with pd.ExcelFile(file) as xls:
+                                        if "DB Sourcing" in xls.sheet_names:
+                                            sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
+                                            if sourcing_df is not None and not sourcing_df.empty:
+                                                sourcing_result = compile_db_sourcing(
+                                                    db, sourcing_df, user.id, cycle.id,
+                                                    sanitize_filename(file.name), file_hash
+                                                )
+                                                if sourcing_result["success"]:
+                                                    st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
+                                                else:
+                                                    st.warning(f"⚠️ DB Sourcing: {len(sourcing_result.get('errors', []))} errors")
                                             else:
-                                                st.warning(f"⚠️ DB Sourcing: {len(sourcing_result.get('errors', []))} errors")
+                                                st.info(f"ℹ️ Sheet 'DB Sourcing' kosong, dilewati.")
                                         else:
-                                            st.info(f"ℹ️ Tidak ada sheet 'DB Sourcing' di {file.name}, dilewati.")
-                                    except Exception as e:
-                                        st.warning(f"⚠️ DB Sourcing error: {str(e)}")
-                                
-                                # ============================================================
-                                # COMPILE DB KODE POSISI
-                                # ============================================================
-                                with st.spinner(f"🔄 Compile DB Kode Posisi dari {file.name}..."):
-                                    try:
-                                        with pd.ExcelFile(file) as xls:
-                                            if "DB Kode Posisi" in xls.sheet_names:
-                                                dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
-                                                if dbk_df is not None and not dbk_df.empty:
-                                                    dbk_result = compile_db_kode_posisi(
-                                                        db, dbk_df, user.id, cycle.id,
-                                                        sanitize_filename(file.name), file_hash
-                                                    )
-                                                    if dbk_result["success"]:
-                                                        st.success(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
-                                                    else:
-                                                        st.warning(f"⚠️ DB Kode Posisi: {len(dbk_result.get('errors', []))} errors")
+                                            st.info(f"ℹ️ Tidak ada sheet 'DB Sourcing', dilewati.")
+                                except Exception as e:
+                                    st.warning(f"⚠️ DB Sourcing error: {str(e)}")
+                            
+                            # ============================================================
+                            # COMPILE DB KODE POSISI
+                            # ============================================================
+                            with st.spinner(f"🔄 Compile DB Kode Posisi dari {file.name}..."):
+                                try:
+                                    with pd.ExcelFile(file) as xls:
+                                        if "DB Kode Posisi" in xls.sheet_names:
+                                            dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
+                                            if dbk_df is not None and not dbk_df.empty:
+                                                dbk_result = compile_db_kode_posisi(
+                                                    db, dbk_df, user.id, cycle.id,
+                                                    sanitize_filename(file.name), file_hash
+                                                )
+                                                if dbk_result["success"]:
+                                                    st.success(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
+                                                else:
+                                                    st.warning(f"⚠️ DB Kode Posisi: {len(dbk_result.get('errors', []))} errors")
                                             else:
-                                                st.info(f"ℹ️ Tidak ada sheet 'DB Kode Posisi' di {file.name}, dilewati.")
-                                    except Exception as e:
-                                        st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
-                                
-                                # ============================================================
-                                # COMPILE BLACKLIST
-                                # ============================================================
-                                with st.spinner(f"🔄 Compile Blacklist dari {file.name}..."):
-                                    try:
-                                        with pd.ExcelFile(file) as xls:
-                                            if "Blacklist Candidate" in xls.sheet_names:
-                                                bl_df = pd.read_excel(file, sheet_name="Blacklist Candidate", header=0)
-                                                if bl_df is not None and not bl_df.empty:
-                                                    bl_result = compile_blacklist(
-                                                        db, bl_df, user.id, cycle.id,
-                                                        sanitize_filename(file.name), file_hash
-                                                    )
-                                                    if bl_result["success"]:
-                                                        st.success(f"✅ Blacklist: {bl_result.get('imported', 0)} rows")
-                                                    else:
-                                                        st.warning(f"⚠️ Blacklist: {len(bl_result.get('errors', []))} errors")
+                                                st.info(f"ℹ️ Sheet 'DB Kode Posisi' kosong, dilewati.")
+                                        else:
+                                            st.info(f"ℹ️ Tidak ada sheet 'DB Kode Posisi', dilewati.")
+                                except Exception as e:
+                                    st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
+                            
+                            # ============================================================
+                            # COMPILE BLACKLIST
+                            # ============================================================
+                            with st.spinner(f"🔄 Compile Blacklist dari {file.name}..."):
+                                try:
+                                    with pd.ExcelFile(file) as xls:
+                                        if "Blacklist Candidate" in xls.sheet_names:
+                                            bl_df = pd.read_excel(file, sheet_name="Blacklist Candidate", header=0)
+                                            if bl_df is not None and not bl_df.empty:
+                                                bl_result = compile_blacklist(
+                                                    db, bl_df, user.id, cycle.id,
+                                                    sanitize_filename(file.name), file_hash
+                                                )
+                                                if bl_result["success"]:
+                                                    st.success(f"✅ Blacklist: {bl_result.get('imported', 0)} rows")
+                                                else:
+                                                    st.warning(f"⚠️ Blacklist: {len(bl_result.get('errors', []))} errors")
                                             else:
-                                                st.info(f"ℹ️ Tidak ada sheet 'Blacklist Candidate' di {file.name}, dilewati.")
-                                    except Exception as e:
-                                        st.warning(f"⚠️ Blacklist error: {str(e)}")
-                                
-                                mark_user_uploading(db, user.id, cycle.id)
-                            )
+                                                st.info(f"ℹ️ Sheet 'Blacklist Candidate' kosong, dilewati.")
+                                        else:
+                                            st.info(f"ℹ️ Tidak ada sheet 'Blacklist Candidate', dilewati.")
+                                except Exception as e:
+                                    st.warning(f"⚠️ Blacklist error: {str(e)}")
+                            
                             mark_user_uploading(db, user.id, cycle.id)
                         else:
-                            st.error(f"❌ {file.name}: Compile gagal - {result.get('error', 'Unknown error')}")
+                            st.error(f"❌ {file.name}: Compile FPTK gagal")
                             
                     except Exception as e:
                         st.error(f"❌ {file.name}: {str(e)}")
-                        st.info("💡 Pastikan file Excel memiliki sheet bernama 'FPTK' dan format yang benar.")
                 
                 st.success("✅ Compile selesai!")
                 if st.button("📌 Saya Selesai Upload", type="primary"):
