@@ -1,3 +1,5 @@
+# pages/02_upload_compile.py
+
 import streamlit as st
 import pandas as pd
 import re
@@ -10,7 +12,7 @@ from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_blacklist_file, validate_db_kode_posisi_file
 from core.compiler import compile_fptk, compile_db_sourcing, compile_db_kode_posisi, compile_blacklist
 from core.utils import (
-    normalize_key, safe_int, parse_date_dmy,
+    normalize_key, safe_int, safe_float, safe_string, safe_boolean_char, safe_date, parse_date_dmy,
     calculate_sla_days,
     calculate_deadline_sla,
     calculate_detail_sla,
@@ -84,18 +86,13 @@ def show_upload_compile():
         st.warning("Silakan login terlebih dahulu.")
         return
 
-   # ====================================
+    # ====================================
     # ADMIN TEMPLATE MANAGEMENT
     # ====================================
     
     if is_admin(db):
-    
         st.markdown("---")
-    
-        st.subheader(
-            "⚙️ Admin - Template Excel"
-        )
-    
+        st.subheader("⚙️ Admin - Template Excel")
     
         template_file = st.file_uploader(
             "Upload Template Excel",
@@ -103,24 +100,10 @@ def show_upload_compile():
             key="admin_template_upload"
         )
     
-    
         if template_file:
-    
-            if st.button(
-                "💾 Simpan Template",
-                key="save_template_btn"
-            ):
-    
-                save_template(
-                    db,
-                    template_file,
-                    user.id
-                )
-    
-                st.success(
-                    "✅ Template berhasil diperbarui"
-                )
-    
+            if st.button("💾 Simpan Template", key="save_template_btn"):
+                save_template(db, template_file, user.id)
+                st.success("✅ Template berhasil diperbarui")
                 st.rerun()
     
     master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
@@ -158,42 +141,29 @@ def show_upload_compile():
             UploadStatus.user_id == user.id,
             UploadStatus.cycle_id == cycle.id
         ).first()
-        st.caption(f"Status Anda: **{status.status if status else 'Belum Mulia'}**")
+        st.caption(f"Status Anda: **{status.status if status else 'Belum Mulai'}**")
         
         st.markdown("---")
         st.subheader("📁 Upload File Excel")
+        
         # ====================================
         # DOWNLOAD TEMPLATE AKTIF
         # ====================================
         
         active_template = get_active_template(db)
         
-        
         if active_template:
-        
-            template_bytes = get_template_bytes(
-                active_template
-            )
-        
-        
+            template_bytes = get_template_bytes(active_template)
             st.download_button(
                 label="📥 Download Template Excel",
                 data=template_bytes,
                 file_name=active_template.file_name,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             )
-        
-        
-            st.caption(
-                f"Template aktif versi {active_template.version}"
-            )
-        
-        
+            st.caption(f"Template aktif versi {active_template.version}")
         else:
+            st.warning("⚠️ Template Excel belum tersedia. Hubungi Admin.")
         
-            st.warning(
-                "⚠️ Template Excel belum tersedia. Hubungi Admin."
-            )
         uploaded_files = st.file_uploader(
             "Pilih file Excel (.xlsx, .xlsm)",
             type=["xlsx", "xlsm"],
@@ -225,42 +195,23 @@ def show_upload_compile():
                         
                         validated, errors = validate_fptk_file(df, db, user.id, is_sto)
                         
-                        warnings = [
-                            e for e in errors
-                            if e.get("warning") == True
-                        ]
-                        
-                        real_errors = [
-                            e for e in errors
-                            if e.get("warning") != True
-                        ]
-                        
+                        warnings = [e for e in errors if e.get("warning") == True]
+                        real_errors = [e for e in errors if e.get("warning") != True]
                         
                         # ==============================
                         # WARNING (TIDAK BLOCK UPLOAD)
                         # ==============================
                         if warnings:
-                        
-                            st.warning(
-                                f"⚠️ {file.name}: ditemukan {len(warnings)} warning. "
-                                "Data tetap diproses, mohon segera lakukan pengecekan."
-                            )
-                        
+                            st.warning(f"⚠️ {file.name}: ditemukan {len(warnings)} warning. Data tetap diproses, mohon segera lakukan pengecekan.")
                             st.markdown("### ⚠️ Warning Detail:")
-                        
                             for err in warnings:
-                        
                                 row = err.get("row", "?")
                                 field = err.get("field", "Unknown")
                                 value = err.get("value", "")
                                 error_msg = err.get("error", "")
                                 expected = err.get("expected", "")
                                 example = err.get("example", "")
-                        
-                                with st.expander(
-                                    f"⚠️ Row {row} - {field}",
-                                    expanded=False
-                                ):
+                                with st.expander(f"⚠️ Row {row} - {field}", expanded=False):
                                     st.markdown(f"""
                                     | **Field** | **Value** | **Warning** | **Expected** | **Example** |
                                     |-----------|-----------|-------------|--------------|-------------|
@@ -271,40 +222,25 @@ def show_upload_compile():
                         # ERROR (BLOCK UPLOAD)
                         # ==============================
                         if real_errors:
-                        
-                            st.error(
-                                f"❌ {file.name}: "
-                                f"{len([e for e in real_errors if e.get('field') != 'SUMMARY'])} "
-                                "error (file ditolak)"
-                            )
-                        
+                            st.error(f"❌ {file.name}: {len([e for e in real_errors if e.get('field') != 'SUMMARY'])} error (file ditolak)")
                             st.markdown("### 📋 Detail Error:")
-                        
                             for err in real_errors:
-                        
                                 if err.get("field") == "SUMMARY":
-                                    st.warning(
-                                        f"📌 {err.get('error', '')}"
-                                    )
+                                    st.warning(f"📌 {err.get('error', '')}")
                                     continue
-                        
                                 row = err.get("row", "?")
                                 field = err.get("field", "Unknown")
                                 value = err.get("value", "")
                                 error_msg = err.get("error", "")
                                 expected = err.get("expected", "")
                                 example = err.get("example", "")
-                        
-                                with st.expander(
-                                    f"⚠️ Row {row} - {field}",
-                                    expanded=False
-                                ):
+                                with st.expander(f"⚠️ Row {row} - {field}", expanded=False):
                                     st.markdown(f"""
                                     | **Field** | **Value** | **Error** | **Expected** | **Example** |
                                     |-----------|-----------|-----------|--------------|-------------|
                                     | {field} | `{value}` | {error_msg} | {expected} | {example} |
                                     """)
-                        
+                            
                             error_df = pd.DataFrame([
                                 {
                                     "Row": e.get("row", ""),
@@ -317,22 +253,6 @@ def show_upload_compile():
                                 for e in real_errors
                                 if e.get("field") != "SUMMARY"
                             ])
-                        
-                            # STOP hanya kalau error asli
-                            if not error_df.empty:
-                                return
-                            
-                            error_df = pd.DataFrame([
-                                {
-                                    "Row": e.get("row", ""),
-                                    "Field": e.get("field", ""),
-                                    "Value": e.get("value", ""),
-                                    "Error": e.get("error", ""),
-                                    "Expected": e.get("expected", ""),
-                                    "Example": e.get("example", "")
-                                }
-                                for e in errors if e.get("field") != "SUMMARY"
-                            ])
                             
                             if not error_df.empty:
                                 csv = error_df.to_csv(index=False)
@@ -342,12 +262,18 @@ def show_upload_compile():
                                     file_name=f"errors_{file.name}.csv",
                                     mime="text/csv"
                                 )
-                            
-                            st.info("💡 **Tips:** Perbaiki error di atas, lalu upload ulang file yang sudah diperbaiki.")
-                            continue
+                                st.info("💡 **Tips:** Perbaiki error di atas, lalu upload ulang file yang sudah diperbaiki.")
+                                continue
                         
                         file_bytes = file.read()
                         file_hash = hashlib.sha256(file_bytes).hexdigest()
+                        
+                        # ============================================================
+                        # COMPILE FPTK
+                        # ============================================================
+                        # Clear any pending transaction before compile
+                        if db.is_active:
+                            db.rollback()
                         
                         result = compile_fptk(
                             db, df, user.id, cycle.id,
@@ -357,12 +283,19 @@ def show_upload_compile():
                         if result["success"]:
                             st.success(f"✅ {file.name}: FPTK Imported {result.get('imported',0)}, Updated {result.get('updated',0)}")
                             
+                            # ============================================================
+                            # COMPILE DB SOURCING
+                            # ============================================================
                             with st.spinner(f"🔄 Compile DB Sourcing dari {file.name}..."):
                                 try:
                                     with pd.ExcelFile(file) as xls:
                                         if "DB Sourcing" in xls.sheet_names:
                                             sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
                                             if sourcing_df is not None and not sourcing_df.empty:
+                                                # Clear any pending transaction
+                                                if db.is_active:
+                                                    db.rollback()
+                                                
                                                 sourcing_result = compile_db_sourcing(
                                                     db=db,
                                                     df=sourcing_df,
@@ -372,22 +305,31 @@ def show_upload_compile():
                                                     file_hash=file_hash
                                                 )
                                                 if sourcing_result["success"]:
-                                                    st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
+                                                    st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported, {sourcing_result.get('updated', 0)} updated")
                                                 else:
                                                     st.warning(f"⚠️ DB Sourcing: {len(sourcing_result.get('errors', []))} errors")
+                                                    for err in sourcing_result.get('errors', [])[:5]:
+                                                        st.write(f"- {err}")
                                             else:
                                                 st.info(f"ℹ️ Sheet 'DB Sourcing' kosong, dilewati.")
                                         else:
                                             st.info(f"ℹ️ Tidak ada sheet 'DB Sourcing', dilewati.")
                                 except Exception as e:
                                     st.warning(f"⚠️ DB Sourcing error: {str(e)}")
+                                    db.rollback()
                             
+                            # ============================================================
+                            # COMPILE DB KODE POSISI
+                            # ============================================================
                             with st.spinner(f"🔄 Compile DB Kode Posisi dari {file.name}..."):
                                 try:
                                     with pd.ExcelFile(file) as xls:
                                         if "DB Kode Posisi" in xls.sheet_names:
                                             dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
                                             if dbk_df is not None and not dbk_df.empty:
+                                                if db.is_active:
+                                                    db.rollback()
+                                                
                                                 dbk_result = compile_db_kode_posisi(
                                                     db=db,
                                                     df=dbk_df,
@@ -406,13 +348,20 @@ def show_upload_compile():
                                             st.info(f"ℹ️ Tidak ada sheet 'DB Kode Posisi', dilewati.")
                                 except Exception as e:
                                     st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
+                                    db.rollback()
                             
+                            # ============================================================
+                            # COMPILE BLACKLIST
+                            # ============================================================
                             with st.spinner(f"🔄 Compile Blacklist dari {file.name}..."):
                                 try:
                                     with pd.ExcelFile(file) as xls:
                                         if "Blacklist Candidate" in xls.sheet_names:
                                             bl_df = pd.read_excel(file, sheet_name="Blacklist Candidate", header=0)
                                             if bl_df is not None and not bl_df.empty:
+                                                if db.is_active:
+                                                    db.rollback()
+                                                
                                                 bl_result = compile_blacklist(
                                                     db=db,
                                                     df=bl_df,
@@ -431,13 +380,16 @@ def show_upload_compile():
                                             st.info(f"ℹ️ Tidak ada sheet 'Blacklist Candidate', dilewati.")
                                 except Exception as e:
                                     st.warning(f"⚠️ Blacklist error: {str(e)}")
+                                    db.rollback()
                             
                             mark_user_uploading(db, user.id, cycle.id)
                         else:
                             st.error(f"❌ {file.name}: Compile FPTK gagal")
+                            st.error(f"Error: {result.get('errors', ['Unknown error'])}")
                             
                     except Exception as e:
                         st.error(f"❌ {file.name}: {str(e)}")
+                        db.rollback()
                 
                 st.success("✅ Compile selesai!")
                 if st.button("📌 Saya Selesai Upload", type="primary"):
@@ -447,19 +399,34 @@ def show_upload_compile():
                     
         st.markdown("---")
         st.subheader("📜 Riwayat Upload")
-        logs = db.query(UploadLog).filter(
-            UploadLog.user_id == user.id,
-            UploadLog.cycle_id == cycle.id
-        ).order_by(UploadLog.uploaded_at.desc()).limit(50).all()
         
-        if logs:
-            data = [{
-                "Tanggal": l.uploaded_at.strftime("%d/%m/%Y %H:%M"),
-                "File": l.file_name,
-                "Status": l.status,
-                "Records": l.record_count or 0
-            } for l in logs]
-            st.dataframe(pd.DataFrame(data), use_container_width=True)
+        # ============================================================
+        # FIX: Clear pending transaction before querying UploadLog
+        # ============================================================
+        try:
+            if db.is_active:
+                db.rollback()
+            
+            logs = db.query(UploadLog).filter(
+                UploadLog.user_id == user.id,
+                UploadLog.cycle_id == cycle.id
+            ).order_by(UploadLog.uploaded_at.desc()).limit(50).all()
+            
+            if logs:
+                data = [{
+                    "Tanggal": l.uploaded_at.strftime("%d/%m/%Y %H:%M") if l.uploaded_at else "-",
+                    "File": l.file_name,
+                    "Status": l.status,
+                    "Records": l.record_count or 0
+                } for l in logs]
+                st.dataframe(pd.DataFrame(data), use_container_width=True)
+            else:
+                st.info("📭 Belum ada riwayat upload")
+        except Exception as e:
+            db.rollback()
+            st.warning(f"⚠️ Gagal mengambil riwayat upload: {str(e)}")
+            # Try to show a simple message instead
+            st.info("📭 Silakan upload file terlebih dahulu")
     
     with tab2:
         st.subheader("Input FPTK Manual")
@@ -647,6 +614,10 @@ def show_upload_compile():
                         filter_kat = 'Level 3'
                     elif level_number == 4:
                         filter_kat = 'Level 4'
+                    
+                    # Clear pending transaction
+                    if db.is_active:
+                        db.rollback()
                     
                     new_fptk = FPTK(
                         kode_unik=kode_unik,
@@ -938,6 +909,10 @@ def show_upload_compile():
                         filter_kat = 'Level 3'
                     elif level_number == 4:
                         filter_kat = 'Level 4'
+                    
+                    # Clear pending transaction
+                    if db.is_active:
+                        db.rollback()
                     
                     new_fptk = FPTK(
                         kode_unik=kode_unik,
