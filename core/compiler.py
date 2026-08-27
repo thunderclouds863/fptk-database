@@ -1,20 +1,45 @@
+# core/compiler.py
+
 import pandas as pd
 import math
 from sqlalchemy.orm import Session
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from core.models import FPTK, UploadLog
-from core.utils import safe_int, calculate_detail_sla
+from core.utils import safe_int, calculate_detail_sla, parse_date_dmy
 import hashlib
 
+
 def sanitize_date_value(val):
-    """Konversi nan/NaT ke None untuk SQLAlchemy"""
+    """Konversi nan/NaT ke None untuk SQLAlchemy, return date object"""
     if val is None:
         return None
     if isinstance(val, float) and math.isnan(val):
         return None
     if isinstance(val, pd.Timestamp):
         return val.date()
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    if isinstance(val, str):
+        return parse_date_dmy(val)
     return val
+
+
+def ensure_date(val):
+    """Pastikan value adalah date object"""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.date()
+    if isinstance(val, pd.Timestamp):
+        return val.date()
+    if isinstance(val, date):
+        return val
+    if isinstance(val, str):
+        return parse_date_dmy(val)
+    return None
+
 
 def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                  file_name: str, file_bytes: bytes, is_sto: bool = False):
@@ -42,9 +67,12 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         kode_unik = row.get('kode_unik', '')
         posisi = row.get('posisi', '')
         status = row.get('status', '')
+        
+        # Sanitize dates
         fptk_date_real = sanitize_date_value(row.get('fptk_date_real'))
         offering_date = sanitize_date_value(row.get('offering_date'))
         fptk_cancel_date = sanitize_date_value(row.get('fptk_cancel_date'))
+        deadline_sla_input = sanitize_date_value(row.get('deadline_sla'))
 
         if not kode_unik or not posisi:
             skipped += 1
@@ -74,7 +102,26 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         else:
             sla_days = 30
 
-        deadline_sla = fptk_date_real + timedelta(days=sla_days) if fptk_date_real else None
+        # Hitung deadline SLA
+        if fptk_date_real:
+            if isinstance(fptk_date_real, date):
+                deadline_sla = fptk_date_real + timedelta(days=sla_days)
+            elif isinstance(fptk_date_real, datetime):
+                deadline_sla = fptk_date_real.date() + timedelta(days=sla_days)
+            else:
+                deadline_sla = None
+        else:
+            deadline_sla = deadline_sla_input
+
+        # Pastikan semua tanggal adalah date object
+        if deadline_sla and isinstance(deadline_sla, datetime):
+            deadline_sla = deadline_sla.date()
+        if offering_date and isinstance(offering_date, datetime):
+            offering_date = offering_date.date()
+        if fptk_cancel_date and isinstance(fptk_cancel_date, datetime):
+            fptk_cancel_date = fptk_cancel_date.date()
+        if fptk_date_real and isinstance(fptk_date_real, datetime):
+            fptk_date_real = fptk_date_real.date()
 
         # Hitung Detail SLA
         detail_sla = calculate_detail_sla(
@@ -100,12 +147,17 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 filter_kat = 'Level 4'
 
         avail = row.get('fptk_availability', '')
-        if avail and avail.upper() in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
+        if avail and str(avail).upper() in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
             avail = 'Y'
-        elif avail and avail.upper() in ['X', 'N', 'TIDAK', 'NO', 'FALSE', '0']:
+        elif avail and str(avail).upper() in ['X', 'N', 'TIDAK', 'NO', 'FALSE', '0']:
             avail = 'N'
         else:
             avail = None
+
+        # Jumlah SLA
+        jumlah_sla = row.get('jumlah_sla')
+        if pd.isna(jumlah_sla) or jumlah_sla is None:
+            jumlah_sla = sla_days
 
         if existing:
             # UPDATE
@@ -126,7 +178,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             existing.status = status
             existing.offering_date = offering_date
             existing.fptk_cancel_date = fptk_cancel_date
-            existing.jumlah_sla = sla_days
+            existing.jumlah_sla = jumlah_sla
             existing.deadline_sla = deadline_sla
             existing.detail_sla = detail_sla
             existing.week_fptk_date = week_num
@@ -140,13 +192,17 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             updated += 1
         else:
             # INSERT
+            kode_angka = row.get('kode_angka')
+            if pd.isna(kode_angka) or not kode_angka:
+                kode_angka = (row.get('kode_pic', '')[:4] + str(safe_int(row.get('vacancy', 1))))
+
             new_fptk = FPTK(
                 kode_unik=kode_unik,
                 posisi=posisi,
                 kode_pic=row.get('kode_pic'),
                 fptk_date_real=fptk_date_real,
                 fptk_date_kode=fptk_date_real,
-                kode_angka=row.get('kode_angka') or (row.get('kode_pic', '')[:4] + str(safe_int(row.get('vacancy', 1)))),
+                kode_angka=kode_angka,
                 business_unit=row.get('business_unit'),
                 direktorat=row.get('direktorat'),
                 divisi=row.get('divisi'),
@@ -160,7 +216,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 status=status,
                 offering_date=offering_date,
                 fptk_cancel_date=fptk_cancel_date,
-                jumlah_sla=sla_days,
+                jumlah_sla=jumlah_sla,
                 deadline_sla=deadline_sla,
                 detail_sla=detail_sla,
                 week_fptk_date=week_num,
