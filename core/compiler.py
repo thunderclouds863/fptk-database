@@ -131,14 +131,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             FPTK.posisi == posisi
         ).first()
 
-        if existing and existing.source_user_id != user_id:
-            skipped += 1
-            continue
-
-        if existing and existing.fptk_date_real != fptk_date_real:
-            skipped += 1
-            continue
-
         raw_level_number = row.get('level_number')
         level_num = safe_level_number(raw_level_number)
         
@@ -266,6 +258,11 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             existing.is_sto = is_sto
             existing.last_updated_at = datetime.now()
             existing.last_compile_action = "UPDATE"
+            existing.source_user_id = user_id
+            existing.source_cycle_id = cycle_id
+            existing.source_file = file_name
+            existing.source_file_hash = file_hash
+            existing.is_sto = is_sto
             updated += 1
         else:
             kode_angka = row.get('kode_angka')
