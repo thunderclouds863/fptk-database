@@ -35,7 +35,7 @@ init_db()
 
 
 # ============================================================
-# SESSION STATE
+# SESSION STATE - INITIALIZATION
 # ============================================================
 
 if "user_id" not in st.session_state:
@@ -77,7 +77,7 @@ finally:
 
 
 # ============================================================
-# LOGIN PAGE
+# LOGIN PAGE - HANYA TAMPIL JIKA BELUM LOGIN
 # ============================================================
 
 if not st.session_state.user_id:
@@ -86,10 +86,13 @@ if not st.session_state.user_id:
     # LOAD CIMORY LOGO
     # ========================================================
 
-    with open("asset/cimory_logo.png", "rb") as logo_file:
-        logo_base64 = base64.b64encode(
-            logo_file.read()
-        ).decode("utf-8")
+    try:
+        with open("asset/cimory_logo.png", "rb") as logo_file:
+            logo_base64 = base64.b64encode(
+                logo_file.read()
+            ).decode("utf-8")
+    except FileNotFoundError:
+        logo_base64 = ""
 
 
     # ========================================================
@@ -100,10 +103,6 @@ if not st.session_state.user_id:
         """
         <style>
 
-        /* ====================================================
-           PAGE BACKGROUND
-        ==================================================== */
-
         .stApp {
             background:
                 radial-gradient(
@@ -112,303 +111,165 @@ if not st.session_state.user_id:
                     #0d1119 45%,
                     #080b10 100%
                 );
-
             min-height: 100vh;
         }
-
-
-        /* ====================================================
-           HIDE STREAMLIT HEADER
-        ==================================================== */
 
         header {
             visibility: hidden;
         }
-
-
-        /* ====================================================
-           MAIN CONTAINER
-        ==================================================== */
 
         .block-container {
             padding-top: 30px !important;
             padding-bottom: 50px !important;
         }
 
-
-        /* ====================================================
-           CIMORY LOGO
-           TRUE CENTER OF VIEWPORT
-        ==================================================== */
-
         .cimory-logo-container {
             width: 100vw !important;
-
             max-width: 100vw !important;
-
             position: relative !important;
-
             left: 50% !important;
-
             transform: translateX(-50%) !important;
-
             display: flex !important;
-
             justify-content: center !important;
-
             align-items: center !important;
-
             margin-top: 10px !important;
-
             margin-bottom: 55px !important;
-
             padding: 0 !important;
-
             box-sizing: border-box !important;
-
             text-align: center !important;
         }
 
-
         .cimory-logo {
             width: 260px !important;
-
             max-width: 260px !important;
-
             height: auto !important;
-
             display: block !important;
-
             margin: 0 auto !important;
-
             padding: 0 !important;
-
             object-fit: contain !important;
         }
 
-
-        /* ====================================================
-           LOGIN FORM / CARD
-        ==================================================== */
-
         div[data-testid="stForm"] {
             width: 700px !important;
-
             max-width: calc(100vw - 40px) !important;
-
             margin-left: auto !important;
-
             margin-right: auto !important;
-
             padding: 42px 42px 38px 42px !important;
-
             background:
                 linear-gradient(
                     145deg,
                     rgba(20, 24, 34, 0.90),
                     rgba(12, 15, 22, 0.90)
                 ) !important;
-
             border:
                 1px solid
                 rgba(125, 140, 170, 0.28) !important;
-
             border-radius: 20px !important;
-
             box-shadow:
                 0 25px 70px
                 rgba(0, 0, 0, 0.45) !important;
-
             backdrop-filter: blur(15px);
-
             -webkit-backdrop-filter: blur(15px);
-
             box-sizing: border-box !important;
         }
 
-
-        /* ====================================================
-           LOGIN TITLE
-        ==================================================== */
-
         .login-title {
             display: flex;
-
             align-items: center;
-
             gap: 12px;
-
             color: #f5f7fb;
-
             font-size: 38px;
-
             font-weight: 700;
-
             line-height: 1;
-
             margin-bottom: 35px;
-
             letter-spacing: -1px;
         }
 
-
-        /* ====================================================
-           LOGIN ICON
-        ==================================================== */
-
         .login-icon {
             font-size: 30px !important;
-
             line-height: 1 !important;
-
             width: 38px;
-
             height: 38px;
-
             display: flex;
-
             align-items: center;
-
             justify-content: center;
         }
 
-
-        /* ====================================================
-           LABEL
-        ==================================================== */
-
         div[data-testid="stTextInput"] label {
             color: #f1f3f7 !important;
-
             font-size: 16px !important;
-
             font-weight: 600 !important;
-
             margin-bottom: 8px !important;
         }
 
-
-        /* ====================================================
-           INPUT
-        ==================================================== */
-
         div[data-baseweb="input"] {
             height: 58px !important;
-
             background:
                 linear-gradient(
                     145deg,
                     #242731,
                     #1e212b
                 ) !important;
-
             border:
                 1px solid
                 rgba(150, 160, 180, 0.20) !important;
-
             border-radius: 12px !important;
-
             transition:
                 border 0.2s ease,
                 box-shadow 0.2s ease;
         }
 
-
-        /* ====================================================
-           INPUT FOCUS
-        ==================================================== */
-
         div[data-baseweb="input"]:focus-within {
             border:
                 1px solid
                 rgba(255, 255, 255, 0.38) !important;
-
             box-shadow:
                 0 0 0 2px
                 rgba(255, 255, 255, 0.04) !important;
         }
 
-
-        /* ====================================================
-           INPUT TEXT
-        ==================================================== */
-
         div[data-baseweb="input"] input {
             height: 56px !important;
-
             color: #f5f5f7 !important;
-
             font-size: 16px !important;
-
             font-weight: 400 !important;
         }
 
-
         div[data-baseweb="input"] input::placeholder {
             color: #a0a3ad !important;
-
             opacity: 1 !important;
         }
-
-
-        /* ====================================================
-           PASSWORD EYE
-        ==================================================== */
 
         div[data-baseweb="input"] button {
             color: #f4f5f8 !important;
         }
 
-
-        /* ====================================================
-           INPUT SPACING
-        ==================================================== */
-
         div[data-testid="stTextInput"] {
             margin-bottom: 20px;
         }
-
-
-        /* ====================================================
-           LOGIN BUTTON
-        ==================================================== */
 
         div[data-testid="stFormSubmitButton"] {
             margin-top: 8px !important;
         }
 
-
         div[data-testid="stFormSubmitButton"] button {
             width: 100% !important;
-
             height: 62px !important;
-
             border: none !important;
-
             border-radius: 13px !important;
-
             background:
                 linear-gradient(
                     90deg,
                     #ff3d48,
                     #ff4d54
                 ) !important;
-
             color: white !important;
-
             font-size: 18px !important;
-
             font-weight: 700 !important;
-
             transition:
                 transform 0.15s ease,
                 box-shadow 0.15s ease;
         }
-
-
-        /* ====================================================
-           BUTTON HOVER
-        ==================================================== */
 
         div[data-testid="stFormSubmitButton"] button:hover {
             background:
@@ -417,124 +278,65 @@ if not st.session_state.user_id:
                     #ff4751,
                     #ff5960
                 ) !important;
-
             transform: translateY(-1px);
-
             box-shadow:
                 0 10px 25px
                 rgba(255, 60, 70, 0.25);
         }
 
-
-        /* ====================================================
-           BUTTON ACTIVE
-        ==================================================== */
-
         div[data-testid="stFormSubmitButton"] button:active {
             transform: translateY(0);
         }
-
-
-        /* ====================================================
-           MOBILE
-        ==================================================== */
 
         @media (max-width: 768px) {
 
             .block-container {
                 padding-left: 15px !important;
-
                 padding-right: 15px !important;
-
                 padding-top: 20px !important;
             }
 
-
-            /* -----------------------------------------------
-               LOGO MOBILE
-            ----------------------------------------------- */
-
             .cimory-logo-container {
                 width: 100vw !important;
-
                 max-width: 100vw !important;
-
                 left: 50% !important;
-
                 transform: translateX(-50%) !important;
-
                 margin-top: 10px !important;
-
                 margin-bottom: 35px !important;
             }
 
-
             .cimory-logo {
                 width: 220px !important;
-
                 max-width: 220px !important;
             }
 
-
-            /* -----------------------------------------------
-               LOGIN FORM
-            ----------------------------------------------- */
-
             div[data-testid="stForm"] {
                 width: auto !important;
-
                 max-width: calc(100vw - 30px) !important;
-
                 padding:
                     30px 22px 28px 22px !important;
-
                 border-radius: 17px !important;
             }
 
-
-            /* -----------------------------------------------
-               TITLE
-            ----------------------------------------------- */
-
             .login-title {
                 font-size: 32px;
-
                 gap: 10px;
             }
 
-
-            /* -----------------------------------------------
-               ICON
-            ----------------------------------------------- */
-
             .login-icon {
                 font-size: 26px !important;
-
                 width: 34px;
-
                 height: 34px;
             }
-
-
-            /* -----------------------------------------------
-               INPUT
-            ----------------------------------------------- */
 
             div[data-baseweb="input"] {
                 height: 56px !important;
             }
 
-
             div[data-baseweb="input"] input {
                 height: 54px !important;
-
                 font-size: 15px !important;
             }
-
-
-            /* -----------------------------------------------
-               BUTTON
-            ----------------------------------------------- */
 
             div[data-testid="stFormSubmitButton"] button {
                 height: 56px !important;
@@ -552,18 +354,19 @@ if not st.session_state.user_id:
     # CIMORY LOGO
     # ========================================================
 
-    st.markdown(
-        f"""
-        <div class="cimory-logo-container">
-            <img
-                src="data:image/png;base64,{logo_base64}"
-                class="cimory-logo"
-                alt="Cimory Logo"
-            >
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+    if logo_base64:
+        st.markdown(
+            f"""
+            <div class="cimory-logo-container">
+                <img
+                    src="data:image/png;base64,{logo_base64}"
+                    class="cimory-logo"
+                    alt="Cimory Logo"
+                >
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
 
     # ========================================================
@@ -571,10 +374,6 @@ if not st.session_state.user_id:
     # ========================================================
 
     with st.form("login_form"):
-
-        # ----------------------------------------------------
-        # TITLE
-        # ----------------------------------------------------
 
         st.markdown(
             """
@@ -586,20 +385,10 @@ if not st.session_state.user_id:
             unsafe_allow_html=True
         )
 
-
-        # ----------------------------------------------------
-        # USERNAME
-        # ----------------------------------------------------
-
         username = st.text_input(
             "Username",
             placeholder="Masukkan username"
         )
-
-
-        # ----------------------------------------------------
-        # PASSWORD
-        # ----------------------------------------------------
 
         password = st.text_input(
             "Password",
@@ -607,20 +396,10 @@ if not st.session_state.user_id:
             placeholder="Masukkan password"
         )
 
-
-        # ----------------------------------------------------
-        # BUTTON
-        # ----------------------------------------------------
-
         submitted = st.form_submit_button(
             "Login  →",
             use_container_width=True
         )
-
-
-        # ====================================================
-        # LOGIN PROCESS
-        # ====================================================
 
         if submitted:
 
@@ -645,13 +424,8 @@ if not st.session_state.user_id:
                     if user:
 
                         st.session_state.user_id = user.id
-
-                        st.session_state.username = (
-                            user.username
-                        )
-
+                        st.session_state.username = user.username
                         st.session_state.role = user.role
-
                         st.session_state.user_display = (
                             user.display_name
                             or user.username
@@ -662,7 +436,7 @@ if not st.session_state.user_id:
                             f"{st.session_state.user_display}!"
                         )
 
-                        time.sleep(0.5)
+                        time.sleep(0.3)
 
                         st.rerun()
 
@@ -676,12 +450,15 @@ if not st.session_state.user_id:
 
                     db.close()
 
+    # ========================================================
+    # STOP RENDER - HANYA UNTUK HALAMAN LOGIN
+    # ========================================================
 
     st.stop()
 
 
 # ============================================================
-# SIDEBAR
+# SIDEBAR (HANYA TAMPIL SETELAH LOGIN)
 # ============================================================
 
 with st.sidebar:
@@ -974,79 +751,75 @@ elif page == "user_management":
 
 
 # ============================================================
-# SOURCING INPUT (FILE: 09_sourcing_input.py)
+# SOURCING INPUT
 # ============================================================
 
 elif page == "sourcing_input":
 
     try:
         sourcing_input = importlib.import_module(
-            "pages.sourcing_input"
+            "pages.09_sourcing_input"
         )
         sourcing_input.show_sourcing_input()
     except ModuleNotFoundError:
-        st.error("❌ File pages/sourcing_input.py tidak ditemukan!")
+        st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
 
 
 # ============================================================
-# FUNNEL REPORT (FILE: 10_funnel_report.py)
+# FUNNEL REPORT
 # ============================================================
 
 elif page == "funnel_report":
 
     try:
         funnel_report = importlib.import_module(
-            "pages.funnel_report"
+            "pages.15_funneling_report"
         )
-        funnel_report.show_funnel_report()
+        funnel_report.show_funneling_report()
     except ModuleNotFoundError:
-        st.error("❌ File pages/10_funnel_report.py tidak ditemukan!")
-        st.info("Silakan buat file tersebut atau periksa nama file.")
+        st.error("❌ File pages/15_funneling_report.py tidak ditemukan!")
 
 
 # ============================================================
-# MONITORING SOURCING (FILE: 11_monitoring_sourcing.py)
+# MONITORING SOURCING
 # ============================================================
 
 elif page == "monitoring_sourcing":
 
     try:
         monitoring_sourcing = importlib.import_module(
-            "pages.monitoring_sourcing"
+            "pages.14_monitoring_sourcing"
         )
         monitoring_sourcing.show_monitoring_sourcing()
     except ModuleNotFoundError:
-        st.error("❌ File pages/11_monitoring_sourcing.py tidak ditemukan!")
-        st.info("Silakan buat file tersebut atau periksa nama file.")
+        st.error("❌ File pages/14_monitoring_sourcing.py tidak ditemukan!")
 
 
 # ============================================================
-# UPLOAD EVIDENCE (FILE: 12_upload_evidence.py)
+# UPLOAD EVIDENCE
 # ============================================================
 
 elif page == "upload_evidence":
 
     try:
         upload_evidence = importlib.import_module(
-            "pages.upload_evidence"
+            "pages.13_upload_evidence"
         )
         upload_evidence.show_upload_evidence()
     except ModuleNotFoundError:
-        st.error("❌ File pages/12_upload_evidence.py tidak ditemukan!")
-        st.info("Silakan buat file tersebut atau periksa nama file.")
+        st.error("❌ File pages/13_upload_evidence.py tidak ditemukan!")
 
 
 # ============================================================
-# TRANSFER FPTK (FILE: 13_transfer_fptk.py)
+# TRANSFER FPTK
 # ============================================================
 
 elif page == "transfer_fptk":
 
     try:
         transfer_fptk = importlib.import_module(
-            "pages.transfer_fptk"
+            "pages.17_fptk_transfer"
         )
-        transfer_fptk.show_transfer_fptk()
+        transfer_fptk.show_fptk_transfer()
     except ModuleNotFoundError:
-        st.error("❌ File pages/13_transfer_fptk.py tidak ditemukan!")
-        st.info("Silakan buat file tersebut atau periksa nama file.")
+        st.error("❌ File pages/17_fptk_transfer.py tidak ditemukan!")
