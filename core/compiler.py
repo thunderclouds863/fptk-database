@@ -366,6 +366,139 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
     }
 
 
-def compile_db_sourcing(db, df, user_id, cycle_id, file_name, file_hash, kode_unik_mapping):
-    """Stub function for DB Sourcing compile."""
-    return {"success": True, "imported": 0, "errors": []}
+def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
+                        file_name: str, file_hash: str):
+    """Compile DB Sourcing dari uploaded file"""
+    from core.validator import validate_db_sourcing_file
+    
+    errors = []
+    imported = 0
+    
+    # Validasi
+    valid_rows, val_errors = validate_db_sourcing_file(df)
+    if val_errors:
+        return {"success": False, "errors": val_errors}
+    
+    # Process rows
+    for _, row in valid_rows.iterrows():
+        # Skip jika tidak ada Kode Unik
+        if not row.get('kode_unik'):
+            continue
+        
+        try:
+            new_sourcing = DBSourcing(
+                no=row.get('no', 0),
+                sourcing_date=row.get('sourcing_date'),
+                kode_unik=row.get('kode_unik'),
+                posisi=row.get('posisi', ''),
+                model_rekrutmen=row.get('model_rekrutmen', ''),
+                rekruter=row.get('rekruter', ''),
+                sumber_sourcing=row.get('sumber_sourcing', ''),
+                nama=row.get('nama', ''),
+                nama_universitas_top10=row.get('nama_universitas_top10', ''),
+                nama_universitas_lainnya=row.get('nama_universitas_lainnya', ''),
+                jenjang_pendidikan=row.get('jenjang_pendidikan', ''),
+                jurusan=row.get('jurusan', ''),
+                tahun_lulus=row.get('tahun_lulus'),
+                ipk=row.get('ipk'),
+                skor_bahasa_inggris=row.get('skor_bahasa_inggris', ''),
+                university_tier=row.get('university_tier', ''),
+                ipk_tier=row.get('ipk_tier', ''),
+                nomor_hp=row.get('nomor_hp', ''),
+                email=row.get('email', ''),
+                domisili=row.get('domisili', ''),
+                source_user_id=user_id,
+                source_cycle_id=cycle_id,
+                source_file=file_name,
+                source_file_hash=file_hash,
+                created_at=datetime.now(),
+                last_compile_action="COMPILE"
+            )
+            db.add(new_sourcing)
+            imported += 1
+        except Exception as e:
+            errors.append(f"Row {row.get('no', '?')}: {str(e)}")
+    
+    db.commit()
+    return {"success": True, "imported": imported, "errors": errors}
+
+
+def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
+                           file_name: str, file_hash: str):
+    """Compile DB Kode Posisi dari uploaded file"""
+    from core.validator import validate_db_kode_posisi_file
+    
+    errors = []
+    imported = 0
+    
+    valid_rows, val_errors = validate_db_kode_posisi_file(df)
+    if val_errors:
+        return {"success": False, "errors": val_errors}
+    
+    for _, row in valid_rows.iterrows():
+        try:
+            # Cek existing
+            existing = db.query(DBKodePosisi).filter(
+                DBKodePosisi.position == row.get('position', ''),
+                DBKodePosisi.business_unit == row.get('business_unit', '')
+            ).first()
+            
+            if existing:
+                # Update
+                existing.kode = row.get('kode', '')
+                existing.location = row.get('location', '')
+                existing.division_chris = row.get('division_chris', '')
+                existing.department_chris = row.get('department_chris', '')
+                existing.user_manager = row.get('user_manager', '')
+                existing.indirect_user = row.get('indirect_user', '')
+                existing.directorate = row.get('directorate', '')
+                existing.year = row.get('year', datetime.now().year)
+            else:
+                # Insert
+                new_pos = DBKodePosisi(
+                    kode=row.get('kode', ''),
+                    position=row.get('position', ''),
+                    location=row.get('location', ''),
+                    business_unit=row.get('business_unit', ''),
+                    division_chris=row.get('division_chris', ''),
+                    department_chris=row.get('department_chris', ''),
+                    user_manager=row.get('user_manager', ''),
+                    indirect_user=row.get('indirect_user', ''),
+                    directorate=row.get('directorate', ''),
+                    year=row.get('year', datetime.now().year)
+                )
+                db.add(new_pos)
+            imported += 1
+        except Exception as e:
+            errors.append(str(e))
+    
+    db.commit()
+    return {"success": True, "imported": imported, "errors": errors}
+
+
+def compile_blacklist(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
+                      file_name: str, file_hash: str):
+    """Compile Blacklist Candidate dari uploaded file"""
+    from core.validator import validate_blacklist_file
+    
+    errors = []
+    imported = 0
+    
+    valid_rows, val_errors = validate_blacklist_file(df)
+    if val_errors:
+        return {"success": False, "errors": val_errors}
+    
+    for _, row in valid_rows.iterrows():
+        try:
+            key = row.get('key_value', '')
+            if key:
+                existing = db.query(Blacklist).filter(Blacklist.key_value == key).first()
+                if not existing:
+                    new_bl = Blacklist(key_value=key)
+                    db.add(new_bl)
+                    imported += 1
+        except Exception as e:
+            errors.append(str(e))
+    
+    db.commit()
+    return {"success": True, "imported": imported, "errors": errors}
