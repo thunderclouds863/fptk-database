@@ -526,6 +526,11 @@ def validate_fptk_file(
     # ============================================================
     # SUMMARY
     # ============================================================
+    warnings = [
+        e for e in errors
+        if e.get("warning", False)
+    ]
+    
     critical_errors = [
         e for e in errors
         if not e.get("warning", False)
@@ -544,10 +549,6 @@ def validate_fptk_file(
             "example": "Perbaiki error di bawah ini"
         })
         return False, errors
-        warnings = [
-        e for e in errors
-        if e.get("warning", False)
-    ]
     
     return True, warnings
 
