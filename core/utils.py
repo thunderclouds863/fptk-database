@@ -1,3 +1,5 @@
+# core/utils.py
+
 import pandas as pd
 import re
 from datetime import datetime, date, timedelta
@@ -17,21 +19,48 @@ def normalize_text(value) -> str:
     s = re.sub(r'\s+', ' ', s)
     return s
 
-def parse_date_dmy(value) -> datetime:
+def parse_date_dmy(value):
+    """Parse tanggal dengan berbagai format, return date object"""
     if pd.isna(value) or value is None:
         return None
-    if isinstance(value, datetime):
-        return value.date() if hasattr(value, 'date') else value
-    if isinstance(value, pd.Timestamp):
-        return value.date()
+    
+    # Jika sudah date object
     if isinstance(value, date):
         return value
-    s = str(value).strip()
-    for fmt in ['%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%Y-%m-%d', '%Y/%m/%d']:
+    
+    # Jika sudah datetime object, konversi ke date
+    if isinstance(value, datetime):
+        return value.date()
+    
+    # Jika sudah pandas Timestamp
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    
+    # Jika string
+    if isinstance(value, str):
+        s = str(value).strip()
+        
+        # Hapus timestamp jika ada (YYYY-MM-DD HH:MM:SS)
+        if ' ' in s:
+            s = s.split(' ')[0]
+        
+        # Coba berbagai format
+        for fmt in ['%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%Y-%m-%d', '%Y/%m/%d']:
+            try:
+                return datetime.strptime(s, fmt).date()
+            except ValueError:
+                continue
+    
+    # Jika numeric (Excel serial date)
+    if isinstance(value, (int, float)):
         try:
-            return datetime.strptime(s, fmt).date()
-        except ValueError:
-            continue
+            # Excel serial date mulai dari 1900-01-01
+            from datetime import datetime as dt
+            base = dt(1899, 12, 30)
+            return (base + timedelta(days=float(value))).date()
+        except:
+            pass
+    
     return None
 
 def safe_int(value, default=0):
@@ -68,10 +97,17 @@ def calculate_sla_days(level_number: int) -> int:
     else:
         return 30
 
-def calculate_deadline_sla(fptk_date_real: date, sla_days: int) -> date:
-    """Hitung Deadline SLA = FPTK Date Real + SLA Days"""
+def calculate_deadline_sla(fptk_date_real, sla_days: int):
+    """Hitung Deadline SLA = FPTK Date Real + SLA Days, return date"""
     if fptk_date_real and sla_days > 0:
-        return fptk_date_real + timedelta(days=sla_days)
+        # Pastikan fptk_date_real adalah date object
+        if isinstance(fptk_date_real, datetime):
+            fptk_date_real = fptk_date_real.date()
+        elif isinstance(fptk_date_real, pd.Timestamp):
+            fptk_date_real = fptk_date_real.date()
+        
+        if isinstance(fptk_date_real, date):
+            return fptk_date_real + timedelta(days=sla_days)
     return None
 
 def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
@@ -87,20 +123,12 @@ def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
     - Status Cancel → "Cancel FPTK"
     - Fallback: OP Tidak Lulus SLA / OP Belum Lewat SLA
     """
-    # Parse dates jika string
-    if isinstance(deadline_sla, str):
-        deadline_sla = parse_date_dmy(deadline_sla)
-    if isinstance(offering_date, str):
-        offering_date = parse_date_dmy(offering_date)
+    # Parse dates jika string atau datetime
+    deadline_sla = _ensure_date(deadline_sla)
+    offering_date = _ensure_date(offering_date)
     
-    # Pastikan tipe data benar
-    if deadline_sla and not isinstance(deadline_sla, date):
-        deadline_sla = None
-    if offering_date and not isinstance(offering_date, date):
-        offering_date = None
-    
-    status_lower = status.lower() if status else ""
     today = date.today()
+    status_lower = status.lower() if status else ""
     
     # CASE 1: OP / OPEN
     if status_lower in ["op", "open"]:
@@ -126,6 +154,29 @@ def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
             return "OP Tidak Lulus SLA"
         else:
             return "OP Belum Lewat SLA"
+
+def _ensure_date(value):
+    """Pastikan value adalah date object, konversi dari datetime jika perlu"""
+    if value is None or pd.isna(value):
+        return None
+    
+    # Jika sudah date
+    if isinstance(value, date):
+        return value
+    
+    # Jika datetime, konversi ke date
+    if isinstance(value, datetime):
+        return value.date()
+    
+    # Jika pandas Timestamp
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    
+    # Jika string, coba parse
+    if isinstance(value, str):
+        return parse_date_dmy(value)
+    
+    return None
 
 def get_sla_option_list() -> list:
     """Daftar pilihan Detail SLA untuk dropdown (mirip VBA)"""
