@@ -124,8 +124,8 @@ def show_fptk_view():
         df['FPTK Date Real'] = df['fptk_date_real'].dt.strftime('%d/%m/%Y')
     
     # Kolom yang ditampilkan (TANPA ID)
-    display_cols = ['kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
-                    'direktorat', 'status', 'filter_kategorisasi_fptk', 'FPTK Date Real', 
+    display_cols = ['FPTK Date Real', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
+                    'direktorat', 'status', 'filter_kategorisasi_fptk',  
                     'vacancy', 'level_fptk', 'jumlah_sla']
     
     # Filter kolom yang ada
@@ -139,6 +139,7 @@ def show_fptk_view():
             use_container_width=True,
             height=400,
             column_config={
+                "FPTK Date Real": "FPTK Date (Real)",
                 "kode_unik": "Kode Unik",
                 "posisi": "Posisi",
                 "pic_recruiter": "PIC",
@@ -146,7 +147,6 @@ def show_fptk_view():
                 "direktorat": "Direktorat",
                 "status": "Status",
                 "filter_kategorisasi_fptk": "Filter Kategorisasi",
-                "FPTK Date Real": "FPTK Date (Real)",
                 "vacancy": "Vacancy",
                 "level_fptk": "Level",
                 "jumlah_sla": "SLA (hari)"
