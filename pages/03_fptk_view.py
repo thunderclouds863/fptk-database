@@ -88,7 +88,7 @@ def show_fptk_view():
         return
     
     # ============================================================
-    # PAGINATION & DISPLAY
+    # PAGINATION & DISPLAY - TABEL LIST FPTK
     # ============================================================
     page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
     page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
@@ -96,10 +96,38 @@ def show_fptk_view():
     
     df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
     
+    # TAMPILKAN TABEL LIST FPTK (INI YANG SEBELUMNYA ILANG)
+    st.markdown("### 📋 Daftar FPTK")
+    
+    # Kolom yang ditampilkan di tabel
+    display_cols = ['id', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
+                    'direktorat', 'status', 'filter_kategorisasi_fptk', 'fptk_date_real', 
+                    'vacancy', 'level_fptk']
+    
+    st.dataframe(
+        df[display_cols],
+        use_container_width=True,
+        height=400,
+        column_config={
+            "id": "ID",
+            "kode_unik": "Kode Unik",
+            "posisi": "Posisi",
+            "pic_recruiter": "PIC",
+            "business_unit": "BU",
+            "direktorat": "Direktorat",
+            "status": "Status",
+            "filter_kategorisasi_fptk": "Filter Kategorisasi",
+            "fptk_date_real": "Tanggal FPTK",
+            "vacancy": "Vacancy",
+            "level_fptk": "Level"
+        }
+    )
+    
     # ============================================================
     # PILIH DATA UNTUK EDIT - PAKAI KODE UNIK / POSISI
     # ============================================================
-    st.markdown("### 📋 Pilih Data untuk Diedit")
+    st.markdown("---")
+    st.markdown("### ✏️ Pilih Data untuk Diedit")
     
     # Buat list pilihan dengan format "Kode Unik | Posisi"
     select_options = {}
