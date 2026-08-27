@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import re
+import hashlib  # ✅ TAMBAHKAN INI
 from datetime import datetime, timedelta
 from core.database import get_db
 from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog
@@ -141,7 +142,7 @@ def show_upload_compile():
             UploadStatus.user_id == user.id,
             UploadStatus.cycle_id == cycle.id
         ).first()
-        st.caption(f"Status Anda: **{status.status if status else 'Belum Mulai'}**")
+        st.caption(f"Status Anda: **{status.status if status else 'Belum Mulia'}**")
         
         st.markdown("---")
         st.subheader("📁 Upload File Excel")
@@ -230,8 +231,13 @@ def show_upload_compile():
                             st.info("💡 **Tips:** Perbaiki error di atas, lalu upload ulang file yang sudah diperbaiki.")
                             continue
                         
-                        # Proses compile kalo valid
+                        # ============================================================
+                        # ✅ BACA FILE BYTES DAN HITUNG HASH
+                        # ============================================================
                         file_bytes = file.read()
+                        file_hash = hashlib.sha256(file_bytes).hexdigest()  # ✅ TAMBAHKAN INI
+                        
+                        # Proses compile FPTK
                         result = compile_fptk(
                             db, df, user.id, cycle.id,
                             sanitize_filename(file.name), file_bytes, is_sto
@@ -251,7 +257,7 @@ def show_upload_compile():
                                             if sourcing_df is not None and not sourcing_df.empty:
                                                 sourcing_result = compile_db_sourcing(
                                                     db, sourcing_df, user.id, cycle.id,
-                                                    sanitize_filename(file.name), file_hash
+                                                    sanitize_filename(file.name), file_hash  # ✅ file_hash sudah terdefinisi
                                                 )
                                                 if sourcing_result["success"]:
                                                     st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
@@ -275,7 +281,7 @@ def show_upload_compile():
                                             if dbk_df is not None and not dbk_df.empty:
                                                 dbk_result = compile_db_kode_posisi(
                                                     db, dbk_df, user.id, cycle.id,
-                                                    sanitize_filename(file.name), file_hash
+                                                    sanitize_filename(file.name), file_hash  # ✅ file_hash sudah terdefinisi
                                                 )
                                                 if dbk_result["success"]:
                                                     st.success(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
@@ -299,7 +305,7 @@ def show_upload_compile():
                                             if bl_df is not None and not bl_df.empty:
                                                 bl_result = compile_blacklist(
                                                     db, bl_df, user.id, cycle.id,
-                                                    sanitize_filename(file.name), file_hash
+                                                    sanitize_filename(file.name), file_hash  # ✅ file_hash sudah terdefinisi
                                                 )
                                                 if bl_result["success"]:
                                                     st.success(f"✅ Blacklist: {bl_result.get('imported', 0)} rows")
@@ -453,15 +459,16 @@ def show_upload_compile():
                 
                 # Status
                 status = st.selectbox("Status *", status_options)
-                # Di dalam form, setelah Jumlah SLA / Deadline SLA, tambahkan:
-
+                
                 # Jumlah SLA (auto-calculate)
                 sla_days = calculate_sla_days(level_number)
                 st.text_input("Jumlah SLA (auto)", value=str(sla_days), disabled=True)
+                
                 # Deadline SLA (auto-calculate)
                 if fptk_date and sla_days:
                     deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
+                
                 # Detail SLA - DROPDOWN (bisa diisi manual)
                 detail_sla_options = [
                     "OP Belum Lewat SLA",
@@ -781,13 +788,16 @@ def show_upload_compile():
                     status_options,
                     index=0 if not parsed_data.get("status") else (status_options.index(parsed_data["status"]) if parsed_data.get("status") in status_options else 0)
                 )
+                
                 # Jumlah SLA (auto-calculate)
                 sla_days = calculate_sla_days(level_number)
                 st.text_input("Jumlah SLA (auto)", value=str(sla_days), disabled=True)
+                
                 # Deadline SLA (auto-calculate)
                 if fptk_date and sla_days:
                     deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
+                
                 # Detail SLA - DROPDOWN (bisa diisi manual)
                 detail_sla_options = [
                     "OP Belum Lewat SLA",
@@ -797,6 +807,7 @@ def show_upload_compile():
                     "Cancel FPTK"
                 ]
                 new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options)
+            
             # Conditional fields
             if status == "Closed":
                 offering_date = st.date_input("Offering Date (required untuk Closed)", datetime.now())
