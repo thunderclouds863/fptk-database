@@ -317,6 +317,28 @@ def show_fptk_view():
                 
                 new_vacancy = st.number_input("Vacancy", min_value=1, value=detail.vacancy or 1)
             
+            # ============================================================
+            # BAGIAN SLA - DITAMBAHKAN DI SINI
+            # ============================================================
+            st.markdown("---")
+            st.markdown("#### SLA")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                new_jumlah_sla = st.number_input("Jumlah SLA (hari)", min_value=0, value=detail.jumlah_sla or 0)
+            with col2:
+                new_deadline_sla = st.date_input("Deadline SLA", 
+                                                  value=detail.deadline_sla if detail.deadline_sla else None)
+            with col3:
+                detail_sla_options = [
+                    "OP Belum Lewat SLA",
+                    "OP Tidak Lulus SLA",
+                    "Closed Lulus SLA",
+                    "Closed Tidak Lulus SLA",
+                    "Cancel FPTK"
+                ]
+                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options,
+                                               index=(detail_sla_options.index(detail.detail_sla) + 1) if detail.detail_sla in detail_sla_options else 0)
+            
             st.markdown("---")
             st.markdown("#### Alasan & Category")
             col1, col2 = st.columns(2)
@@ -403,7 +425,13 @@ def show_fptk_view():
                     detail.fptk_availability = new_fptk_availability
                     detail.remark = new_remark
                 
-                # Hitung ulang SLA jika level berubah
+                # Update SLA fields
+                detail.jumlah_sla = new_jumlah_sla
+                detail.deadline_sla = new_deadline_sla
+                detail.detail_sla = new_detail_sla
+                
+                # Hitung ulang SLA jika level berubah (opsional - bisa di-override oleh input manual)
+                # Jika ingin tetap menggunakan perhitungan otomatis berdasarkan level, uncomment kode di bawah
                 if new_level_number <= 3:
                     sla_days = 30
                 elif new_level_number == 4:
@@ -411,7 +439,7 @@ def show_fptk_view():
                 else:
                     sla_days = 60
                 detail.jumlah_sla = sla_days
-                
+                 
                 if detail.fptk_date_real and sla_days:
                     detail.deadline_sla = detail.fptk_date_real + timedelta(days=sla_days)
                 
