@@ -299,65 +299,89 @@ def show_dashboard():
         st.plotly_chart(fig, use_container_width=True)
     else:
         st.info("Tidak ada data funnel sourcing")
-    
+
     # ============================================================
     # ROW 5: SLA COMPLIANCE + HEATMAP
     # ============================================================
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        # SLA Compliance
-        if total > 0 and 'deadline_sla' in df:
-            try:
-                now = datetime.now().date()
-                df['deadline_date'] = pd.to_datetime(df['deadline_sla'])
-                df['sla_compliant'] = df.apply(
-                    lambda row: row['deadline_date'] >= now if pd.notna(row['deadline_date']) else None, axis=1
-                )
-                compliant = len(df[df['sla_compliant'] == True])
-                not_compliant = len(df[df['sla_compliant'] == False])
+    try:
+        c1, c2 = st.columns(2)
+            
+        with c1:
+            st.subheader("✅ Detail SLA Distribution")
+            if 'detail_sla' in df and df['detail_sla'].notna().any():
+                detail_counts = df['detail_sla'].value_counts().reset_index()
+                detail_counts.columns = ['Detail SLA', 'Count']
                 
-                if compliant + not_compliant > 0:
-                    sla_data = pd.DataFrame([
-                        {"Status": "Lulus SLA", "Count": compliant},
-                        {"Status": "Tidak Lulus SLA", "Count": not_compliant}
-                    ])
-                    fig = px.pie(sla_data, values='Count', names='Status', title='✅ SLA Compliance',
-                                 color='Status', color_discrete_map={'Lulus SLA': '#2ecc71', 'Tidak Lulus SLA': '#e74c3c'})
-                    fig.update_layout(height=300)
+                # Urutkan sesuai dengan yang diinginkan
+                sla_order = [
+                    "OP Belum Lewat SLA",
+                    "OP Tidak Lulus SLA",
+                    "Closed Lulus SLA",
+                    "Closed Tidak Lulus SLA",
+                    "Cancel FPTK"
+                ]
+                
+                # Filter hanya yang ada di data
+                sla_order_existing = [s for s in sla_order if s in detail_counts['Detail SLA'].values]
+                detail_counts = detail_counts[detail_counts['Detail SLA'].isin(sla_order_existing)]
+                
+                if not detail_counts.empty:
+                    # Warna untuk setiap kategori
+                    color_map = {
+                        "OP Belum Lewat SLA": "#2ecc71",      # Hijau
+                        "OP Tidak Lulus SLA": "#e74c3c",       # Merah
+                        "Closed Lulus SLA": "#3498db",         # Biru
+                        "Closed Tidak Lulus SLA": "#e67e22",   # Orange
+                        "Cancel FPTK": "#95a5a6"               # Abu-abu
+                    }
+                    
+                    fig = px.bar(
+                        detail_counts, 
+                        x='Detail SLA', 
+                        y='Count', 
+                        title='Detail SLA Distribution',
+                        color='Detail SLA',
+                        color_discrete_map=color_map,
+                        text='Count'
+                    )
+                    fig.update_layout(height=400, xaxis_tickangle=-45)
+                    fig.update_traces(textposition='outside')
                     st.plotly_chart(fig, use_container_width=True)
+                    
+                    # Tampilkan juga tabel summary
+                    st.dataframe(detail_counts, use_container_width=True, hide_index=True)
+                    
+                    # Hitung summary
+                    lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Belum Lewat SLA", "Closed Lulus SLA"])]['Count'].sum()
+                    tidak_lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"])]['Count'].sum()
+                    cancel = detail_counts[detail_counts['Detail SLA'] == "Cancel FPTK"]['Count'].sum()
+                    
+                    col_a, col_b, col_c = st.columns(3)
+                    col_a.metric("✅ Lulus SLA", lulus)
+                    col_b.metric("❌ Tidak Lulus", tidak_lulus)
+                    col_c.metric("⏭️ Cancel", cancel)
                 else:
-                    st.info("Tidak ada data SLA")
-            except:
-                st.info("Tidak ada data SLA")
-        else:
-            st.info("Tidak ada data SLA")
-    
-    with col2:
-        # HEATMAP / Calendar View (simplified)
-        if total > 0 and 'fptk_date_real' in df:
-            try:
+                    st.info("Belum ada data Detail SLA")
+            else:
+                st.info("Belum ada data Detail SLA")        
+        with c2:
+            if 'fptk_date_real' in df and df['fptk_date_real'].notna().any():
                 df['date'] = pd.to_datetime(df['fptk_date_real'])
                 df['month'] = df['date'].dt.strftime('%Y-%m')
                 df['day'] = df['date'].dt.day
                 heatmap_data = df.groupby(['month', 'day']).size().reset_index(name='count')
                 if len(heatmap_data) > 0:
-                    fig = px.density_heatmap(
-                        heatmap_data, 
-                        x='day', 
-                        y='month', 
-                        z='count',
-                        title='🔥 Persebaran FPTK (Calendar Heatmap)',
-                        color_continuous_scale='Blues'
-                    )
-                    fig.update_layout(height=300)
+                    fig = px.density_heatmap(heatmap_data, x='day', y='month', z='count',
+                                             title='🔥 Persebaran FPTK (Calendar Heatmap)',
+                                             color_continuous_scale='Blues')
+                    fig.update_layout(height=350)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
-                    st.info("Tidak ada data")
-            except:
-                st.info("Tidak ada data")
-        else:
-            st.info("Tidak ada data")
+                    st.info("Tidak ada data heatmap")
+            else:
+                st.info("Tidak ada data heatmap")
+    except Exception as e:
+        st.error(f"Error grafik ROW 5: {str(e)}")
     
     # ============================================================
     # ROW 6: UPLOAD CYCLE PROGRESS (ADMIN ONLY)
