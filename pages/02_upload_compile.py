@@ -744,7 +744,7 @@ def show_upload_compile():
                     db.add(new_fptk)
                     db.commit()
                     
-                                        st.success(f"✅ FPTK berhasil disimpan dari email!")
+                    st.success(f"✅ FPTK berhasil disimpan dari email!")
                     st.info(f"📋 Kode Unik: **{kode_unik}**")
                     st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
                     st.balloons()
