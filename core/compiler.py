@@ -348,7 +348,11 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
     errors = []
     imported = 0
     
-    valid_rows, val_errors = validate_db_sourcing_file(df)
+    valid_rows, val_errors = validate_db_sourcing_file(
+        df,
+        db,
+        user_id
+    )
     if val_errors:
         return {"success": False, "imported": 0, "errors": val_errors}
     
@@ -460,7 +464,11 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
     errors = []
     imported = 0
     
-    valid_rows, val_errors = validate_db_kode_posisi_file(df)
+    valid_rows, val_errors = validate_db_kode_posisi_file(
+        df,
+        db,
+        user_id
+    )
     if val_errors:
         return {"success": False, "imported": 0, "errors": val_errors}
     
@@ -514,7 +522,11 @@ def compile_blacklist(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int
     errors = []
     imported = 0
     
-    valid_rows, val_errors = validate_blacklist_file(df)
+    valid_rows, val_errors = validate_blacklist_file(
+        df,
+        db,
+        user_id
+    )
     if val_errors:
         return {"success": False, "imported": 0, "errors": val_errors}
     
