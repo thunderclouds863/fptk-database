@@ -292,18 +292,18 @@ def show_upload_compile():
                                         if "DB Sourcing" in xls.sheet_names:
                                             sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
                                             if sourcing_df is not None and not sourcing_df.empty:
-                                                # Clear any pending transaction
-                                                if db.is_active:
+                                                try:
+                                                    sourcing_result = compile_db_sourcing(
+                                                        db=db,
+                                                        df=sourcing_df,
+                                                        user_id=user.id,
+                                                        cycle_id=cycle.id,
+                                                        file_name=sanitize_filename(file.name),
+                                                        file_hash=file_hash
+                                                    )
+                                                except Exception:
                                                     db.rollback()
-                                                
-                                                sourcing_result = compile_db_sourcing(
-                                                    db=db,
-                                                    df=sourcing_df,
-                                                    user_id=user.id,
-                                                    cycle_id=cycle.id,
-                                                    file_name=sanitize_filename(file.name),
-                                                    file_hash=file_hash
-                                                )
+                                                    raise
                                                 if sourcing_result["success"]:
                                                     st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported, {sourcing_result.get('updated', 0)} updated")
                                                 else:
