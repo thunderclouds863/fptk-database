@@ -282,3 +282,40 @@ class Evidence(Base):
     pic_recruiter = Column(String(100), index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
+
+class UploadTemplate(Base):
+    __tablename__ = "upload_templates"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    file_name = Column(
+        String(255),
+        nullable=False
+    )
+
+    # Simpan file Excel dalam bentuk Base64
+    file_data = Column(
+        Text,
+        nullable=False
+    )
+
+    uploaded_by = Column(
+        Integer,
+        ForeignKey("users.id")
+    )
+
+    version = Column(
+        Integer,
+        default=1
+    )
+
+    is_active = Column(
+        Boolean,
+        default=True
+    )
+
+    created_at = Column(
+        TIMESTAMP,
+        server_default=func.now()
+    )
