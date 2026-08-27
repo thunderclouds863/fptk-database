@@ -27,6 +27,72 @@ from core.utils import (
 import hashlib
 
 
+def safe_value_for_db(value, default=None):
+    """
+    Safely convert ANY value to a database-compatible value.
+    This handles pandas NaN, numpy NaN, and other edge cases.
+    """
+    if value is None:
+        return default
+    
+    # Handle pandas NaN
+    if isinstance(value, float) and math.isnan(value):
+        return default
+    
+    # Handle pandas Series
+    if isinstance(value, pd.Series):
+        if len(value) > 0:
+            return safe_value_for_db(value.iloc[0], default)
+        return default
+    
+    # Handle numpy arrays
+    if isinstance(value, (list, tuple)):
+        if len(value) > 0:
+            return safe_value_for_db(value[0], default)
+        return default
+    
+    # Handle pandas Timestamp
+    if isinstance(value, pd.Timestamp):
+        return value.date()
+    
+    # Handle datetime
+    if isinstance(value, datetime):
+        return value
+    
+    # Handle date
+    if isinstance(value, date):
+        return value
+    
+    # Handle string
+    if isinstance(value, str):
+        return value.strip() if value.strip() else default
+    
+    # Handle numeric
+    if isinstance(value, (int, float)):
+        if math.isnan(value):
+            return default
+        return value
+    
+    return str(value) if value is not None else default
+
+
+def safe_string_for_db(value, default=''):
+    """Safely convert to string for database storage"""
+    if value is None:
+        return default
+    if isinstance(value, float) and math.isnan(value):
+        return default
+    if isinstance(value, pd.Series):
+        return safe_string_for_db(value.iloc[0], default) if len(value) > 0 else default
+    if isinstance(value, (list, tuple)):
+        return safe_string_for_db(value[0], default) if len(value) > 0 else default
+    if isinstance(value, str):
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value)
+    return str(value)
+
+
 def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                  file_name: str, file_bytes: bytes, is_sto: bool = False):
     """Compile FPTK dari rows (list of dict) atau DataFrame."""
@@ -291,9 +357,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
     """
     Compile DB Sourcing dari uploaded file.
     
-    CRITICAL FIX: This function now properly converts all values before inserting
-    into the database. The error "invalid input syntax for type double precision: 'V'"
-    occurred because string values like 'V' were being inserted into numeric columns.
+    CRITICAL FIX: Semua nilai 'nan' dan 'V'/'X' ditangani dengan benar.
     """
     from core.validator import validate_db_sourcing_file
     
@@ -340,42 +404,105 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             if not sourcing_date:
                 sourcing_date = datetime.now().date()
             
-            # --- CRITICAL: SAFE CONVERSIONS FOR ALL FIELDS ---
-            # Numeric fields - these MUST NOT receive string values like 'V'
+            # ============================================================
+            # SAFE CONVERSIONS - HANDLE EVERYTHING
+            # ============================================================
+            
+            # --- NUMERIC FIELDS ---
             no_val = safe_int(row.get('no'), imported + 1)
-            tahun_lulus_val = safe_int(row.get('tahun_lulus'))  # Will return 0 if invalid
-            ipk_val = safe_float(row.get('ipk'))  # Will return 0.0 if invalid
             
-            # String fields - safe conversion
-            posisi_val = safe_string(row.get('posisi'))
-            model_rekrutmen_val = safe_string(row.get('model_rekrutmen'))
-            rekruter_val = safe_string(row.get('rekruter'))
-            sumber_sourcing_val = safe_string(row.get('sumber_sourcing'))
-            nama_univ_top10_val = safe_string(row.get('nama_universitas_top10'))
-            nama_univ_lain_val = safe_string(row.get('nama_universitas_lainnya'))
-            jenjang_val = safe_string(row.get('jenjang_pendidikan'))
-            jurusan_val = safe_string(row.get('jurusan'))
-            skor_inggris_val = safe_string(row.get('skor_bahasa_inggris'))
-            university_tier_val = safe_string(row.get('university_tier'))
-            ipk_tier_val = safe_string(row.get('ipk_tier'))
-            nomor_hp_val = safe_string(row.get('nomor_hp'))
-            email_val = safe_string(row.get('email'))
-            domisili_val = safe_string(row.get('domisili'))
-            last_position_val = safe_string(row.get('last_position'))
-            last_company_val = safe_string(row.get('last_company'))
-            last_tenure_val = safe_string(row.get('last_tenure'))
-            total_tenure_val = safe_string(row.get('total_tenure'))
-            pernah_di_fmcg_val = safe_string(row.get('pernah_di_fmcg'))
+            # Handle tahun_lulus - convert to int or None
+            tahun_lulus_raw = row.get('tahun_lulus')
+            if tahun_lulus_raw is None or pd.isna(tahun_lulus_raw):
+                tahun_lulus_val = None
+            elif isinstance(tahun_lulus_raw, (int, float)):
+                tahun_lulus_val = int(tahun_lulus_raw) if not math.isnan(tahun_lulus_raw) else None
+            elif isinstance(tahun_lulus_raw, str):
+                try:
+                    tahun_lulus_val = int(float(tahun_lulus_raw))
+                except:
+                    tahun_lulus_val = None
+            else:
+                tahun_lulus_val = None
             
-            # Boolean-like fields (V/X) - These are STRINGS, not numeric
-            # CRITICAL: These should be stored in VARCHAR columns, not numeric columns
-            sourcing_hr_val = safe_boolean_char(row.get('sourcing_hr'))
-            shortlist_cv_val = safe_boolean_char(row.get('shortlist_cv'))
-            psikotes_val = safe_boolean_char(row.get('psikotes'))
-            hr_interview_val = safe_boolean_char(row.get('hr_interview'))
-            user_interview_val = safe_boolean_char(row.get('user_interview'))
-            offering_val = safe_boolean_char(row.get('offering'))
-            day1_val = safe_boolean_char(row.get('day1'))
+            # Handle ipk - convert to float or None
+            ipk_raw = row.get('ipk')
+            if ipk_raw is None or pd.isna(ipk_raw):
+                ipk_val = None
+            elif isinstance(ipk_raw, (int, float)):
+                ipk_val = float(ipk_raw) if not math.isnan(ipk_raw) else None
+            elif isinstance(ipk_raw, str):
+                try:
+                    ipk_val = float(ipk_raw.replace(',', '.'))
+                except:
+                    ipk_val = None
+            else:
+                ipk_val = None
+            
+            # --- STRING FIELDS - handle everything properly ---
+            def get_string_value(row, field):
+                val = row.get(field)
+                if val is None:
+                    return ''
+                if isinstance(val, float) and math.isnan(val):
+                    return ''
+                if isinstance(val, pd.Series):
+                    return get_string_value(val, field) if len(val) > 0 else ''
+                if isinstance(val, (list, tuple)):
+                    return str(val[0]) if len(val) > 0 else ''
+                return str(val).strip()
+            
+            posisi_val = get_string_value(row, 'posisi')
+            model_rekrutmen_val = get_string_value(row, 'model_rekrutmen')
+            rekruter_val = get_string_value(row, 'rekruter')
+            sumber_sourcing_val = get_string_value(row, 'sumber_sourcing')
+            nama_univ_top10_val = get_string_value(row, 'nama_universitas_top10')
+            nama_univ_lain_val = get_string_value(row, 'nama_universitas_lainnya')
+            jenjang_val = get_string_value(row, 'jenjang_pendidikan')
+            jurusan_val = get_string_value(row, 'jurusan')
+            skor_inggris_val = get_string_value(row, 'skor_bahasa_inggris')
+            university_tier_val = get_string_value(row, 'university_tier')
+            ipk_tier_val = get_string_value(row, 'ipk_tier')
+            nomor_hp_val = get_string_value(row, 'nomor_hp')
+            email_val = get_string_value(row, 'email')
+            domisili_val = get_string_value(row, 'domisili')
+            last_position_val = get_string_value(row, 'last_position')
+            last_company_val = get_string_value(row, 'last_company')
+            last_tenure_val = get_string_value(row, 'last_tenure')
+            total_tenure_val = get_string_value(row, 'total_tenure')
+            pernah_di_fmcg_val = get_string_value(row, 'pernah_di_fmcg')
+            
+            # ============================================================
+            # BOOLEAN-LIKE FIELDS (V/X) - HANDLE nan dan lainnya
+            # ============================================================
+            def get_boolean_char(row, field):
+                val = row.get(field)
+                if val is None:
+                    return None
+                if isinstance(val, float) and math.isnan(val):
+                    return None
+                if isinstance(val, bool):
+                    return 'V' if val else 'X'
+                if isinstance(val, (int, float)):
+                    return 'V' if val else 'X'
+                if isinstance(val, str):
+                    v = val.strip().upper()
+                    if v in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
+                        return 'V'
+                    if v in ['X', 'N', 'NO', 'FALSE', '0']:
+                        return 'X'
+                    return None
+                if isinstance(val, pd.Series):
+                    return get_boolean_char(val, field) if len(val) > 0 else None
+                return None
+            
+            sourcing_hr_val = get_boolean_char(row, 'sourcing_hr')
+            shortlist_cv_val = get_boolean_char(row, 'shortlist_cv')
+            psikotes_val = get_boolean_char(row, 'psikotes')
+            hr_interview_val = get_boolean_char(row, 'hr_interview')
+            user_interview_val = get_boolean_char(row, 'user_interview')
+            offering_val = get_boolean_char(row, 'offering')
+            day1_val = get_boolean_char(row, 'day1')
             
             if existing:
                 # Update existing record
@@ -411,34 +538,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 existing.last_compile_action = "UPDATE"
                 updated += 1
             else:
-                print("DEBUG PIPELINE VALUES")
-                for field in [
-                    "sourcing_hr",
-                    "shortlist_cv",
-                    "psikotes",
-                    "hr_interview",
-                    "user_interview",
-                    "offering",
-                    "day1",
-                    "nilai_logika",
-                    "nilai_iq",
-                    "nilai_ra"
-                ]:
-                    print(
-                        field,
-                        row.get(field),
-                        type(row.get(field))
-                    )
-                print("========== DB COLUMN TYPE CHECK ==========")
-
-                for col in DBSourcing.__table__.columns:
-                    print(
-                        col.name,
-                        "=>",
-                        col.type
-                    )
-                
-                print("==========================================")
+                # Insert new record
                 new_sourcing = DBSourcing(
                     no=no_val,
                     sourcing_date=sourcing_date,
