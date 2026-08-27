@@ -4,7 +4,7 @@ import re
 import hashlib  
 from datetime import datetime, timedelta
 from core.database import get_db
-from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog
+from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate
 from core.auth import get_current_user, is_admin, hash_file, sanitize_filename
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_blacklist_file, validate_db_kode_posisi_file
@@ -16,6 +16,11 @@ from core.utils import (
     calculate_detail_sla,
     get_sla_option_list,
     calculate_filter_kategorisasi
+)
+from core.template_manager import (
+    save_template,
+    get_active_template,
+    get_template_bytes
 )
 
 BU_CODE_MAPPING = {
@@ -78,6 +83,45 @@ def show_upload_compile():
     if not user:
         st.warning("Silakan login terlebih dahulu.")
         return
+
+    # ====================================
+    # ADMIN TEMPLATE MANAGEMENT
+    # ====================================
+    
+    if is_admin(db):
+    
+        st.markdown("---")
+    
+        st.subheader(
+            "⚙️ Admin - Template Excel"
+        )
+    
+    
+        template_file = st.file_uploader(
+            "Upload Template Excel",
+            type=["xlsx"],
+            key="admin_template_upload"
+        )
+    
+    
+        if template_file:
+    
+            if st.button(
+                "💾 Simpan Template",
+                key="save_template_btn"
+            ):
+    
+                save_template(
+                    db,
+                    template_file,
+                    user.id
+                )
+    
+                st.success(
+                    "✅ Template berhasil diperbarui"
+                )
+    
+                st.rerun()
     
     master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
     
@@ -118,7 +162,38 @@ def show_upload_compile():
         
         st.markdown("---")
         st.subheader("📁 Upload File Excel")
+        # ====================================
+        # DOWNLOAD TEMPLATE AKTIF
+        # ====================================
         
+        active_template = get_active_template(db)
+        
+        
+        if active_template:
+        
+            template_bytes = get_template_bytes(
+                active_template
+            )
+        
+        
+            st.download_button(
+                label="📥 Download Template Excel",
+                data=template_bytes,
+                file_name=active_template.file_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
+        
+        
+            st.caption(
+                f"Template aktif versi {active_template.version}"
+            )
+        
+        
+        else:
+        
+            st.warning(
+                "⚠️ Template Excel belum tersedia. Hubungi Admin."
+            )
         uploaded_files = st.file_uploader(
             "Pilih file Excel (.xlsx, .xlsm)",
             type=["xlsx", "xlsm"],
