@@ -310,8 +310,17 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
         db,
         user_id
     )
+    
     if val_errors:
-        return {"success": False, "imported": 0, "errors": val_errors}
+        return {
+            "success": False,
+            "imported": 0,
+            "errors": val_errors
+        }
+    
+    # PAKAI DATA YANG SUDAH VALIDATED
+    if isinstance(valid_rows, pd.DataFrame):
+        df = valid_rows.copy()
     
     for idx, row in df.iterrows():
         kode_unik = safe_string(row.get('kode_unik', ''))
@@ -402,7 +411,25 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 existing.last_compile_action = "UPDATE"
                 updated += 1
             else:
-                # Insert new record
+               print("DEBUG PIPELINE VALUES")
+
+                for field in [
+                    "sourcing_hr",
+                    "shortlist_cv",
+                    "psikotes",
+                    "hr_interview",
+                    "user_interview",
+                    "offering",
+                    "day1",
+                    "nilai_logika",
+                    "nilai_iq",
+                    "nilai_ra"
+                ]:
+                    print(
+                        field,
+                        row.get(field),
+                        type(row.get(field))
+                    )
                 new_sourcing = DBSourcing(
                     no=no_val,
                     sourcing_date=sourcing_date,
