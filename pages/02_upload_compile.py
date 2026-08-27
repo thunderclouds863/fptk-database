@@ -267,8 +267,6 @@ def show_upload_compile():
                                     | {field} | `{value}` | {error_msg} | {expected} | {example} |
                                     """)
                         
-                        
-                        
                         # ==============================
                         # ERROR (BLOCK UPLOAD)
                         # ==============================
