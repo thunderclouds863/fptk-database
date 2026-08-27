@@ -101,7 +101,7 @@ def show_fptk_view():
     df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
     
     # Kolom yang ditampilkan di tabel
-    display_cols = ['id', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
+    display_cols = ['FPTK Date (Real)', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
                     'direktorat', 'status', 'filter_kategorisasi_fptk', 'fptk_date_real', 
                     'vacancy', 'level_fptk', 'jumlah_sla']
     
@@ -316,7 +316,7 @@ def show_fptk_view():
                 try:
                     # Update semua field
                     if admin and new_kode_unik:
-                        detail.kode_unik = new_kode_unik
+                    detail.kode_unik = new_kode_unik
                     detail.posisi = new_posisi
                     detail.pic_recruiter = new_pic_recruiter
                     detail.kode_pic = new_kode_pic
