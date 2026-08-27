@@ -347,19 +347,6 @@ def show_dashboard():
                     fig.update_layout(height=400, xaxis_tickangle=-45)
                     fig.update_traces(textposition='outside')
                     st.plotly_chart(fig, use_container_width=True)
-                    
-                    # Tampilkan juga tabel summary
-                    st.dataframe(detail_counts, use_container_width=True, hide_index=True)
-                    
-                    # Hitung summary
-                    lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Belum Lewat SLA", "Closed Lulus SLA"])]['Count'].sum()
-                    tidak_lulus = detail_counts[detail_counts['Detail SLA'].isin(["OP Tidak Lulus SLA", "Closed Tidak Lulus SLA"])]['Count'].sum()
-                    cancel = detail_counts[detail_counts['Detail SLA'] == "Cancel FPTK"]['Count'].sum()
-                    
-                    col_a, col_b, col_c = st.columns(3)
-                    col_a.metric("✅ Lulus SLA", lulus)
-                    col_b.metric("❌ Tidak Lulus", tidak_lulus)
-                    col_c.metric("⏭️ Cancel", cancel)
                 else:
                     st.info("Belum ada data Detail SLA")
             else:
