@@ -41,6 +41,57 @@ def ensure_date(val):
     return None
 
 
+def safe_level_number(value):
+    """Ambil angka dari level_number, handle string seperti 'STO Chilled'"""
+    if value is None or pd.isna(value):
+        return 1
+    
+    # Jika sudah angka
+    if isinstance(value, (int, float)):
+        try:
+            int_val = int(value)
+            if 1 <= int_val <= 5:
+                return int_val
+            return 1
+        except:
+            return 1
+    
+    # Jika string, coba extract angka
+    if isinstance(value, str):
+        # Coba extract angka pertama
+        import re
+        match = re.search(r'(\d+)', value)
+        if match:
+            num = int(match.group(1))
+            if 1 <= num <= 5:
+                return num
+        return 1
+    
+    return 1
+
+
+def safe_level_fptk(value):
+    """Pastikan level_fptk formatnya 1A-5B"""
+    if value is None or pd.isna(value):
+        return "1A"
+    
+    value_str = str(value).strip().upper()
+    
+    # Cek format 1A-5B
+    import re
+    if re.match(r'^[1-5][A-B]$', value_str):
+        return value_str
+    
+    # Coba extract angka
+    match = re.search(r'(\d+)', value_str)
+    if match:
+        num = int(match.group(1))
+        if 1 <= num <= 5:
+            return f"{num}A"
+    
+    return "1A"
+
+
 def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                  file_name: str, file_bytes: bytes, is_sto: bool = False):
     """
@@ -92,7 +143,33 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             skipped += 1
             continue
 
-        level_num = row.get('level_number', 0)
+        # ============================================================
+        # SAFE LEVEL NUMBER - PERBAIKAN UTAMA
+        # ============================================================
+        raw_level_number = row.get('level_number')
+        level_num = safe_level_number(raw_level_number)
+        
+        # Jika level_number dari file tidak valid, coba dari level_fptk
+        if level_num == 1:
+            raw_level_fptk = row.get('level_fptk')
+            if raw_level_fptk:
+                import re
+                match = re.search(r'(\d+)', str(raw_level_fptk))
+                if match:
+                    num = int(match.group(1))
+                    if 1 <= num <= 5:
+                        level_num = num
+
+        # ============================================================
+        # SAFE LEVEL FPTK
+        # ============================================================
+        raw_level_fptk = row.get('level_fptk')
+        level_fptk = safe_level_fptk(raw_level_fptk)
+        
+        # Jika level_fptk tidak valid, buat dari level_num
+        if level_fptk == "1A" and level_num > 1:
+            level_fptk = f"{level_num}A"
+
         if level_num <= 3:
             sla_days = 30
         elif level_num == 4:
@@ -109,7 +186,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             elif isinstance(fptk_date_real, datetime):
                 deadline_sla = fptk_date_real.date() + timedelta(days=sla_days)
             else:
-                deadline_sla = None
+                deadline_sla = deadline_sla_input
         else:
             deadline_sla = deadline_sla_input
 
@@ -134,7 +211,15 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
         kode_bu = row.get('kode_pic', '')[:4] if row.get('kode_pic') else ''
 
+        # ============================================================
+        # FILTER KATEGORISASI - SAFE STRING
+        # ============================================================
         filter_kat = row.get('filter_kategorisasi_fptk', '')
+        if filter_kat is None or pd.isna(filter_kat):
+            filter_kat = ''
+        else:
+            filter_kat = str(filter_kat).strip()
+        
         posisi_lower = posisi.lower()
         if not filter_kat:
             if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
@@ -158,6 +243,21 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         jumlah_sla = row.get('jumlah_sla')
         if pd.isna(jumlah_sla) or jumlah_sla is None:
             jumlah_sla = sla_days
+        else:
+            try:
+                jumlah_sla = int(jumlah_sla)
+            except:
+                jumlah_sla = sla_days
+
+        # Vacancy - safe int
+        vacancy = row.get('vacancy')
+        try:
+            vacancy = int(vacancy) if vacancy and not pd.isna(vacancy) else 1
+        except:
+            vacancy = 1
+
+        # Level Number - pastikan integer
+        level_number = int(level_num) if level_num else 1
 
         if existing:
             # UPDATE
@@ -169,12 +269,12 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             existing.direktorat = row.get('direktorat')
             existing.divisi = row.get('divisi')
             existing.department = row.get('department')
-            existing.level_fptk = row.get('level_fptk')
-            existing.level_number = level_num
+            existing.level_fptk = level_fptk
+            existing.level_number = level_number
             existing.alasan_permintaan_fptk = row.get('alasan_permintaan_fptk')
             existing.category_fptk = row.get('category_fptk')
             existing.pic_recruiter = row.get('pic_recruiter')
-            existing.vacancy = row.get('vacancy')
+            existing.vacancy = vacancy
             existing.status = status
             existing.offering_date = offering_date
             existing.fptk_cancel_date = fptk_cancel_date
@@ -194,7 +294,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             # INSERT
             kode_angka = row.get('kode_angka')
             if pd.isna(kode_angka) or not kode_angka:
-                kode_angka = (row.get('kode_pic', '')[:4] + str(safe_int(row.get('vacancy', 1))))
+                kode_angka = (row.get('kode_pic', '')[:4] + str(vacancy))
 
             new_fptk = FPTK(
                 kode_unik=kode_unik,
@@ -207,12 +307,13 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 direktorat=row.get('direktorat'),
                 divisi=row.get('divisi'),
                 department=row.get('department'),
-                level_fptk=row.get('level_fptk'),
-                level_number=level_num,
+                level_fptk=level_fptk,
+                level_number=level_number,
                 alasan_permintaan_fptk=row.get('alasan_permintaan_fptk'),
                 category_fptk=row.get('category_fptk'),
                 pic_recruiter=row.get('pic_recruiter'),
-                vacancy=row.get('vacancy'),
+                filter_kategorisasi_fptk=filter_kat,
+                vacancy=vacancy,
                 status=status,
                 offering_date=offering_date,
                 fptk_cancel_date=fptk_cancel_date,
@@ -222,7 +323,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 week_fptk_date=week_num,
                 month_fptk_date=month_name,
                 kode_bu=kode_bu,
-                filter_kategorisasi_fptk=filter_kat,
                 fptk_availability=avail,
                 source_user_id=user_id,
                 source_cycle_id=cycle_id,
@@ -235,7 +335,13 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             db.add(new_fptk)
             imported += 1
 
-    db.commit()
+    # COMMIT
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        errors.append(str(e))
+        return {"success": False, "imported": 0, "updated": 0, "skipped": 0, "errors": [str(e)]}
 
     log = UploadLog(
         cycle_id=cycle_id,
