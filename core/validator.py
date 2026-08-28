@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime, date, timedelta
 from typing import Tuple, List, Dict, Any, Optional
 
-from core.models import FPTK, DBSourcing, DBKodePosisi, Blacklist
+from core.models import FPTK, DBSourcing, DBKodePosisi
 from core.utils import parse_date_dmy, safe_int, normalize_key
 
 
@@ -241,14 +241,19 @@ def validate_fptk_file(
             })
     
     if missing_columns:
-        for miss in missing_columns:
-            errors.append({
-                "row": 0,
-                "field": miss["field"],
-                "value": "",
-                "error": f"Kolom '{miss['field']}' tidak ditemukan",
-                "expected": f"Coba salah satu nama: {', '.join(miss['possible'])}"
-            })
+        errors.append({
+            "row": 0,
+            "field": "HEADER",
+            "value": list(df.columns),
+            "error": f"Kolom wajib tidak ditemukan: {', '.join(missing_columns)}",
+            "expected": {
+                "position": required_mappings["position"],
+                "kode": required_mappings["kode"]
+            },
+            "found_columns": list(df.columns)
+        })
+    
+        return False, errors
         
         errors.insert(0, {
             "row": 0,
@@ -712,115 +717,6 @@ def validate_db_sourcing_file(
         return False, errors
     
     return True, []
-
-
-# ============================================================
-# VALIDATE BLACKLIST FILE
-# ============================================================
-def validate_blacklist_file(
-    df: pd.DataFrame,
-    db,
-    user_id: int
-) -> Tuple[bool, List[Dict[str, Any]]]:
-    """Validasi file Blacklist Candidate"""
-    errors = []
-    
-    if df.empty:
-        errors.append({
-            "row": 0,
-            "field": "file",
-            "value": "",
-            "error": "File kosong",
-            "expected": "Minimal 1 baris data"
-        })
-        return False, errors
-    
-    # Cari kolom key
-    df_cols = list(df.columns)
-    key_col = None
-    
-    for col in df_cols:
-        col_lower = normalize_key(col)
-        if col_lower in ["key", "key_value", "unique_key", "blacklist_key", "nama", "name"]:
-            key_col = col
-            break
-    
-    if not key_col:
-        errors.append({
-            "row": 0,
-            "field": "Key Column",
-            "value": "",
-            "error": "Kolom key tidak ditemukan",
-            "expected": "Kolom dengan nama: Key, Key Value, Nama, atau Blacklist Key"
-        })
-        return False, errors
-    
-    # Rename
-    df.rename(columns={key_col: "key_value"}, inplace=True)
-    
-    # Validasi per row
-    for idx, row in df.iterrows():
-        row_num = idx + 2
-        key = row.get("key_value")
-        
-        if pd.isna(key) or str(key).strip() == "":
-            errors.append({
-                "row": row_num,
-                "field": "Key",
-                "value": key,
-                "error": "Key tidak boleh kosong",
-                "expected": "Nama atau identifier untuk blacklist"
-            })
-        else:
-            existing_data = db.query(FPTK).filter(
-                FPTK.kode_unik == str(kode_unik).strip()
-            ).all()
-            
-            if existing_data:
-            
-                posisi_upload = str(
-                    row.get("posisi")
-                ).strip()
-            
-                existing_positions = [
-                    str(x.posisi).strip()
-                    for x in existing_data
-                ]
-            
-                # CASE KHUSUS:
-                # Kode Unik sama, tapi posisi berbeda
-                if posisi_upload not in existing_positions:
-            
-                    errors.append({
-                        "row": row_num,
-                        "field": "Kode Unik",
-                        "value": kode_unik,
-                        "warning": True,
-                        "error": (
-                            f"Kode Unik '{kode_unik}' "
-                            f"sudah digunakan untuk posisi "
-                            f"{', '.join(existing_positions)}"
-                        ),
-                        "expected": (
-                            "Data tetap diproses karena posisi berbeda. "
-                            "Mohon segera lakukan pengecekan/edit Kode Unik."
-                        )
-                    })
-    
-    if errors:
-        error_count = len(errors)
-        unique_rows = len(set(e["row"] for e in errors if e["row"] > 0))
-        errors.insert(0, {
-            "row": 0,
-            "field": "SUMMARY",
-            "value": "",
-            "error": f"Total {error_count} error pada {unique_rows} baris data Blacklist",
-            "expected": f"Semua {len(df)} baris harus valid"
-        })
-        return False, errors
-    
-    return True, []
-
 
 # ============================================================
 # VALIDATE DB KODE POSISI FILE
