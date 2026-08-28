@@ -1,5 +1,3 @@
-# pages/02_upload_compile.py
-
 import streamlit as st
 import pandas as pd
 import re
@@ -348,38 +346,6 @@ def show_upload_compile():
                                             st.info(f"ℹ️ Tidak ada sheet 'DB Kode Posisi', dilewati.")
                                 except Exception as e:
                                     st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
-                                    db.rollback()
-                            
-                            # ============================================================
-                            # COMPILE BLACKLIST
-                            # ============================================================
-                            with st.spinner(f"🔄 Compile Blacklist dari {file.name}..."):
-                                try:
-                                    with pd.ExcelFile(file) as xls:
-                                        if "Blacklist Candidate" in xls.sheet_names:
-                                            bl_df = pd.read_excel(file, sheet_name="Blacklist Candidate", header=0)
-                                            if bl_df is not None and not bl_df.empty:
-                                                if db.is_active:
-                                                    db.rollback()
-                                                
-                                                bl_result = compile_blacklist(
-                                                    db=db,
-                                                    df=bl_df,
-                                                    user_id=user.id,
-                                                    cycle_id=cycle.id,
-                                                    file_name=sanitize_filename(file.name),
-                                                    file_hash=file_hash
-                                                )
-                                                if bl_result["success"]:
-                                                    st.success(f"✅ Blacklist: {bl_result.get('imported', 0)} rows")
-                                                else:
-                                                    st.warning(f"⚠️ Blacklist: {len(bl_result.get('errors', []))} errors")
-                                            else:
-                                                st.info(f"ℹ️ Sheet 'Blacklist Candidate' kosong, dilewati.")
-                                        else:
-                                            st.info(f"ℹ️ Tidak ada sheet 'Blacklist Candidate', dilewati.")
-                                except Exception as e:
-                                    st.warning(f"⚠️ Blacklist error: {str(e)}")
                                     db.rollback()
                             
                             mark_user_uploading(db, user.id, cycle.id)
