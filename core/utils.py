@@ -1,5 +1,3 @@
-# core/utils.py
-
 import pandas as pd
 import re
 import math
@@ -218,7 +216,21 @@ def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
             return "OP Tidak Lulus SLA"
         else:
             return "OP Belum Lewat SLA"
-
+            
+def determine_category_fptk(alasan: str) -> str:
+    """
+    Tentukan Category FPTK dari Alasan Permintaan FPTK
+    Mirip VBA F9_DetermineCategoryFPTK
+    """
+    alasan_lower = alasan.lower() if alasan else ""
+    
+    if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
+        return "REPLACEMENT"
+    elif "penambahan" in alasan_lower or "jabatan baru" in alasan_lower or "new" in alasan_lower:
+        return "NEW"
+    else:
+        return "REPLACEMENT"
+        
 def _ensure_date(value):
     """Pastikan value adalah date object, konversi dari datetime jika perlu"""
     if value is None or pd.isna(value):
