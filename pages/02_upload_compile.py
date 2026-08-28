@@ -17,6 +17,7 @@ from core.utils import (
     get_sla_option_list,
     calculate_filter_kategorisasi
 )
+from core.utils import determine_category_fptk
 from core.template_manager import (
     save_template,
     get_active_template,
@@ -497,7 +498,11 @@ def show_upload_compile():
                 st.text_input("Level Number (auto)", value=str(level_number), disabled=True)
                 
                 alasan = st.selectbox("Alasan Permintaan FPTK *", [""] + alasan_options)
-                category = st.selectbox("Category FPTK *", [""] + category_options)
+                if alasan:
+                    auto_category = determine_category_fptk(alasan)
+                    st.text_input("Category FPTK (auto)", value=auto_category, disabled=True)
+                else:
+                    st.text_input("Category FPTK (auto)", value="", disabled=True)
                 
                 pic_recruiter = st.text_input(
                     "PIC Recruiter *",
@@ -593,78 +598,129 @@ def show_upload_compile():
                     st.error(f"❌ {err}")
             else:
                 try:
-                    if level_number <= 3: sla_days = 30
-                    elif level_number == 4: sla_days = 45
-                    else: sla_days = 60
-                    
-                    deadline_sla = fptk_date + timedelta(days=sla_days) if fptk_date else None
-                    week_num = fptk_date.isocalendar()[1] if fptk_date else None
-                    month_name = fptk_date.strftime("%B") if fptk_date else None
-                    kode_bu = kode_pic[:4] if kode_pic else ""
-                    
-                    filter_kat = ""
-                    posisi_lower = posisi.lower()
-                    if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
-                        filter_kat = 'CLAP FGDP'
-                    elif level_number in [1, 2]:
-                        filter_kat = 'Level 1-2'
-                    elif level_number == 3:
-                        filter_kat = 'Level 3'
+                    # Hitung SLA
+                    if level_number <= 3:
+                        sla_days = 30
                     elif level_number == 4:
-                        filter_kat = 'Level 4'
+                        sla_days = 45
+                    else:
+                        sla_days = 60
                     
-                    # Clear pending transaction
-                    if db.is_active:
-                        db.rollback()
+                    # ============================================================
+                    # LOOP UNTUK SETIAP VACANCY
+                    # ============================================================
+                    created_count = 0
+                    skipped_count = 0
+                    last_kode_unik = ""
                     
-                    new_fptk = FPTK(
-                        kode_unik=kode_unik,
-                        posisi=posisi,
-                        kode_pic=kode_pic,
-                        fptk_date_real=fptk_date,
-                        fptk_date_kode=fptk_date,
-                        kode_angka=f"{kode_pic}{vacancy}" if kode_pic else "",
-                        business_unit=business_unit,
-                        direktorat=direktorat,
-                        divisi=divisi,
-                        department=department,
-                        level_fptk=level_fptk,
-                        level_number=level_number,
-                        alasan_permintaan_fptk=alasan,
-                        category_fptk=category,
-                        pic_recruiter=pic_recruiter,
-                        filter_kategorisasi_fptk=filter_kat,
-                        vacancy=vacancy,
-                        status=status,
-                        offering_date=offering_date,
-                        fptk_cancel_date=cancel_date,
-                        jumlah_sla=sla_days,
-                        deadline_sla=deadline_sla,
-                        week_fptk_date=week_num,
-                        month_fptk_date=month_name,
-                        kode_bu=kode_bu,
-                        nama_kandidat=nama_kandidat,
-                        lokasi_kerja=lokasi_kerja,
-                        lokasi_hr=lokasi_hr,
-                        user_manager=user_manager,
-                        indirect_user=indirect_user,
-                        status_karyawan=status_karyawan,
-                        estimasi_join=estimasi_join,
-                        kebutuhan_laptop=kebutuhan_laptop,
-                        lokasi_onboarding=lokasi_onboarding,
-                        fptk_availability=fptk_availability,
-                        remark=remark,
-                        source_user_id=user.id,
-                        created_at=datetime.now(),
-                        last_compile_action="MANUAL_INPUT"
-                    )
-                    db.add(new_fptk)
+                    for i in range(vacancy):
+                        # --- Kode Unik dengan suffix ---
+                        date_code = fptk_date.strftime("%d%m%y")
+                        posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else ""
+                        
+                        if vacancy > 1:
+                            suffix = chr(65 + i)  # A=65, B=66, C=67, dst
+                            kode_unik_baru = f"{kode_pic}{posisi_code}{date_code}{suffix}"
+                        else:
+                            kode_unik_baru = f"{kode_pic}{posisi_code}{date_code}"
+                        
+                        last_kode_unik = kode_unik_baru
+                        
+                        # --- FPTK Date Kode + i hari ---
+                        fptk_date_kode = fptk_date + timedelta(days=i)
+                        
+                        # --- Cek duplikat ---
+                        existing = db.query(FPTK).filter(FPTK.kode_unik == kode_unik_baru).first()
+                        if existing:
+                            st.warning(f"⚠️ Kode Unik '{kode_unik_baru}' sudah ada, dilewati")
+                            skipped_count += 1
+                            continue
+                        
+                        # --- Derived values ---
+                        deadline_sla = fptk_date + timedelta(days=sla_days) if fptk_date else None
+                        week_num = fptk_date.isocalendar()[1] if fptk_date else None
+                        month_name = fptk_date.strftime("%B") if fptk_date else None
+                        kode_bu = kode_pic[:4] if kode_pic else ""
+                        
+                        # --- Filter Kategorisasi ---
+                        filter_kat = ""
+                        posisi_lower = posisi.lower()
+                        if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
+                            filter_kat = 'CLAP FGDP'
+                        elif level_number in [1, 2]:
+                            filter_kat = 'Level 1-2'
+                        elif level_number == 3:
+                            filter_kat = 'Level 3'
+                        elif level_number == 4:
+                            filter_kat = 'Level 4'
+                        
+                        # --- Detail SLA ---
+                        detail_sla = calculate_detail_sla(status, deadline_sla, offering_date)
+                        
+                        # --- CATEGORY FPTK OTOMATIS DARI ALASAN ---
+                        category_auto = determine_category_fptk(alasan)
+                        
+                        # --- Clear pending transaction ---
+                        if db.is_active:
+                            db.rollback()
+                        
+                        # --- Simpan ---
+                        new_fptk = FPTK(
+                            kode_unik=kode_unik_baru,
+                            posisi=posisi,
+                            kode_pic=kode_pic,
+                            fptk_date_real=fptk_date,
+                            fptk_date_kode=fptk_date_kode,  # +i hari
+                            kode_angka=f"{kode_pic}{vacancy}" if kode_pic else "",
+                            business_unit=business_unit,
+                            direktorat=direktorat,
+                            divisi=divisi,
+                            department=department,
+                            level_fptk=level_fptk,
+                            level_number=level_number,
+                            alasan_permintaan_fptk=alasan,
+                            category_fptk=category_auto,  # AUTO dari alasan
+                            pic_recruiter=pic_recruiter,
+                            filter_kategorisasi_fptk=filter_kat,
+                            vacancy=1,  # Setiap row vacancy = 1
+                            status=status,
+                            offering_date=offering_date,
+                            fptk_cancel_date=cancel_date,
+                            jumlah_sla=sla_days,
+                            deadline_sla=deadline_sla,
+                            detail_sla=detail_sla,
+                            week_fptk_date=week_num,
+                            month_fptk_date=month_name,
+                            kode_bu=kode_bu,
+                            nama_kandidat=nama_kandidat,
+                            lokasi_kerja=lokasi_kerja,
+                            lokasi_hr=lokasi_hr,
+                            user_manager=user_manager,
+                            indirect_user=indirect_user,
+                            status_karyawan=status_karyawan,
+                            estimasi_join=estimasi_join,
+                            kebutuhan_laptop=kebutuhan_laptop,
+                            lokasi_onboarding=lokasi_onboarding,
+                            fptk_availability=fptk_availability,
+                            remark=remark,
+                            source_user_id=user.id,
+                            created_at=datetime.now(),
+                            last_compile_action="MANUAL_INPUT"
+                        )
+                        db.add(new_fptk)
+                        created_count += 1
+                    
                     db.commit()
                     
-                    st.success(f"✅ FPTK berhasil disimpan!")
-                    st.info(f"📋 Kode Unik: **{kode_unik}**")
-                    st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
-                    st.balloons()
+                    if created_count > 0:
+                        st.success(f"✅ {created_count} FPTK berhasil disimpan!")
+                        if skipped_count > 0:
+                            st.warning(f"⚠️ {skipped_count} FPTK dilewati (duplikat)")
+                        st.info(f"📋 Kode Unik terakhir: **{last_kode_unik}**")
+                        st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
+                        st.balloons()
+                    else:
+                        st.warning("⚠️ Tidak ada FPTK yang berhasil disimpan")
                     
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
