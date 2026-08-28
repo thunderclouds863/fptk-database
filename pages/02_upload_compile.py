@@ -571,7 +571,6 @@ def show_upload_compile():
             if not department: errors.append("Department wajib diisi")
             if not level_fptk: errors.append("Level FPTK wajib diisi")
             if not alasan: errors.append("Alasan Permintaan FPTK wajib diisi")
-            if not category: errors.append("Category FPTK wajib diisi")
             if vacancy <= 0: errors.append("Vacancy wajib > 0")
             if not status: errors.append("Status wajib diisi")
             if status == "Closed" and not offering_date:
@@ -605,7 +604,7 @@ def show_upload_compile():
                         sla_days = 45
                     else:
                         sla_days = 60
-                    
+                    category_auto = determine_category_fptk(alasan)
                     # ============================================================
                     # LOOP UNTUK SETIAP VACANCY
                     # ============================================================
