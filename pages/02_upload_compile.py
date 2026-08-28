@@ -339,39 +339,39 @@ def show_upload_compile():
                                                 if dbk_result["success"]:
                                                     st.success(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
                                                 else:
-                                                        errors = dbk_result.get("errors", [])
-
-                                                        st.warning(
-                                                            f"⚠️ DB Kode Posisi: {len(errors)} errors"
-                                                        )
-                                                    
-                                                        st.markdown("### 📋 Detail Error DB Kode Posisi")
-                                                    
-                                                        for err in errors:
-                                                    
-                                                            if isinstance(err, dict):
-                                                    
-                                                                row = err.get("row", "-")
-                                                                field = err.get("field", "-")
-                                                                value = err.get("value", "-")
-                                                                error_msg = err.get("error", "-")
-                                                                expected = err.get("expected", "-")
-                                                    
-                                                                with st.expander(
-                                                                    f"⚠️ Row {row} - {field}",
-                                                                    expanded=True
-                                                                ):
-                                                    
-                                                                    st.markdown(
-                                                                        f"""
-                                                                        | Field | Value | Error | Expected |
-                                                                        |---|---|---|---|
-                                                                        | {field} | `{value}` | {error_msg} | {expected} |
-                                                                        """
-                                                                    )
-                                                    
-                                                            else:
-                                                                st.error(str(err))
+                                                    errors = dbk_result.get("errors", [])
+                                                
+                                                    st.warning(
+                                                        f"⚠️ DB Kode Posisi: {len(errors)} errors"
+                                                    )
+                                                
+                                                    st.markdown("### 📋 Detail Error DB Kode Posisi")
+                                                
+                                                    for err in errors:
+                                                
+                                                        if isinstance(err, dict):
+                                                
+                                                            row = err.get("row", "-")
+                                                            field = err.get("field", "-")
+                                                            value = err.get("value", "-")
+                                                            error_msg = err.get("error", "-")
+                                                            expected = err.get("expected", "-")
+                                                
+                                                            with st.expander(
+                                                                f"⚠️ Row {row} - {field}",
+                                                                expanded=True
+                                                            ):
+                                                
+                                                                st.markdown(
+                                                                    f"""
+                                                                    | Field | Value | Error | Expected |
+                                                                    |---|---|---|---|
+                                                                    | {field} | `{value}` | {error_msg} | {expected} |
+                                                                    """
+                                                                )
+                                                
+                                                        else:
+                                                            st.error(str(err))
                                             else:
                                                 st.info(f"ℹ️ Sheet 'DB Kode Posisi' kosong, dilewati.")
                                         else:
