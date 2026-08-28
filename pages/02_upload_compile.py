@@ -604,36 +604,62 @@ def show_upload_compile():
                         sla_days = 45
                     else:
                         sla_days = 60
+                    
+                    # Category otomatis dari alasan
                     category_auto = determine_category_fptk(alasan)
-                    # ============================================================
-                    # LOOP UNTUK SETIAP VACANCY
-                    # ============================================================
+                    
                     created_count = 0
                     skipped_count = 0
                     last_kode_unik = ""
                     
+                    # ============================================================
+                    # CARI LAST FPTK DATE KODE UNTUK POSISI + DATE REAL + KODE PIC YANG SAMA
+                    # ============================================================
+                    last_existing = db.query(FPTK).filter(
+                        FPTK.posisi == posisi,
+                        FPTK.fptk_date_real == fptk_date,
+                        FPTK.kode_pic == kode_pic
+                    ).order_by(FPTK.fptk_date_kode.desc()).first()
+                    
+                    if last_existing and last_existing.fptk_date_kode:
+                        # Mulai dari last_fptk_date_kode + 1
+                        start_date = last_existing.fptk_date_kode + timedelta(days=1)
+                    else:
+                        start_date = fptk_date
+                    
+                    # ============================================================
+                    # LOOP UNTUK SETIAP VACANCY
+                    # ============================================================
                     for i in range(vacancy):
-                        # --- Kode Unik dengan suffix ---
-                        date_code = fptk_date.strftime("%d%m%y")
-                        posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else ""
+                        # --- FPTK Date Kode: start_date + i ---
+                        fptk_date_kode = start_date + timedelta(days=i)
                         
-                        if vacancy > 1:
-                            suffix = chr(65 + i)  # A=65, B=66, C=67, dst
-                            kode_unik_baru = f"{kode_pic}{posisi_code}{date_code}{suffix}"
-                        else:
-                            kode_unik_baru = f"{kode_pic}{posisi_code}{date_code}"
+                        # --- Kode Angka (4 huruf pertama dari posisi) ---
+                        kode_angka = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
                         
-                        last_kode_unik = kode_unik_baru
+                        # --- Kode Unik = Kode PIC + Kode Angka + FPTK Date Kode (ddmmyy) ---
+                        date_code = fptk_date_kode.strftime("%d%m%y")
+                        kode_unik_baru = f"{kode_pic}{kode_angka}{date_code}"
                         
-                        # --- FPTK Date Kode + i hari ---
-                        fptk_date_kode = fptk_date + timedelta(days=i)
+                        # --- Cek duplikat Kode Unik ---
+                        existing = db.query(FPTK).filter(FPTK.kode_unik == kode_unik_baru).first()
+                        suffix_index = 0
+                        while existing:
+                            suffix_index += 1
+                            test_kode = f"{kode_pic}{kode_angka}{date_code}{chr(65 + suffix_index - 1)}"
+                            existing = db.query(FPTK).filter(FPTK.kode_unik == test_kode).first()
+                            if not existing:
+                                kode_unik_baru = test_kode
+                                st.warning(f"⚠️ Kode Unik duplikat, menggunakan '{test_kode}'")
+                                break
                         
-                        # --- Cek duplikat ---
                         existing = db.query(FPTK).filter(FPTK.kode_unik == kode_unik_baru).first()
                         if existing:
                             st.warning(f"⚠️ Kode Unik '{kode_unik_baru}' sudah ada, dilewati")
                             skipped_count += 1
                             continue
+                        
+                        last_kode_unik = kode_unik_baru
                         
                         # --- Derived values ---
                         deadline_sla = fptk_date + timedelta(days=sla_days) if fptk_date else None
@@ -656,9 +682,6 @@ def show_upload_compile():
                         # --- Detail SLA ---
                         detail_sla = calculate_detail_sla(status, deadline_sla, offering_date)
                         
-                        # --- CATEGORY FPTK OTOMATIS DARI ALASAN ---
-                        category_auto = determine_category_fptk(alasan)
-                        
                         # --- Clear pending transaction ---
                         if db.is_active:
                             db.rollback()
@@ -669,8 +692,8 @@ def show_upload_compile():
                             posisi=posisi,
                             kode_pic=kode_pic,
                             fptk_date_real=fptk_date,
-                            fptk_date_kode=fptk_date_kode,  # +i hari
-                            kode_angka=f"{kode_pic}{vacancy}" if kode_pic else "",
+                            fptk_date_kode=fptk_date_kode,
+                            kode_angka=kode_angka,
                             business_unit=business_unit,
                             direktorat=direktorat,
                             divisi=divisi,
@@ -678,10 +701,10 @@ def show_upload_compile():
                             level_fptk=level_fptk,
                             level_number=level_number,
                             alasan_permintaan_fptk=alasan,
-                            category_fptk=category_auto,  # AUTO dari alasan
+                            category_fptk=category_auto,
                             pic_recruiter=pic_recruiter,
                             filter_kategorisasi_fptk=filter_kat,
-                            vacancy=1,  # Setiap row vacancy = 1
+                            vacancy=1,
                             status=status,
                             offering_date=offering_date,
                             fptk_cancel_date=cancel_date,
@@ -716,6 +739,7 @@ def show_upload_compile():
                         if skipped_count > 0:
                             st.warning(f"⚠️ {skipped_count} FPTK dilewati (duplikat)")
                         st.info(f"📋 Kode Unik terakhir: **{last_kode_unik}**")
+                        st.info(f"📋 Start Date Kode: **{start_date.strftime('%d/%m/%Y')}**")
                         st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
                         st.balloons()
                     else:
