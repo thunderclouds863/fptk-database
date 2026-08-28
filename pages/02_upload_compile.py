@@ -630,6 +630,25 @@ def show_upload_compile():
                     # ============================================================
                     # LOOP UNTUK SETIAP VACANCY
                     # ============================================================
+                    created_count = 0
+                    skipped_count = 0
+                    last_kode_unik = ""
+                    
+                    # ============================================================
+                    # CARI LAST FPTK DATE KODE UNTUK POSISI + DATE REAL + KODE PIC YANG SAMA
+                    # ============================================================
+                    last_existing = db.query(FPTK).filter(
+                        FPTK.posisi == posisi,
+                        FPTK.fptk_date_real == fptk_date,
+                        FPTK.kode_pic == kode_pic
+                    ).order_by(FPTK.fptk_date_kode.desc()).first()
+                    
+                    if last_existing and last_existing.fptk_date_kode:
+                        # Mulai dari last_fptk_date_kode + 1
+                        start_date = last_existing.fptk_date_kode + timedelta(days=1)
+                    else:
+                        start_date = fptk_date
+                    
                     for i in range(vacancy):
                         # --- FPTK Date Kode: start_date + i ---
                         fptk_date_kode = start_date + timedelta(days=i)
@@ -682,6 +701,9 @@ def show_upload_compile():
                         # --- Detail SLA ---
                         detail_sla = calculate_detail_sla(status, deadline_sla, offering_date)
                         
+                        # --- CATEGORY FPTK OTOMATIS DARI ALASAN ---
+                        category_auto = determine_category_fptk(alasan)
+                        
                         # --- Clear pending transaction ---
                         if db.is_active:
                             db.rollback()
@@ -692,7 +714,7 @@ def show_upload_compile():
                             posisi=posisi,
                             kode_pic=kode_pic,
                             fptk_date_real=fptk_date,
-                            fptk_date_kode=fptk_date_kode,
+                            fptk_date_kode=fptk_date_kode,  # +i hari dari start_date
                             kode_angka=kode_angka,
                             business_unit=business_unit,
                             direktorat=direktorat,
@@ -701,10 +723,10 @@ def show_upload_compile():
                             level_fptk=level_fptk,
                             level_number=level_number,
                             alasan_permintaan_fptk=alasan,
-                            category_fptk=category_auto,
+                            category_fptk=category_auto,  # AUTO dari alasan
                             pic_recruiter=pic_recruiter,
                             filter_kategorisasi_fptk=filter_kat,
-                            vacancy=1,
+                            vacancy=1,  # Setiap row vacancy = 1
                             status=status,
                             offering_date=offering_date,
                             fptk_cancel_date=cancel_date,
