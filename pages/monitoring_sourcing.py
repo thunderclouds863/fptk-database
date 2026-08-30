@@ -217,13 +217,8 @@ def show_monitoring_sourcing():
         # Group by kode_unik
         grouped = df.groupby('kode_unik')
         
-        # Nama hari dalam bahasa Indonesia
-        hari_indonesia = {
-            0: 'Sen', 1: 'Sel', 2: 'Rab', 3: 'Kam', 4: 'Jum', 5: 'Sab', 6: 'Min'
-        }
-        
-        # Buat 7 hari ke depan dari week_start
-        hari_list = [(week_start + timedelta(days=i)) for i in range(7)]
+        # 🔥🔥🔥 BUAT LIST TANGGAL DARI FILTER 🔥🔥🔥
+        tanggal_list = [(week_start + timedelta(days=i)) for i in range(7)]
         
         table_data = []
         
@@ -246,34 +241,34 @@ def show_monitoring_sourcing():
                 row['fptk_date_real'] = '-'
                 row['filter_kategorisasi'] = '-'
             
-            # Hitung CV per hari
-            for hari in hari_list:
-                count = len(group[group['sourcing_date'] == hari])
-                row[hari.strftime('%a')] = count
+            # 🔥🔥🔥 HITUNG CV PER TANGGAL 🔥🔥🔥
+            for tgl in tanggal_list:
+                count = len(group[group['sourcing_date'] == tgl])
+                row[tgl.strftime('%Y-%m-%d')] = count
             
             # Total minggu ini
             row['total_minggu'] = len(group)
             
-            # Evidence per hari
-            for hari in hari_list:
-                hari_str = hari.strftime('%a')
+            # 🔥🔥🔥 EVIDENCE PER TANGGAL 🔥🔥🔥
+            for tgl in tanggal_list:
+                tgl_str = tgl.strftime('%Y-%m-%d')
                 if not evidence_df.empty:
                     ev_rows = evidence_df[
                         (evidence_df['kode_unik'] == kode_unik) & 
-                        (evidence_df['tanggal'] == hari)
+                        (evidence_df['tanggal'] == tgl)
                     ]
                     if not ev_rows.empty:
                         # Cek akses: admin atau PIC yang upload
                         ev = ev_rows.iloc[0]
                         can_view = admin or (ev.get('pic_recruiter') == user.pic_recruiter)
                         if can_view:
-                            row[f'ev_{hari_str}'] = f"📎 {len(ev_rows)}"
+                            row[f'ev_{tgl_str}'] = f"📎 {len(ev_rows)}"
                         else:
-                            row[f'ev_{hari_str}'] = f"🔒 {len(ev_rows)}"
+                            row[f'ev_{tgl_str}'] = f"🔒 {len(ev_rows)}"
                     else:
-                        row[f'ev_{hari_str}'] = '-'
+                        row[f'ev_{tgl_str}'] = '-'
                 else:
-                    row[f'ev_{hari_str}'] = '-'
+                    row[f'ev_{tgl_str}'] = '-'
             
             table_data.append(row)
         
@@ -282,18 +277,18 @@ def show_monitoring_sourcing():
         # ============================================================
         display_df = pd.DataFrame(table_data)
         
-        # Urutkan kolom
+        # 🔥🔥🔥 SUSUN KOLOM DENGAN HEADER TANGGAL 🔥🔥🔥
         kolom_utama = ['kode_unik', 'posisi', 'pic_recruiter', 'status_fptk', 'fptk_date_real', 'filter_kategorisasi']
-        kolom_hari = [h.strftime('%a') for h in hari_list]
-        kolom_ev = [f'ev_{h.strftime("%a")}' for h in hari_list]
+        kolom_tanggal = [tgl.strftime('%Y-%m-%d') for tgl in tanggal_list]
+        kolom_ev = [f'ev_{tgl.strftime("%Y-%m-%d")}' for tgl in tanggal_list]
         kolom_total = ['total_minggu']
         
-        # Susun kolom: utama, Sen, Ev1, Sel, Ev2, ...
+        # Susun kolom: utama, tanggal1, ev1, tanggal2, ev2, ...
         final_columns = []
         final_columns.extend(kolom_utama)
         
-        for i, hari in enumerate(kolom_hari):
-            final_columns.append(hari)
+        for i, tgl in enumerate(kolom_tanggal):
+            final_columns.append(tgl)
             if i < len(kolom_ev):
                 final_columns.append(kolom_ev[i])
         
@@ -303,13 +298,13 @@ def show_monitoring_sourcing():
         available_cols = [c for c in final_columns if c in display_df.columns]
         display_df = display_df[available_cols]
         
-        # Format tanggal
+        # Format tanggal FPTK
         if 'fptk_date_real' in display_df.columns:
             display_df['fptk_date_real'] = display_df['fptk_date_real'].apply(
                 lambda x: x.strftime('%d/%m/%y') if isinstance(x, pd.Timestamp) else (x if x != '-' else '-')
             )
         
-        # Rename kolom untuk display
+        # 🔥🔥🔥 RENAME KOLOM UNTUK DISPLAY 🔥🔥🔥
         rename_map = {
             'kode_unik': 'Kode Unik',
             'posisi': 'Posisi',
@@ -320,13 +315,17 @@ def show_monitoring_sourcing():
             'total_minggu': 'Total Week'
         }
         
-        # Rename hari
-        for hari in kolom_hari:
-            rename_map[hari] = hari
-        
-        # Rename evidence
-        for hari in kolom_hari:
-            rename_map[f'ev_{hari}'] = f'Ev{kolom_hari.index(hari) + 1}'
+        # Rename tanggal dengan format yang lebih friendly
+        for tgl in tanggal_list:
+            tgl_str = tgl.strftime('%Y-%m-%d')
+            # Format: dd/mm/yy + nama hari
+            hari_indonesia = {
+                0: 'Sen', 1: 'Sel', 2: 'Rab', 3: 'Kam', 4: 'Jum', 5: 'Sab', 6: 'Min'
+            }
+            hari = hari_indonesia[tgl.weekday()]
+            tgl_display = f"{hari} {tgl.strftime('%d/%m/%y')}"
+            rename_map[tgl_str] = tgl_display
+            rename_map[f'ev_{tgl_str}'] = f'Ev{tgl.strftime("%d%m")}'
         
         display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
         
