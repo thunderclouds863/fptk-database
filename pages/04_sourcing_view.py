@@ -2,9 +2,72 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from core.database import get_db
-from core.models import DBSourcing, User, FPTK
+from core.models import DBSourcing, User, FPTK, MasterDropdown
 from core.auth import get_current_user, is_admin
 from datetime import datetime
+import time
+
+# ============================================================
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_master_options_sourcing_view(_db):
+    """Mengambil semua opsi dari MasterDropdown - cache 1 jam"""
+    try:
+        master = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+        
+        pic_options = sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
+        bu_options = sorted(set([m.bu for m in master if m.bu]))
+        
+        return {
+            'pic_options': pic_options,
+            'bu_options': bu_options
+        }
+    except Exception as e:
+        return {
+            'pic_options': [],
+            'bu_options': []
+        }
+
+
+@st.cache_data(ttl=3600)
+def get_sourcing_options_view():
+    """Mengembalikan opsi statis - cache 1 jam"""
+    return {
+        'sumber_options': ["Jobstreet", "LinkedIn", "Google Form", "Referensi User", "Referensi Karyawan", "Campus Hiring", "Walk-in Interview", "Database Internal", "Freelance", "Lainnya"],
+        'model_options': ["Freelance", "Internal", "Outsource", "Lainnya"],
+        'pipeline_status_options': ["", "V", "X"],
+        'fmcg_options': ["", "Ya", "Tidak"],
+        'jenjang_options': ["SMA/SMK", "D3", "D4", "S1", "S2"],
+        'univ_tier_options': ["Tier 1", "Tier 2", "Tier 3", "Lainnya"],
+        'ipk_tier_options': ["> 3.5", "3.0 - 3.5", "2.5 - 3.0", "< 2.5"]
+    }
+
+
+@st.cache_data(ttl=3600)
+def get_pipeline_stages_view():
+    """Pipeline stages lengkap - cache 1 jam"""
+    return [
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
+        {"field": "sourcing_hr", "label": "Sourcing HR"},
+        {"field": "shortlist_cv", "label": "Shortlist CV"},
+        {"field": "psikotes", "label": "Psikotes"},
+        {"field": "hr_interview", "label": "HR Interview"},
+        {"field": "technical_test_case_study", "label": "Technical Test"},
+        {"field": "market_visit", "label": "Market Visit"},
+        {"field": "user_interview", "label": "User Interview"},
+        {"field": "panel_interview", "label": "Panel Interview"},
+        {"field": "reference_check", "label": "Reference Check"},
+        {"field": "mcu", "label": "MCU"},
+        {"field": "offering", "label": "Offering"},
+        {"field": "day1", "label": "Day 1"}
+    ]
+
+
+# ============================================================
+# FUNGSI UTAMA
+# ============================================================
 
 def show_sourcing_view():
     st.title("👤 Sourcing Database")
@@ -16,6 +79,19 @@ def show_sourcing_view():
         st.warning("Silakan login terlebih dahulu.")
         return
     
+    # ============================================================
+    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    # ============================================================
+    with st.spinner("📋 Memuat data..."):
+        master_options = get_master_options_sourcing_view(db)
+        sourcing_options = get_sourcing_options_view()
+        pipeline_stages = get_pipeline_stages_view()
+    
+    pic_options = master_options['pic_options']
+    sumber_options = sourcing_options['sumber_options']
+    model_options = sourcing_options['model_options']
+    pipeline_status_options = sourcing_options['pipeline_status_options']
+    
     # Sidebar filters
     with st.sidebar:
         st.markdown("### 🔍 Filter Sourcing")
@@ -24,13 +100,17 @@ def show_sourcing_view():
         search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
         
         # PIC filter
-        pic_options = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
-        pic_filter = st.selectbox("PIC Recruiter", pic_options)
+        pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + pic_options)
         
-        # Status pipeline filter (simplified)
-        stage_options = ["Semua", "Sourcing HR", "Shortlist CV", "Psikotes", "HR Interview", 
-                         "User Interview", "Offering", "Day 1"]
-        stage_filter = st.selectbox("Tahap Pipeline", stage_options)
+        # Sumber filter
+        sumber_filter = st.selectbox("Sumber Sourcing", ["Semua"] + sumber_options)
+        
+        # Model filter
+        model_filter = st.selectbox("Model Rekrutmen", ["Semua"] + model_options)
+        
+        # Status pipeline filter
+        stage_labels = ["Semua"] + [s["label"] for s in pipeline_stages]
+        stage_filter = st.selectbox("Tahap Pipeline", stage_labels)
         
         # Date range
         col1, col2 = st.columns(2)
@@ -60,6 +140,12 @@ def show_sourcing_view():
     if pic_filter != "Semua":
         query = query.filter(DBSourcing.rekruter == pic_filter)
     
+    if sumber_filter != "Semua":
+        query = query.filter(DBSourcing.sumber_sourcing == sumber_filter)
+    
+    if model_filter != "Semua":
+        query = query.filter(DBSourcing.model_rekrutmen == model_filter)
+    
     if show_mine and not is_admin(db):
         query = query.filter(DBSourcing.rekruter == user.pic_recruiter)
     
@@ -68,19 +154,14 @@ def show_sourcing_view():
     if date_to:
         query = query.filter(DBSourcing.sourcing_date <= date_to)
     
-    # Stage filter (simplified)
+    # Stage filter
     if stage_filter != "Semua":
-        stage_map = {
-            "Sourcing HR": DBSourcing.sourcing_hr.isnot(None),
-            "Shortlist CV": DBSourcing.shortlist_cv.isnot(None),
-            "Psikotes": DBSourcing.psikotes.isnot(None),
-            "HR Interview": DBSourcing.hr_interview.isnot(None),
-            "User Interview": DBSourcing.user_interview.isnot(None),
-            "Offering": DBSourcing.offering.isnot(None),
-            "Day 1": DBSourcing.day1.isnot(None),
-        }
-        if stage_filter in stage_map:
-            query = query.filter(stage_map[stage_filter])
+        # Cari field yang sesuai dengan label
+        for stage in pipeline_stages:
+            if stage["label"] == stage_filter:
+                field = getattr(DBSourcing, stage["field"])
+                query = query.filter(field.isnot(None))
+                break
     
     total = query.count()
     st.markdown(f"**Total Kandidat: {total}**")
@@ -187,9 +268,7 @@ def show_sourcing_view():
         used_names = set()
         for col in display_df.columns:
             new_name = column_config.get(col, col)
-            # If duplicate name exists, add a suffix
             if new_name in used_names:
-                # Find original column name to use instead
                 new_columns.append(col)
             else:
                 new_columns.append(new_name)
@@ -243,21 +322,20 @@ def show_sourcing_view():
                         st.markdown(f"**Pernah di FMCG:** {detail.pernah_di_fmcg or '-'}")
                 
                 with st.expander("📊 Pipeline Status"):
-                    pipeline = [
-                        ("Sourcing HR", detail.sourcing_hr, detail.tanggal_sourcing, detail.detail_keterangan_sourcing_hr),
-                        ("Shortlist CV", detail.shortlist_cv, detail.tanggal_shortlist_cv, detail.detail_keterangan_shortlist_cv),
-                        ("Psikotes", detail.psikotes, detail.tanggal_psikotes, detail.detail_keterangan_psikotes),
-                        ("HR Interview", detail.hr_interview, detail.tanggal_hr_interview, detail.detail_keterangan_hr_interview),
-                        ("Technical Test", detail.technical_test_case_study, detail.tanggal_technical_test, detail.detail_keterangan_technical_test),
-                        ("Market Visit", detail.market_visit, detail.tanggal_market_visit, detail.detail_market_visit),
-                        ("User Interview", detail.user_interview, detail.tanggal_user_interview, detail.detail_keterangan_user_interview),
-                        ("Panel Interview", detail.panel_interview, detail.tanggal_panel_interview, detail.detail_keterangan_panel_interview),
-                        ("Reference Check", detail.reference_check, detail.tanggal_reference_check, detail.detail_keterangan_reference_check),
-                        ("MCU", detail.mcu, detail.tanggal_mcu, detail.detail_keterangan_mcu),
-                        ("Offering", detail.offering, detail.tanggal_offering, detail.detail_keterangan_offering),
-                        ("Day 1", detail.day1, detail.tanggal_day1, detail.detail_keterangan_day1),
-                    ]
-                    pipeline_df = pd.DataFrame(pipeline, columns=["Tahap", "Status", "Tanggal", "Keterangan"])
+                    pipeline_data = []
+                    for stage in pipeline_stages:
+                        field = getattr(detail, stage["field"])
+                        date_field = getattr(detail, f"tanggal_{stage['field']}")
+                        detail_field = getattr(detail, f"detail_keterangan_{stage['field']}")
+                        
+                        pipeline_data.append({
+                            "Tahap": stage["label"],
+                            "Status": field or "-",
+                            "Tanggal": date_field.strftime('%d/%m/%Y') if date_field else "-",
+                            "Keterangan": detail_field or "-"
+                        })
+                    
+                    pipeline_df = pd.DataFrame(pipeline_data)
                     st.dataframe(pipeline_df, use_container_width=True)
                 
                 with st.expander("📝 Catatan & Blacklist"):
@@ -298,18 +376,21 @@ def show_sourcing_view():
                             rekruter = st.text_input("PIC Recruiter", value=detail.rekruter or "")
                         
                         with col3:
-                            sumber_sourcing = st.text_input("Sumber Sourcing", value=detail.sumber_sourcing or "")
-                            model_rekrutmen = st.text_input("Model Rekrutmen", value=detail.model_rekrutmen or "")
+                            sumber_sourcing = st.selectbox("Sumber Sourcing", [""] + sourcing_options['sumber_options'], 
+                                                          index=([""] + sourcing_options['sumber_options']).index(detail.sumber_sourcing) if detail.sumber_sourcing in sourcing_options['sumber_options'] else 0)
+                            model_rekrutmen = st.selectbox("Model Rekrutmen", [""] + sourcing_options['model_options'],
+                                                          index=([""] + sourcing_options['model_options']).index(detail.model_rekrutmen) if detail.model_rekrutmen in sourcing_options['model_options'] else 0)
                             no = st.number_input("No", value=detail.no or 0, step=1)
-                            pernah_di_fmcg = st.selectbox("Pernah di FMCG", options=["", "Ya", "Tidak"], 
-                                                        index=0 if not detail.pernah_di_fmcg else (1 if detail.pernah_di_fmcg == "Ya" else 2))
+                            pernah_di_fmcg = st.selectbox("Pernah di FMCG", [""] + sourcing_options['fmcg_options'],
+                                                         index=([""] + sourcing_options['fmcg_options']).index(detail.pernah_di_fmcg) if detail.pernah_di_fmcg in sourcing_options['fmcg_options'] else 0)
                         
                         st.markdown("---")
                         st.markdown("### 🎓 Pendidikan")
                         col1, col2, col3 = st.columns(3)
                         
                         with col1:
-                            jenjang_pendidikan = st.text_input("Jenjang Pendidikan", value=detail.jenjang_pendidikan or "")
+                            jenjang_pendidikan = st.selectbox("Jenjang Pendidikan", [""] + sourcing_options['jenjang_options'],
+                                                             index=([""] + sourcing_options['jenjang_options']).index(detail.jenjang_pendidikan) if detail.jenjang_pendidikan in sourcing_options['jenjang_options'] else 0)
                             nama_universitas_top10 = st.text_input("Nama Universitas Top 10", value=detail.nama_universitas_top10 or "")
                             nama_universitas_lainnya = st.text_input("Nama Universitas Lainnya", value=detail.nama_universitas_lainnya or "")
                         
@@ -320,8 +401,10 @@ def show_sourcing_view():
                         
                         with col3:
                             skor_bahasa_inggris = st.text_input("Skor Bahasa Inggris", value=detail.skor_bahasa_inggris or "")
-                            university_tier = st.text_input("University Tier", value=detail.university_tier or "")
-                            ipk_tier = st.text_input("IPK Tier", value=detail.ipk_tier or "")
+                            university_tier = st.selectbox("University Tier", [""] + sourcing_options['univ_tier_options'],
+                                                          index=([""] + sourcing_options['univ_tier_options']).index(detail.university_tier) if detail.university_tier in sourcing_options['univ_tier_options'] else 0)
+                            ipk_tier = st.selectbox("IPK Tier", [""] + sourcing_options['ipk_tier_options'],
+                                                   index=([""] + sourcing_options['ipk_tier_options']).index(detail.ipk_tier) if detail.ipk_tier in sourcing_options['ipk_tier_options'] else 0)
                         
                         st.markdown("---")
                         st.markdown("### 💼 Pengalaman Kerja")
@@ -336,27 +419,17 @@ def show_sourcing_view():
                             total_tenure = st.text_input("Total Masa Kerja", value=detail.total_tenure or "")
                         
                         st.markdown("---")
-                        st.markdown("### 📊 Pipeline Stages")
+                        st.markdown("### 📊 Pipeline Stages (V = Lolos, X = Tidak Lolos)")
                         
-                        # Pipeline fields in grid
-                        pipeline_fields = [
-                            ("sourcing_hr", "Sourcing HR", "tanggal_sourcing", "detail_keterangan_sourcing_hr"),
-                            ("shortlist_cv", "Shortlist CV", "tanggal_shortlist_cv", "detail_keterangan_shortlist_cv"),
-                            ("psikotes", "Psikotes", "tanggal_psikotes", "detail_keterangan_psikotes"),
-                            ("hr_interview", "HR Interview", "tanggal_hr_interview", "detail_keterangan_hr_interview"),
-                            ("technical_test_case_study", "Technical Test", "tanggal_technical_test", "detail_keterangan_technical_test"),
-                            ("market_visit", "Market Visit", "tanggal_market_visit", "detail_market_visit"),
-                            ("user_interview", "User Interview", "tanggal_user_interview", "detail_keterangan_user_interview"),
-                            ("panel_interview", "Panel Interview", "tanggal_panel_interview", "detail_keterangan_panel_interview"),
-                            ("reference_check", "Reference Check", "tanggal_reference_check", "detail_keterangan_reference_check"),
-                            ("mcu", "MCU", "tanggal_mcu", "detail_keterangan_mcu"),
-                            ("offering", "Offering", "tanggal_offering", "detail_keterangan_offering"),
-                            ("day1", "Day 1", "tanggal_day1", "detail_keterangan_day1"),
-                        ]
-                        
-                        for i, (status_field, label, date_field, detail_field) in enumerate(pipeline_fields):
+                        # Pipeline fields in grid with dropdown V/X
+                        for i, stage in enumerate(pipeline_stages):
                             if i % 3 == 0:
                                 cols = st.columns(3)
+                            
+                            status_field = stage["field"]
+                            label = stage["label"]
+                            date_field = f"tanggal_{status_field}"
+                            detail_field = f"detail_keterangan_{status_field}"
                             
                             status_value = getattr(detail, status_field)
                             date_value = getattr(detail, date_field)
@@ -364,9 +437,27 @@ def show_sourcing_view():
                             
                             with cols[i % 3]:
                                 st.markdown(f"**{label}**")
-                                new_status = st.text_input(f"Status {label}", value=status_value or "", key=f"status_{status_field}")
-                                new_date = st.date_input(f"Tgl {label}", value=date_value if date_value else None, key=f"date_{date_field}")
-                                new_detail = st.text_area(f"Keterangan {label}", value=detail_value or "", key=f"detail_{detail_field}", height=50)
+                                
+                                # 🔥🔥🔥 DROPDOWN V/X, BUKAN FREE TEXT 🔥🔥🔥
+                                new_status = st.selectbox(
+                                    f"Status {label}",
+                                    [""] + pipeline_status_options,
+                                    index=([""] + pipeline_status_options).index(status_value) if status_value in pipeline_status_options else 0,
+                                    key=f"status_{status_field}"
+                                )
+                                
+                                new_date = st.date_input(
+                                    f"Tgl {label}",
+                                    value=date_value if date_value else None,
+                                    key=f"date_{date_field}"
+                                )
+                                
+                                new_detail = st.text_area(
+                                    f"Keterangan {label}",
+                                    value=detail_value or "",
+                                    key=f"detail_{detail_field}",
+                                    height=50
+                                )
                                 
                                 # Update values
                                 setattr(detail, status_field, new_status if new_status else None)
