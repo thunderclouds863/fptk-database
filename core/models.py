@@ -290,6 +290,7 @@ class Evidence(Base):
     pic_recruiter = Column(String(100), index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
+    file_data = Column(Text, nullable=True)
 
 class UploadTemplate(Base):
     __tablename__ = "upload_templates"
