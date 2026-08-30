@@ -18,7 +18,6 @@ def get_sourcing_list_options(_db):
         master = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
         pic_options = sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
         
-        # Ambil dari data existing
         sourcing_data = _db.query(DBSourcing).all()
         sumber_options = sorted(set([s.sumber_sourcing for s in sourcing_data if s.sumber_sourcing]))
         model_options = sorted(set([s.model_rekrutmen for s in sourcing_data if s.model_rekrutmen]))
@@ -156,16 +155,21 @@ def show_sourcing_list():
         
         df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
         
+        # 🔥🔥🔥 TAMBAHKAN KOLOM UNTUK DISPLAY 🔥🔥🔥
+        display_cols = ['id', 'kode_unik', 'nama', 'posisi', 'rekruter', 'sumber_sourcing', 
+                       'sourcing_hr', 'shortlist_cv', 'psikotes', 'hr_interview', 
+                       'offering', 'day1', 'sourcing_date']
+        available_cols = [c for c in display_cols if c in df.columns]
+        
         st.dataframe(
-            df,
+            df[available_cols],
             use_container_width=True,
             height=500,
             column_config={
                 "id": "ID",
-                "no": "No",
+                "kode_unik": "Kode Unik",
                 "nama": "Nama Kandidat",
                 "posisi": "Posisi",
-                "kode_unik": "Kode Unik",
                 "rekruter": "PIC",
                 "sumber_sourcing": "Sumber",
                 "sourcing_hr": "Sourcing HR",
@@ -179,42 +183,105 @@ def show_sourcing_list():
         )
         
         # ============================================================
-        # ACTION BUTTONS
+        # 🔥🔥🔥 SEARCH BY KODE UNIK / NAMA / POSISI 🔥🔥🔥
         # ============================================================
         st.markdown("---")
-        col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
+        st.subheader("✏️ Edit / Hapus Kandidat")
+        st.caption("🔍 Cari berdasarkan Kode Unik, Nama, atau Posisi")
         
-        selected_id = st.selectbox("Pilih ID untuk aksi", df['id'].tolist())
+        # Buat opsi pencarian
+        df_all = pd.read_sql(query.statement, db.bind)
+        
+        if not df_all.empty:
+            search_options = {}
+            for _, row in df_all.iterrows():
+                kode = row.get('kode_unik', '')
+                nama = row.get('nama', '')
+                posisi = row.get('posisi', '')
+                display = f"{kode} | {nama[:30]}..." if len(nama) > 30 else f"{kode} | {nama}"
+                if posisi:
+                    display += f" | {posisi[:20]}..." if len(posisi) > 20 else f" | {posisi}"
+                search_options[display] = row.get('id')
+            
+            selected_display = st.selectbox(
+                "Pilih Kandidat (Kode Unik | Nama | Posisi)",
+                list(search_options.keys())
+            )
+            
+            if selected_display:
+                selected_id = search_options[selected_display]
+            else:
+                selected_id = None
+        else:
+            selected_id = None
+            st.info("Tidak ada data untuk diedit.")
+            return
+        
+        if not selected_id:
+            st.info("Pilih data dari daftar di atas untuk diedit.")
+            return
+        
+        # ============================================================
+        # DETAIL & EDIT
+        # ============================================================
+        detail = db.query(DBSourcing).filter(DBSourcing.id == selected_id).first()
+        if not detail:
+            st.error("Data tidak ditemukan")
+            return
+        
+        with st.expander("📋 Detail Kandidat", expanded=True):
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown(f"**Kode Unik:** {detail.kode_unik}")
+                st.markdown(f"**Nama:** {detail.nama}")
+                st.markdown(f"**Posisi:** {detail.posisi or '-'}")
+                st.markdown(f"**PIC:** {detail.rekruter or '-'}")
+                st.markdown(f"**Sumber:** {detail.sumber_sourcing or '-'}")
+            with col2:
+                st.markdown(f"**Sourcing Date:** {detail.sourcing_date.strftime('%d/%m/%Y') if detail.sourcing_date else '-'}")
+                st.markdown(f"**Email:** {detail.email or '-'}")
+                st.markdown(f"**No HP:** {detail.nomor_hp or '-'}")
+                st.markdown(f"**Domisili:** {detail.domisili or '-'}")
+        
+        # Check if user can edit
+        is_owner = detail.rekruter == user.pic_recruiter
+        can_edit = is_admin(db) or is_owner
+        
+        # ============================================================
+        # TOMBOL AKSI
+        # ============================================================
+        col1, col2, col3 = st.columns(3)
         
         with col1:
-            if st.button("📋 Detail", use_container_width=True):
+            if st.button("📋 Detail Lengkap", use_container_width=True):
                 st.session_state['detail_id'] = selected_id
                 st.session_state['page'] = "sourcing_detail"
                 st.rerun()
         
         with col2:
-            if st.button("✏️ Edit", use_container_width=True):
-                st.session_state['edit_id'] = selected_id
-                st.session_state['page'] = "sourcing_edit"
-                st.rerun()
+            if st.button("✏️ Edit", use_container_width=True, type="primary"):
+                if can_edit:
+                    st.session_state['edit_id'] = selected_id
+                    st.session_state['page'] = "sourcing_edit"
+                    st.rerun()
+                else:
+                    st.error("Anda tidak punya akses untuk mengedit data ini.")
         
         with col3:
             if st.button("🗑️ Hapus", use_container_width=True):
-                if admin or pic_filter == user.pic_recruiter:
-                    confirm = st.warning(f"Yakin ingin menghapus ID {selected_id}?")
-                    if st.button("Ya, Hapus", key="confirm_delete"):
-                        record = db.query(DBSourcing).filter(DBSourcing.id == selected_id).first()
-                        if record:
-                            db.delete(record)
-                            db.commit()
-                            st.success("Data berhasil dihapus!")
-                            st.rerun()
+                if admin or is_owner:
+                    if st.warning(f"Yakin ingin menghapus '{detail.nama}'?"):
+                        db.delete(detail)
+                        db.commit()
+                        st.success("Data berhasil dihapus!")
+                        st.rerun()
                 else:
                     st.error("Anda tidak punya akses untuk menghapus data ini.")
         
-        with col4:
-            if st.button("📥 Export CSV", use_container_width=True):
-                csv = df.to_csv(index=False)
-                st.download_button("Download", csv, f"sourcing_export_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
+        # Export
+        st.markdown("---")
+        if st.button("📥 Export CSV", use_container_width=True):
+            csv = df.to_csv(index=False)
+            st.download_button("Download", csv, f"sourcing_export_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
     else:
         st.info("Tidak ada data sourcing dengan filter yang dipilih.")
