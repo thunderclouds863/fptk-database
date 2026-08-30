@@ -104,7 +104,6 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
             else:
                 return "Closed Tidak Lulus SLA"
         else:
-            # Jika offering_date atau deadline_sla tidak ada
             if fptk_date_real and deadline_sla:
                 if today <= deadline_sla:
                     return "OP Belum Lewat SLA"
@@ -125,16 +124,20 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
     return "OP Belum Lewat SLA"
 
 
+def sanitize_value(value):
+    """Mengubah string kosong menjadi None untuk menghindari constraint violation"""
+    if value == "" or value == " ":
+        return None
+    return value
+
+
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS (FIX: PAKAI _db) 🔥🔥🔥
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
 # ============================================================
 
 @st.cache_data(ttl=3600)
 def get_master_options(_db):
-    """
-    Mengambil semua opsi dari MasterDropdown - di-cache 1 jam
-    PAKAI _db agar tidak di-hash oleh Streamlit
-    """
+    """Mengambil semua opsi dari MasterDropdown - di-cache 1 jam"""
     try:
         master_records = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
         
@@ -238,10 +241,7 @@ def get_all_bu_codes():
 # ============================================================
 
 def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
-    """
-    Compile file dengan progress bar
-    PAKAI _db agar tidak di-hash oleh Streamlit
-    """
+    """Compile file dengan progress bar"""
     
     # Step 1: Validasi
     status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
@@ -847,17 +847,18 @@ def show_upload_compile():
                         elif level_number == 4:
                             filter_kat = 'Level 4'
                         
+                        # 🔥🔥🔥 SANITIZE ALL FIELDS 🔥🔥🔥
                         new_fptk = FPTK(
                             kode_unik=kode_unik_baru,
                             posisi=posisi,
-                            kode_pic=kode_pic,
+                            kode_pic=sanitize_value(kode_pic),
                             fptk_date_real=fptk_date,
                             fptk_date_kode=fptk_date_kode,
-                            kode_angka=kode_angka,
+                            kode_angka=sanitize_value(kode_angka),
                             business_unit=business_unit,
                             direktorat=direktorat,
-                            divisi=divisi,
-                            department=department,
+                            divisi=sanitize_value(divisi),
+                            department=sanitize_value(department),
                             level_fptk=level_fptk,
                             level_number=level_number,
                             alasan_permintaan_fptk=alasan,
@@ -870,21 +871,21 @@ def show_upload_compile():
                             fptk_cancel_date=cancel_date,
                             jumlah_sla=sla_days,
                             deadline_sla=deadline_sla,
-                            detail_sla=auto_detail_sla,  # 🔥 PAKAI OTOMATIS
+                            detail_sla=auto_detail_sla,
                             week_fptk_date=week_num,
                             month_fptk_date=month_name,
-                            kode_bu=kode_bu,
-                            nama_kandidat=nama_kandidat,
-                            lokasi_kerja=lokasi_kerja,
-                            lokasi_hr=lokasi_hr,
-                            user_manager=user_manager,
-                            indirect_user=indirect_user,
-                            status_karyawan=status_karyawan,
+                            kode_bu=sanitize_value(kode_bu),
+                            nama_kandidat=sanitize_value(nama_kandidat),
+                            lokasi_kerja=sanitize_value(lokasi_kerja),
+                            lokasi_hr=sanitize_value(lokasi_hr),
+                            user_manager=sanitize_value(user_manager),
+                            indirect_user=sanitize_value(indirect_user),
+                            status_karyawan=sanitize_value(status_karyawan),
                             estimasi_join=estimasi_join,
-                            kebutuhan_laptop=kebutuhan_laptop,
-                            lokasi_onboarding=lokasi_onboarding,
-                            fptk_availability=fptk_availability,
-                            remark=remark,
+                            kebutuhan_laptop=sanitize_value(kebutuhan_laptop),
+                            lokasi_onboarding=sanitize_value(lokasi_onboarding),
+                            fptk_availability=sanitize_value(fptk_availability),
+                            remark=sanitize_value(remark),
                             source_user_id=user.id,
                             created_at=datetime.now(),
                             last_compile_action="MANUAL_INPUT"
@@ -1089,9 +1090,8 @@ def show_upload_compile():
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
                 
                 # 🔥🔥🔥 DETAIL SLA OTOMATIS 🔥🔥🔥
-                # Hitung berdasarkan status dan tanggal yang dipilih
                 if status == "Closed":
-                    offering_date_temp = datetime.now().date()  # Temporary
+                    offering_date_temp = datetime.now().date()
                 else:
                     offering_date_temp = None
                 
@@ -1202,17 +1202,18 @@ def show_upload_compile():
                     if db.is_active:
                         db.rollback()
                     
+                    # 🔥🔥🔥 SANITIZE ALL FIELDS 🔥🔥🔥
                     new_fptk = FPTK(
                         kode_unik=kode_unik,
                         posisi=posisi,
-                        kode_pic=kode_pic,
+                        kode_pic=sanitize_value(kode_pic),
                         fptk_date_real=fptk_date,
                         fptk_date_kode=fptk_date,
-                        kode_angka=f"{kode_pic}{vacancy}" if kode_pic else "",
+                        kode_angka=sanitize_value(f"{kode_pic}{vacancy}" if kode_pic else ""),
                         business_unit=business_unit,
                         direktorat=direktorat,
-                        divisi=divisi,
-                        department=department,
+                        divisi=sanitize_value(divisi),
+                        department=sanitize_value(department),
                         level_fptk=level_fptk,
                         level_number=level_number,
                         alasan_permintaan_fptk=alasan,
@@ -1225,21 +1226,21 @@ def show_upload_compile():
                         fptk_cancel_date=cancel_date,
                         jumlah_sla=sla_days,
                         deadline_sla=deadline_sla,
-                        detail_sla=auto_detail_sla,  # 🔥 PAKAI OTOMATIS
+                        detail_sla=auto_detail_sla,
                         week_fptk_date=week_num,
                         month_fptk_date=month_name,
-                        kode_bu=kode_bu,
-                        nama_kandidat=nama_kandidat,
-                        lokasi_kerja=lokasi_kerja,
-                        lokasi_hr=lokasi_hr,
-                        user_manager=user_manager,
-                        indirect_user=indirect_user,
-                        status_karyawan=status_karyawan,
+                        kode_bu=sanitize_value(kode_bu),
+                        nama_kandidat=sanitize_value(nama_kandidat),
+                        lokasi_kerja=sanitize_value(lokasi_kerja),
+                        lokasi_hr=sanitize_value(lokasi_hr),
+                        user_manager=sanitize_value(user_manager),
+                        indirect_user=sanitize_value(indirect_user),
+                        status_karyawan=sanitize_value(status_karyawan),
                         estimasi_join=estimasi_join,
-                        kebutuhan_laptop=kebutuhan_laptop,
-                        lokasi_onboarding=lokasi_onboarding,
-                        fptk_availability=fptk_availability,
-                        remark=remark,
+                        kebutuhan_laptop=sanitize_value(kebutuhan_laptop),
+                        lokasi_onboarding=sanitize_value(lokasi_onboarding),
+                        fptk_availability=sanitize_value(fptk_availability),
+                        remark=sanitize_value(remark),
                         source_user_id=user.id,
                         created_at=datetime.now(),
                         last_compile_action="EMAIL_PARSE"
