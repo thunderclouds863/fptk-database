@@ -39,7 +39,7 @@ def get_sourcing_list_options(_db):
 def get_sourcing_list_static_options():
     """Opsi statis - cache 1 jam"""
     return {
-        'pipeline_status_options': ["", "V", "X"],
+        'pipeline_status_options': ["V", "X"],
         'pipeline_stages': [
             "Sourcing HR", "Shortlist CV", "Psikotes", "HR Interview",
             "Technical Test", "Market Visit", "User Interview",
