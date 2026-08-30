@@ -96,7 +96,7 @@ finally:
 def get_cache_functions():
     """Import cache functions dari dashboard dengan error handling"""
     try:
-        from pages.01_dashboard import (
+        from pages.dashboard import (
             load_fptk_data,
             load_sourcing_data,
             calculate_metrics,
@@ -787,7 +787,7 @@ page = st.session_state.page
 if page == "dashboard":
 
     dashboard = importlib.import_module(
-        "pages.01_dashboard"
+        "pages.dashboard"
     )
 
     dashboard.show_dashboard()
