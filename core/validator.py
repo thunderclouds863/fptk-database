@@ -8,6 +8,25 @@ from core.utils import parse_date_dmy, safe_int, normalize_key
 
 
 # ============================================================
+# HELPER: GENERATE KODE UNIK
+# ============================================================
+
+def generate_kode_unik_validator(kode_pic, posisi, fptk_date):
+    """Generate Kode Unik dari Kode PIC + Posisi + Tanggal"""
+    if not kode_pic or not posisi or not fptk_date:
+        if kode_pic and fptk_date:
+            date_code = fptk_date.strftime("%d%m%y")
+            return f"{kode_pic}XXXX{date_code}"
+        return ""
+    
+    date_code = fptk_date.strftime("%d%m%y")
+    posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
+    if not posisi_code:
+        posisi_code = "XXXX"
+    return f"{kode_pic}{posisi_code}{date_code}"
+
+
+# ============================================================
 # HELPER: FIND COLUMN MAPPING (FUZZY)
 # ============================================================
 def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]]) -> Dict[str, str]:
@@ -157,7 +176,7 @@ def safe_level_number_from_string(value):
 
 
 # ============================================================
-# VALIDATE FPTK FILE
+# VALIDATE FPTK FILE (DIPERBAIKI)
 # ============================================================
 def validate_fptk_file(
     df: pd.DataFrame,
@@ -245,23 +264,9 @@ def validate_fptk_file(
             "row": 0,
             "field": "HEADER",
             "value": list(df.columns),
-            "error": f"Kolom wajib tidak ditemukan: {', '.join(missing_columns)}",
-            "expected": {
-                "position": required_mappings["position"],
-                "kode": required_mappings["kode"]
-            },
-            "found_columns": list(df.columns)
-        })
-    
-        return False, errors
-        
-        errors.insert(0, {
-            "row": 0,
-            "field": "SUMMARY",
-            "value": "",
-            "error": f"Header file tidak sesuai. Ditemukan {len(df_cols)} kolom",
+            "error": f"Kolom wajib tidak ditemukan: {', '.join([m['field'] for m in missing_columns])}",
             "expected": f"Butuh {len(required_mappings)} kolom wajib",
-            "example": f"Header ditemukan: {', '.join([str(c)[:30] for c in df_cols[:10]])}..."
+            "found_columns": list(df.columns)
         })
         return False, errors
     
@@ -280,39 +285,48 @@ def validate_fptk_file(
     for idx, row in df.iterrows():
         row_num = idx + 2
 
-        # 1. KODE UNIK
+        # 1. KODE UNIK - AUTO GENERATE JIKA KOSONG
         kode_unik = row.get("kode_unik")
+        kode_pic = row.get("kode_pic")
+        posisi = row.get("posisi")
+        fptk_date = row.get("fptk_date_real")
         
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
-            errors.append({
-                "row": row_num,
-                "field": "Kode Unik",
-                "value": kode_unik,
-                "error": "Kode Unik tidak boleh kosong",
-                "expected": "Format: [Kode PIC][4 huruf posisi][tanggal DDMMYY]"
-            })
+            # 🔥🔥🔥 GENERATE KODE UNIK OTOMATIS 🔥🔥🔥
+            if kode_pic and posisi and fptk_date:
+                kode_unik_baru = generate_kode_unik_validator(kode_pic, posisi, fptk_date)
+                df.at[idx, 'kode_unik'] = kode_unik_baru
+                errors.append({
+                    "row": row_num,
+                    "field": "Kode Unik",
+                    "value": kode_unik,
+                    "warning": True,
+                    "error": f"Kode Unik kosong, auto-generate menjadi: {kode_unik_baru}",
+                    "expected": "Kode Unik akan digenerate otomatis"
+                })
+            else:
+                errors.append({
+                    "row": row_num,
+                    "field": "Kode Unik",
+                    "value": kode_unik,
+                    "error": "Kode Unik tidak boleh kosong dan tidak bisa di-generate (Kode PIC/Posisi/Tanggal tidak lengkap)",
+                    "expected": "Format: [Kode PIC][4 huruf posisi][tanggal DDMMYY]"
+                })
         
         else:
             kode_unik_clean = str(kode_unik).strip()
-        
+            
+            # 🔥🔥🔥 CEK DUPLIKAT - JADI WARNING BUKAN ERROR 🔥🔥🔥
             existing_same_code = db.query(FPTK).filter(
                 FPTK.kode_unik == kode_unik_clean
             ).all()
-        
+            
             if existing_same_code:
-        
-                existing_positions = [
-                    x.posisi for x in existing_same_code
-                ]
-        
-                posisi_upload = str(
-                    row.get("posisi")
-                ).strip()
-        
-        
+                existing_positions = [x.posisi for x in existing_same_code]
+                posisi_upload = str(row.get("posisi")).strip()
+                
                 # Kode unik sama tapi posisi beda
                 if posisi_upload not in existing_positions:
-        
                     errors.append({
                         "row": row_num,
                         "field": "Kode Unik",
@@ -324,7 +338,7 @@ def validate_fptk_file(
                         ),
                         "expected": (
                             "Pastikan Kode Unik sesuai posisi. "
-                            "Data tetap akan diinsert, mohon segera edit."
+                            "Data tetap akan diinsert dengan auto-increment."
                         )
                     })
         
@@ -339,14 +353,16 @@ def validate_fptk_file(
                 "expected": "Nama posisi minimal 3 karakter"
             })
         
-        # 3. KODE PIC
-        kode_pic = row.get("kode_pic")
+        # 3. KODE PIC - AUTO GENERATE JIKA KOSONG
         if pd.isna(kode_pic) or str(kode_pic).strip() == "":
+            # 🔥🔥🔥 PAKAI "ADM" UNTUK ADMIN ATAU USER TANPA KODE PIC 🔥🔥🔥
+            df.at[idx, 'kode_pic'] = "ADM"
             errors.append({
                 "row": row_num,
                 "field": "Kode PIC",
                 "value": kode_pic,
-                "error": "Kode PIC tidak boleh kosong",
+                "warning": True,
+                "error": "Kode PIC kosong, auto-set menjadi ADM",
                 "expected": "Kode PIC (contoh: CORPOme, MPPau)"
             })
         
@@ -413,10 +429,12 @@ def validate_fptk_file(
                             "row": row_num,
                             "field": "Level FPTK",
                             "value": level,
-                            "error": f"Level FPTK '{level}' harus format [1-5][A-B]",
+                            "warning": True,
+                            "error": f"Level FPTK '{level}' diformat ulang menjadi '{suggested}'",
                             "expected": f"Level FPTK harus: 1A, 1B, 2A, 2B, 3A, 3B, 4A, 4B, 5A, 5B",
                             "example": f"Ganti '{level}' menjadi '{suggested}' atau '{num}B'"
                         })
+                        df.at[idx, 'level_fptk'] = suggested
                     else:
                         errors.append({
                             "row": row_num,
@@ -522,6 +540,7 @@ def validate_fptk_file(
                     "row": row_num,
                     "field": "Level Number",
                     "value": raw_level_number,
+                    "warning": True,
                     "error": f"Level Number '{raw_level_number}' tidak valid, auto-set ke 1",
                     "expected": "Angka 1-5 atau kosong (auto-dari Level FPTK)"
                 })
@@ -542,8 +561,8 @@ def validate_fptk_file(
     ]
     
     if critical_errors:
-        error_count = len(errors)
-        unique_rows = len(set(e["row"] for e in errors if e["row"] > 0))
+        error_count = len(critical_errors)
+        unique_rows = len(set(e["row"] for e in critical_errors if e["row"] > 0))
         errors = [e for e in errors if e.get("field") != "SUMMARY"]
         errors.insert(0, {
             "row": 0,
@@ -555,6 +574,7 @@ def validate_fptk_file(
         })
         return False, errors
     
+    # Jika hanya warning, tetap return True
     return True, warnings
 
 
@@ -613,6 +633,7 @@ def validate_db_sourcing_file(
         "last_tenure": ["Last Tenure"],
         "total_tenure": ["Total Tenure"],
         "pernah_di_fmcg": ["Pernah di FMCG?", "FMCG"],
+        "sourcing_freelance": ["Sourcing Freelance"],
         "sourcing_hr": ["Sourcing HR"],
         "shortlist_cv": ["Shortlist CV"],
         "psikotes": ["Psikotes"],
@@ -717,6 +738,7 @@ def validate_db_sourcing_file(
         return False, errors
     
     return True, []
+
 
 # ============================================================
 # VALIDATE DB KODE POSISI FILE
