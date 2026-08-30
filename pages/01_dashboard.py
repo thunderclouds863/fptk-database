@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import time
 
 # ============================================================
-# CACHE FUNCTIONS
+# CACHE FUNCTIONS (DIPINDAHKAN KE ATAS AGAR BISA DIIMPORT)
 # ============================================================
 
 # 1. CACHE UNTUK FILTER OPTIONS (jarang berubah - 1 jam)
@@ -26,7 +26,7 @@ def get_filter_options():
         return ["Semua"], ["Semua"], ["Semua"]
 
 # 2. CACHE UNTUK DATA FPTK (5 menit auto refresh)
-@st.cache_data(ttl=300)  # Auto refresh setiap 5 menit
+@st.cache_data(ttl=300)
 def load_fptk_data(
     pic_filter=None, 
     status_filter=None, 
@@ -172,15 +172,17 @@ def check_admin_role():
     except:
         return False
 
+
 # ============================================================
 # FUNGSI UTAMA DASHBOARD
 # ============================================================
+
 def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
     st.markdown("---")
     
     # ============================================================
-    # SIDEBAR FILTERS + CACHE CONTROL
+    # SIDEBAR FILTERS - HANYA FILTER, TANPA CACHE CONTROL
     # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filters")
@@ -192,8 +194,7 @@ def show_dashboard():
             date_to = st.date_input("Sampai", datetime.now())
         
         # Ambil opsi filter dari CACHE
-        with st.spinner("Loading filter options..."):
-            pic_options, bu_options, dir_options = get_filter_options()
+        pic_options, bu_options, dir_options = get_filter_options()
         
         pic_filter = st.sidebar.selectbox("PIC Recruiter", pic_options)
         status_options = ["Semua", "OP", "Closed", "Cancel"]
@@ -202,71 +203,6 @@ def show_dashboard():
         dir_filter = st.sidebar.selectbox("Direktorat", dir_options)
         filter_kat_options = ["Semua", "CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"]
         filter_kat = st.sidebar.selectbox("Filter Kategorisasi", filter_kat_options)
-        
-        st.markdown("---")
-        
-        # ============================================================
-        # CACHE CONTROL SECTION
-        # ============================================================
-        st.markdown("### ⚡ Cache Control")
-        
-        # Tampilkan info kapan terakhir update
-        last_fptk = st.session_state.get('last_fptk_load', datetime.now())
-        last_sourcing = st.session_state.get('last_sourcing_load', datetime.now())
-        
-        st.caption(f"🕐 FPTK: {last_fptk.strftime('%H:%M:%S')}")
-        st.caption(f"🕐 Sourcing: {last_sourcing.strftime('%H:%M:%S')}")
-        
-        # Hitung waktu sampai auto refresh (5 menit = 300 detik)
-        time_diff = (datetime.now() - last_fptk).seconds
-        remaining = max(0, 300 - time_diff)
-        if remaining > 0:
-            st.caption(f"⏳ Auto refresh in {remaining//60}m {remaining%60}s")
-        else:
-            st.caption("🔄 Auto refreshing...")
-        
-        st.markdown("---")
-        
-        # Tombol Refresh
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
-                # Hapus semua cache
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                st.success("✅ All cache cleared! Reloading...")
-                time.sleep(0.5)
-                st.rerun()
-        
-        with col2:
-            if st.button("🗑️ Clear Cache", use_container_width=True):
-                # Hapus cache data saja (tetap pertahankan filter options)
-                load_fptk_data.clear()
-                load_sourcing_data.clear()
-                calculate_metrics.clear()
-                get_upload_cycle_progress.clear()
-                st.success("✅ Data cache cleared! Reloading...")
-                time.sleep(0.5)
-                st.rerun()
-        
-        # Tombol refresh spesifik per fungsi
-        with st.expander("🔧 Advanced Cache Control", expanded=False):
-            if st.button("🧹 Clear FPTK Cache", use_container_width=True):
-                load_fptk_data.clear()
-                calculate_metrics.clear()
-                st.success("✅ FPTK cache cleared!")
-                st.rerun()
-            
-            if st.button("🧹 Clear Sourcing Cache", use_container_width=True):
-                load_sourcing_data.clear()
-                st.success("✅ Sourcing cache cleared!")
-                st.rerun()
-            
-            if st.button("🧹 Clear All Cache", use_container_width=True):
-                st.cache_data.clear()
-                st.cache_resource.clear()
-                st.success("✅ All cache cleared!")
-                st.rerun()
         
         st.markdown("---")
         
