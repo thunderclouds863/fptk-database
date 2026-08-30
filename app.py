@@ -4,6 +4,8 @@ import time
 import base64
 from core.session_manager import get_session_manager
 import os
+import pandas as pd
+from datetime import datetime
 
 from core.database import SessionLocal, init_db
 from core.auth import (
@@ -66,6 +68,13 @@ if "detail_id" not in st.session_state:
 if "edit_id" not in st.session_state:
     st.session_state.edit_id = None
 
+# Inisialisasi timestamp untuk cache
+if "last_fptk_load" not in st.session_state:
+    st.session_state.last_fptk_load = datetime.now()
+
+if "last_sourcing_load" not in st.session_state:
+    st.session_state.last_sourcing_load = datetime.now()
+
 
 # ============================================================
 # DEFAULT USER
@@ -78,6 +87,32 @@ try:
     init_master_dropdown(db)
 finally:
     db.close()
+
+
+# ============================================================
+# IMPORT CACHE FUNCTIONS (untuk digunakan di sidebar)
+# ============================================================
+
+def get_cache_functions():
+    """Import cache functions dari dashboard dengan error handling"""
+    try:
+        from pages.01_dashboard import (
+            load_fptk_data,
+            load_sourcing_data,
+            calculate_metrics,
+            get_upload_cycle_progress,
+            get_filter_options
+        )
+        return {
+            'load_fptk_data': load_fptk_data,
+            'load_sourcing_data': load_sourcing_data,
+            'calculate_metrics': calculate_metrics,
+            'get_upload_cycle_progress': get_upload_cycle_progress,
+            'get_filter_options': get_filter_options
+        }
+    except ImportError as e:
+        st.sidebar.caption(f"⚠️ Cache functions not available: {str(e)}")
+        return None
 
 
 # ============================================================
@@ -489,64 +524,32 @@ with st.sidebar:
     # ========================================================
 
     pages = {
-
-        "📊 Dashboard":
-            "dashboard",
-
-        "📤 Upload & Compile FPTK":
-            "upload_compile",
-
-        "📋 FPTK View":
-            "fptk_view",
-
-        "👤 Sourcing Input":
-            "sourcing_input",
-
-        "👩🏻‍💻 Sourcing View":
-            "sourcing_view",
-
-        "🏢 DB Kode Posisi":
-            "db_kode_posisi",
-
-        "🔍 Funnel Report":
-            "funnel_report",
-
-        "📊 Monitoring Sourcing":
-            "monitoring_sourcing",
-
-        "📎 Upload Evidence":
-            "upload_evidence",
-
+        "📊 Dashboard": "dashboard",
+        "📤 Upload & Compile FPTK": "upload_compile",
+        "📋 FPTK View": "fptk_view",
+        "👤 Sourcing Input": "sourcing_input",
+        "👩🏻‍💻 Sourcing View": "sourcing_view",
+        "🏢 DB Kode Posisi": "db_kode_posisi",
+        "🔍 Funnel Report": "funnel_report",
+        "📊 Monitoring Sourcing": "monitoring_sourcing",
+        "📎 Upload Evidence": "upload_evidence",
         "📩 Transfer FPTK": "transfer_fptk"
-
     }
-
 
     # ========================================================
     # ADMIN MENU
     # ========================================================
 
     db = SessionLocal()
-
     try:
-
         if is_admin(db):
-
-            pages["🔄 Update Cycle"] = (
-                "upload_cycle"
-            )
-
-            pages["👥 User Management"] = (
-                "user_management"
-            )
-
+            pages["🔄 Update Cycle"] = "upload_cycle"
+            pages["👥 User Management"] = "user_management"
     finally:
-
         db.close()
 
-
     # ========================================================
-    # NAVIGATION
+    # NAVIGATION RADIO
     # ========================================================
 
     selected = st.radio(
@@ -559,6 +562,95 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # ========================================================
+    # 🔥🔥🔥 CACHE CONTROL SECTION 🔥🔥🔥
+    # ========================================================
+    
+    st.markdown("### ⚡ Cache Control")
+    
+    # Import cache functions
+    cache_funcs = get_cache_functions()
+    
+    if cache_funcs:
+        # Ambil fungsi-fungsi cache
+        load_fptk_data = cache_funcs['load_fptk_data']
+        load_sourcing_data = cache_funcs['load_sourcing_data']
+        calculate_metrics = cache_funcs['calculate_metrics']
+        get_upload_cycle_progress = cache_funcs['get_upload_cycle_progress']
+        get_filter_options = cache_funcs['get_filter_options']
+        
+        # Tampilkan info last update
+        last_fptk = st.session_state.get('last_fptk_load', datetime.now())
+        last_sourcing = st.session_state.get('last_sourcing_load', datetime.now())
+        
+        st.caption(f"🕐 FPTK: {last_fptk.strftime('%H:%M:%S')}")
+        st.caption(f"🕐 Sourcing: {last_sourcing.strftime('%H:%M:%S')}")
+        
+        # Hitung auto refresh countdown (5 menit = 300 detik)
+        time_diff = (datetime.now() - last_fptk).seconds
+        remaining = max(0, 300 - time_diff)
+        if remaining > 0:
+            st.caption(f"⏳ Auto refresh in {remaining//60}m {remaining%60}s")
+        else:
+            st.caption("🔄 Auto refreshing...")
+        
+        st.markdown("---")
+        
+        # Tombol Refresh
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                # Reset timestamp
+                st.session_state.last_fptk_load = datetime.now()
+                st.session_state.last_sourcing_load = datetime.now()
+                st.success("✅ All cache cleared! Reloading...")
+                time.sleep(0.5)
+                st.rerun()
+        
+        with col2:
+            if st.button("🗑️ Clear Cache", use_container_width=True):
+                load_fptk_data.clear()
+                load_sourcing_data.clear()
+                calculate_metrics.clear()
+                get_upload_cycle_progress.clear()
+                st.success("✅ Data cache cleared! Reloading...")
+                time.sleep(0.5)
+                st.rerun()
+        
+        # Advanced Cache Control
+        with st.expander("🔧 Advanced Cache Control", expanded=False):
+            if st.button("🧹 Clear FPTK Cache", use_container_width=True):
+                load_fptk_data.clear()
+                calculate_metrics.clear()
+                st.session_state.last_fptk_load = datetime.now()
+                st.success("✅ FPTK cache cleared!")
+                st.rerun()
+            
+            if st.button("🧹 Clear Sourcing Cache", use_container_width=True):
+                load_sourcing_data.clear()
+                st.session_state.last_sourcing_load = datetime.now()
+                st.success("✅ Sourcing cache cleared!")
+                st.rerun()
+            
+            if st.button("🧹 Clear Filter Options", use_container_width=True):
+                get_filter_options.clear()
+                st.success("✅ Filter options cache cleared!")
+                st.rerun()
+            
+            if st.button("🧹 Clear All Cache", use_container_width=True):
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.session_state.last_fptk_load = datetime.now()
+                st.session_state.last_sourcing_load = datetime.now()
+                st.success("✅ All cache cleared!")
+                st.rerun()
+        
+        st.markdown("---")
+    else:
+        st.caption("⚠️ Cache functions not available")
+        st.markdown("---")
 
     # ========================================================
     # CHANGE PASSWORD
@@ -661,6 +753,8 @@ with st.sidebar:
         st.session_state.clear()
 
         st.rerun()
+
+
 # ============================================================
 # SYNC SESSION STATE DENGAN SESSION MANAGER
 # ============================================================
@@ -677,6 +771,7 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.username = session_mgr.username
     st.session_state.role = session_mgr.role
     st.session_state.user_display = session_mgr.user_display
+
 
 # ============================================================
 # PAGE RENDERING
@@ -850,8 +945,9 @@ elif page == "transfer_fptk":
     except ModuleNotFoundError:
         st.error("❌ File pages/transfer_fptk.py tidak ditemukan!")
 
+
 # ============================================================
-# EXPORT MENU
+# EXPORT MENU (Di Bawah Konten Utama)
 # ============================================================
 
 st.markdown("---")
