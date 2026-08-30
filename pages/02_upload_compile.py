@@ -82,14 +82,17 @@ for num in range(1, 6):
 
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# 🔥🔥🔥 CACHE FUNCTIONS (FIX: PAKAI _db) 🔥🔥🔥
 # ============================================================
 
 @st.cache_data(ttl=3600)
-def get_master_options(db):
-    """Mengambil semua opsi dari MasterDropdown - di-cache 1 jam"""
+def get_master_options(_db):
+    """
+    Mengambil semua opsi dari MasterDropdown - di-cache 1 jam
+    PAKAI _db agar tidak di-hash oleh Streamlit
+    """
     try:
-        master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+        master_records = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
         
         bu_options = sorted(set([m.bu for m in master_records if m.bu]))
         alasan_options = sorted(set([m.alasan for m in master_records if m.alasan]))
@@ -190,8 +193,11 @@ def get_all_bu_codes():
 # 🔥🔥🔥 FUNGSI COMPILE DENGAN PROGRESS 🔥🔥🔥
 # ============================================================
 
-def compile_with_progress(file, df, db, user, cycle, is_sto, progress_placeholder, status_placeholder):
-    """Compile file dengan progress bar"""
+def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
+    """
+    Compile file dengan progress bar
+    PAKAI _db agar tidak di-hash oleh Streamlit
+    """
     
     # Step 1: Validasi
     status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
@@ -206,11 +212,11 @@ def compile_with_progress(file, df, db, user, cycle, is_sto, progress_placeholde
     file_bytes = file.read()
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     
-    if db.is_active:
-        db.rollback()
+    if _db.is_active:
+        _db.rollback()
     
     result = compile_fptk(
-        db, df, user.id, cycle.id,
+        _db, df, user.id, cycle.id,
         sanitize_filename(file.name), file_bytes, is_sto
     )
     
@@ -224,7 +230,6 @@ def compile_with_progress(file, df, db, user, cycle, is_sto, progress_placeholde
     time.sleep(0.3)
     
     # Step 3: Compile DB Sourcing
-    sourcing_success = True
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Sourcing" in xls.sheet_names:
@@ -232,7 +237,7 @@ def compile_with_progress(file, df, db, user, cycle, is_sto, progress_placeholde
                 if sourcing_df is not None and not sourcing_df.empty:
                     progress_placeholder.progress(60, text="Compile DB Sourcing...")
                     sourcing_result = compile_db_sourcing(
-                        db=db,
+                        db=_db,
                         df=sourcing_df,
                         user_id=user.id,
                         cycle_id=cycle.id,
@@ -243,27 +248,24 @@ def compile_with_progress(file, df, db, user, cycle, is_sto, progress_placeholde
                         st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
                     else:
                         st.warning(f"⚠️ DB Sourcing: {len(sourcing_result.get('errors', []))} errors")
-                        sourcing_success = False
     except Exception as e:
         st.warning(f"⚠️ DB Sourcing error: {str(e)}")
-        sourcing_success = False
     
     progress_placeholder.progress(75, text="✅ DB Sourcing selesai")
     status_placeholder.info("📊 Step 4/5: Compile DB Kode Posisi...")
     time.sleep(0.3)
     
     # Step 4: Compile DB Kode Posisi
-    dbk_success = True
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Kode Posisi" in xls.sheet_names:
                 dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
                 if dbk_df is not None and not dbk_df.empty:
                     progress_placeholder.progress(85, text="Compile DB Kode Posisi...")
-                    if db.is_active:
-                        db.rollback()
+                    if _db.is_active:
+                        _db.rollback()
                     dbk_result = compile_db_kode_posisi(
-                        db=db,
+                        db=_db,
                         df=dbk_df,
                         user_id=user.id,
                         cycle_id=cycle.id,
@@ -274,17 +276,15 @@ def compile_with_progress(file, df, db, user, cycle, is_sto, progress_placeholde
                         st.success(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
                     else:
                         st.warning(f"⚠️ DB Kode Posisi: {len(dbk_result.get('errors', []))} errors")
-                        dbk_success = False
     except Exception as e:
         st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
-        dbk_success = False
     
     # Step 5: Finalisasi
     progress_placeholder.progress(95, text="Finalisasi...")
     status_placeholder.info("📊 Step 5/5: Menyimpan status...")
     time.sleep(0.3)
     
-    mark_user_uploading(db, user.id, cycle.id)
+    mark_user_uploading(_db, user.id, cycle.id)
     
     progress_placeholder.progress(100, text="✅ Selesai!")
     status_placeholder.success(f"✅ {file.name}: Selesai! FPTK Imported {result.get('imported',0)}, Updated {result.get('updated',0)}")
@@ -480,7 +480,6 @@ def show_upload_compile():
                         
                         if success:
                             success_count += 1
-                            # Clear cache after successful compile
                             st.cache_data.clear()
                         else:
                             error_count += 1
@@ -518,7 +517,6 @@ def show_upload_compile():
                         st.success("Status Anda diupdate ke Done!")
                         st.rerun()
                 
-                # Clear progress after summary
                 time.sleep(2)
                 progress_placeholder.empty()
                 status_placeholder.empty()
@@ -727,7 +725,6 @@ def show_upload_compile():
                     st.error(f"❌ {err}")
             else:
                 try:
-                    # Hitung SLA
                     if level_number <= 3:
                         sla_days = 30
                     elif level_number == 4:
@@ -735,14 +732,11 @@ def show_upload_compile():
                     else:
                         sla_days = 60
                     
-                    # Category otomatis dari alasan
                     category_auto = determine_category_fptk(alasan)
                     
-                    # Clear pending transaction
                     if db.is_active:
                         db.rollback()
                     
-                    # Cari last FPTK date kode
                     last_existing = db.query(FPTK).filter(
                         FPTK.posisi == posisi,
                         FPTK.fptk_date_real == fptk_date,
@@ -758,7 +752,6 @@ def show_upload_compile():
                     skipped_count = 0
                     last_kode_unik = ""
                     
-                    # Progress untuk manual input
                     progress_bar = st.progress(0, text="Menyimpan FPTK...")
                     
                     for i in range(vacancy):
@@ -767,7 +760,6 @@ def show_upload_compile():
                         date_code = fptk_date_kode.strftime("%d%m%y")
                         kode_unik_baru = f"{kode_pic}{kode_angka}{date_code}"
                         
-                        # Cek duplikat
                         existing = db.query(FPTK).filter(FPTK.kode_unik == kode_unik_baru).first()
                         suffix_index = 0
                         while existing:
@@ -777,7 +769,7 @@ def show_upload_compile():
                             if not existing:
                                 kode_unik_baru = test_kode
                                 break
-                            if suffix_index > 100:  # Safety limit
+                            if suffix_index > 100:
                                 break
                         
                         existing = db.query(FPTK).filter(FPTK.kode_unik == kode_unik_baru).first()
@@ -792,7 +784,6 @@ def show_upload_compile():
                         month_name = fptk_date.strftime("%B") if fptk_date else None
                         kode_bu = kode_pic[:4] if kode_pic else ""
                         
-                        # Filter Kategorisasi
                         filter_kat = ""
                         posisi_lower = posisi.lower()
                         if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
@@ -804,7 +795,6 @@ def show_upload_compile():
                         elif level_number == 4:
                             filter_kat = 'Level 4'
                         
-                        # Detail SLA
                         detail_sla = calculate_detail_sla(status, deadline_sla, offering_date)
                         
                         new_fptk = FPTK(
@@ -852,7 +842,6 @@ def show_upload_compile():
                         db.add(new_fptk)
                         created_count += 1
                         
-                        # Update progress
                         progress = (i + 1) / vacancy
                         progress_bar.progress(progress, text=f"Menyimpan FPTK {i+1}/{vacancy}")
                     
@@ -867,7 +856,6 @@ def show_upload_compile():
                         st.info(f"📋 Start Date Kode: **{start_date.strftime('%d/%m/%Y')}**")
                         st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
                         st.balloons()
-                        # Clear cache after manual input
                         st.cache_data.clear()
                     else:
                         st.warning("⚠️ Tidak ada FPTK yang berhasil disimpan")
@@ -1189,7 +1177,6 @@ def show_upload_compile():
                     st.info(f"📋 Kode Unik: **{kode_unik}**")
                     st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
                     st.balloons()
-                    # Clear cache after email parse
                     st.cache_data.clear()
                     
                 except Exception as e:
