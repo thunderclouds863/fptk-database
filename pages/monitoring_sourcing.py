@@ -76,9 +76,14 @@ def get_evidence_data(_db, kode_unik_list):
 # FUNGSI TAMPILKAN EVIDENCE
 # ============================================================
 
-def show_evidence_detail(ev, container):
+def show_evidence_detail(ev_id, db):
     """Menampilkan evidence detail di container yang diberikan"""
-    with container:
+    try:
+        ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
+        if not ev:
+            st.warning("Evidence tidak ditemukan")
+            return
+        
         st.markdown(f"### 📎 {ev.file_name}")
         col1, col2, col3 = st.columns(3)
         with col1:
@@ -121,6 +126,8 @@ def show_evidence_detail(ev, container):
             )
         else:
             st.info("💡 File tidak ditemukan di server")
+    except Exception as e:
+        st.error(f"Error: {str(e)}")
 
 
 # ============================================================
@@ -246,7 +253,7 @@ def show_monitoring_sourcing():
     st.markdown("---")
     
     # ============================================================
-    # TABLE MONITORING
+    # 🔥🔥🔥 TABLE DENGAN TOMBOL EVIDENCE 🔥🔥🔥
     # ============================================================
     st.subheader("📋 Monitoring Sourcing per Kode Unik")
     st.caption("💡 Klik tombol 📎 di kolom Evidence untuk melihat detail")
@@ -260,6 +267,7 @@ def show_monitoring_sourcing():
         
         table_data = []
         evidence_map = {}
+        evidence_id_map = {}  # Untuk mapping tombol ke evidence ID
         
         for kode_unik, group in grouped:
             row = {
@@ -312,6 +320,9 @@ def show_monitoring_sourcing():
                             'can_view': can_view,
                             'ids': ev_ids
                         }
+                        # Simpan mapping untuk tombol
+                        for ev_id in ev_ids:
+                            evidence_id_map[f"{kode_unik}_{tgl_str}_{ev_id}"] = ev_id
                         evidence_map[f"{kode_unik}_{tgl_str}"] = ev_ids
                     else:
                         row[f'ev_{tgl_str}'] = None
@@ -321,189 +332,135 @@ def show_monitoring_sourcing():
             table_data.append(row)
         
         # ============================================================
-        # BUAT DISPLAY DATAFRAME
+        # 🔥🔥🔥 RENDER TABEL DENGAN TOMBOL 🔥🔥🔥
         # ============================================================
-        display_rows = []
-        for row in table_data:
-            display_row = {}
+        
+        # Header tabel
+        hari_indonesia = {
+            0: 'Sen', 1: 'Sel', 2: 'Rab', 3: 'Kam', 4: 'Jum', 5: 'Sab', 6: 'Min'
+        }
+        
+        # Buat header columns
+        header_cols = st.columns([1.2, 2, 1.2, 1, 1, 1] + [0.8] * 7 + [0.8] * 7 + [0.8])
+        
+        headers = ['Kode Unik', 'Posisi', 'PIC', 'Status', 'FPTK Date', 'Filter']
+        for tgl in tanggal_list:
+            headers.append(f"{hari_indonesia[tgl.weekday()]}\n{tgl.strftime('%d/%m')}")
+        for tgl in tanggal_list:
+            headers.append(f"📎\n{tgl.strftime('%d/%m')}")
+        headers.append('Total')
+        
+        for i, header in enumerate(headers):
+            with header_cols[i]:
+                st.markdown(f"**{header}**")
+        
+        st.markdown("---")
+        
+        # 🔥🔥🔥 RENDER SETIAP BARIS DENGAN TOMBOL 🔥🔥🔥
+        selected_ev_id = None
+        
+        for idx, row in enumerate(table_data):
+            # Buat columns untuk setiap baris
+            cols = st.columns([1.2, 2, 1.2, 1, 1, 1] + [0.8] * 7 + [0.8] * 7 + [0.8])
             
-            display_row['fptk_date_real'] = row['fptk_date_real']
-            display_row['kode_unik'] = row['kode_unik']
-            display_row['posisi'] = row['posisi']
-            display_row['pic_recruiter'] = row['pic_recruiter']
-            display_row['status_fptk'] = row['status_fptk']
-            display_row['filter_kategorisasi'] = row['filter_kategorisasi']
+            col_idx = 0
             
+            # Kolom data utama
+            with cols[col_idx]:
+                st.write(row['kode_unik'])
+            col_idx += 1
+            
+            with cols[col_idx]:
+                st.write(row['posisi'][:25] + '...' if len(row['posisi'] or '') > 25 else row['posisi'])
+            col_idx += 1
+            
+            with cols[col_idx]:
+                st.write(row['pic_recruiter'])
+            col_idx += 1
+            
+            with cols[col_idx]:
+                st.write(row['status_fptk'])
+            col_idx += 1
+            
+            with cols[col_idx]:
+                st.write(row['fptk_date_real'])
+            col_idx += 1
+            
+            with cols[col_idx]:
+                st.write(row['filter_kategorisasi'][:10] + '...' if len(row['filter_kategorisasi'] or '') > 10 else row['filter_kategorisasi'])
+            col_idx += 1
+            
+            # Kolom CV per hari (7 hari)
             for tgl in tanggal_list:
                 tgl_str = tgl.strftime('%Y-%m-%d')
-                display_row[tgl_str] = row.get(tgl_str, 0)
+                with cols[col_idx]:
+                    val = row.get(tgl_str, 0)
+                    if val > 0:
+                        st.write(f"{val}")
+                    else:
+                        st.write("-")
+                col_idx += 1
             
+            # 🔥🔥🔥 KOLOM EVIDENCE - TOMBOL 🔥🔥🔥
             for tgl in tanggal_list:
                 tgl_str = tgl.strftime('%Y-%m-%d')
                 ev_key = f'ev_{tgl_str}'
                 ev_data = row.get(ev_key)
                 
-                if ev_data and ev_data.get('count', 0) > 0:
-                    if ev_data.get('can_view', False):
-                        # 🔥🔥🔥 BIKIN TOMBOL UNTUK KLIK 🔥🔥🔥
-                        display_row[f'ev_{tgl_str}'] = f"📎 {ev_data['count']}"
+                with cols[col_idx]:
+                    if ev_data and ev_data.get('count', 0) > 0:
+                        if ev_data.get('can_view', False):
+                            # 🔥🔥🔥 TOMBOL EVIDENCE 🔥🔥🔥
+                            ev_id = ev_data['ids'][0]  # Ambil ID pertama
+                            button_key = f"ev_{idx}_{tgl_str}"
+                            
+                            if st.button(
+                                f"📎 {ev_data['count']}", 
+                                key=button_key,
+                                help=f"Lihat {ev_data['count']} file evidence",
+                                use_container_width=True
+                            ):
+                                selected_ev_id = ev_id
+                                st.session_state['selected_ev_id'] = ev_id
+                        else:
+                            st.write(f"🔒 {ev_data['count']}")
                     else:
-                        display_row[f'ev_{tgl_str}'] = f"🔒 {ev_data['count']}"
-                else:
-                    display_row[f'ev_{tgl_str}'] = '-'
+                        st.write("-")
+                col_idx += 1
             
-            display_row['total_minggu'] = row['total_minggu']
-            display_rows.append(display_row)
-        
-        display_df = pd.DataFrame(display_rows)
-        
-        # Urutan kolom
-        kolom_utama = ['fptk_date_real', 'kode_unik', 'posisi', 'pic_recruiter', 'status_fptk', 'filter_kategorisasi']
-        kolom_tanggal = [tgl.strftime('%Y-%m-%d') for tgl in tanggal_list]
-        kolom_ev = [f'ev_{tgl.strftime("%Y-%m-%d")}' for tgl in tanggal_list]
-        kolom_total = ['total_minggu']
-        
-        final_columns = []
-        final_columns.extend(kolom_utama)
-        
-        for i, tgl in enumerate(kolom_tanggal):
-            final_columns.append(tgl)
-            if i < len(kolom_ev):
-                final_columns.append(kolom_ev[i])
-        
-        final_columns.extend(kolom_total)
-        
-        available_cols = [c for c in final_columns if c in display_df.columns]
-        display_df = display_df[available_cols]
-        
-        # Format tanggal FPTK
-        if 'fptk_date_real' in display_df.columns:
-            display_df['fptk_date_real'] = display_df['fptk_date_real'].apply(
-                lambda x: x.strftime('%d/%m/%y') if isinstance(x, pd.Timestamp) else (x if x != '-' else '-')
-            )
-        
-        # Rename kolom
-        rename_map = {
-            'fptk_date_real': 'FPTK Date (Real)',
-            'kode_unik': 'Kode Unik',
-            'posisi': 'Posisi',
-            'pic_recruiter': 'PIC Recruiter',
-            'status_fptk': 'Status FPTK',
-            'filter_kategorisasi': 'Filter Kategorisasi FPTK',
-            'total_minggu': 'Total Week'
-        }
-        
-        hari_indonesia = {
-            0: 'Sen', 1: 'Sel', 2: 'Rab', 3: 'Kam', 4: 'Jum', 5: 'Sab', 6: 'Min'
-        }
-        for tgl in tanggal_list:
-            tgl_str = tgl.strftime('%Y-%m-%d')
-            hari = hari_indonesia[tgl.weekday()]
-            tgl_display = f"{hari} {tgl.strftime('%d/%m/%y')}"
-            rename_map[tgl_str] = tgl_display
-            rename_map[f'ev_{tgl_str}'] = f'Evidence {tgl.strftime("%d/%m")}'
-        
-        display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
+            # Total Week
+            with cols[col_idx]:
+                st.write(row['total_minggu'])
+            col_idx += 1
+            
+            # Garis pemisah
+            st.markdown("---")
         
         # ============================================================
-        # 🔥🔥🔥 TAMPILKAN TABEL DENGAN TOMBOL EVIDENCE 🔥🔥🔥
-        # ============================================================
-        st.dataframe(
-            display_df,
-            use_container_width=True,
-            height=400,
-            hide_index=True
-        )
-        
-        # ============================================================
-        # 🔥🔥🔥 EVIDENCE VIEWER DENGAN TOMBOL DI BAWAH TABEL 🔥🔥🔥
+        # 🔥🔥🔥 TAMPILKAN EVIDENCE YANG DIPILIH 🔥🔥🔥
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Detail Evidence")
-        st.caption("Pilih evidence dari dropdown di bawah, atau klik tombol yang muncul di kolom Evidence")
         
-        # Buat opsi evidence dari tabel
-        ev_options = []
-        ev_option_map = {}
+        # Cek apakah ada evidence yang dipilih dari session state atau dari tombol
+        if 'selected_ev_id' not in st.session_state:
+            st.session_state['selected_ev_id'] = None
         
-        for row in table_data:
-            kode = row['kode_unik']
-            for tgl in tanggal_list:
-                tgl_str = tgl.strftime('%Y-%m-%d')
-                ev_key = f'ev_{tgl_str}'
-                if ev_key in row and row[ev_key] and row[ev_key].get('count', 0) > 0:
-                    hari = hari_indonesia[tgl.weekday()]
-                    label = f"{kode} | {hari} {tgl.strftime('%d/%m/%Y')} ({row[ev_key]['count']} files)"
-                    ev_options.append(label)
-                    ev_option_map[label] = {
-                        'kode_unik': kode,
-                        'tanggal': tgl,
-                        'ev_data': row[ev_key]
-                    }
+        # Jika tombol diklik, update session state
+        if selected_ev_id:
+            st.session_state['selected_ev_id'] = selected_ev_id
         
-        # 🔥🔥🔥 TOMBOL UNTUK SETIAP EVIDENCE YANG TERSEDIA 🔥🔥🔥
-        if ev_options:
-            col1, col2 = st.columns([2, 1])
+        # Tampilkan evidence jika ada
+        if st.session_state['selected_ev_id']:
+            ev_id = st.session_state['selected_ev_id']
+            show_evidence_detail(ev_id, db)
             
-            with col1:
-                selected_label = st.selectbox(
-                    "Pilih Evidence dari tabel di atas",
-                    ev_options,
-                    key="ev_select_from_table"
-                )
-            
-            with col2:
-                # Tombol refresh untuk clear selection
-                if st.button("🔄 Clear Selection", use_container_width=True):
-                    st.session_state['selected_evidence'] = None
-                    st.rerun()
-            
-            if selected_label:
-                selected = ev_option_map[selected_label]
-                ev_data = selected['ev_data']
-                
-                if ev_data.get('can_view', False):
-                    st.markdown(f"### 📎 Evidence untuk {selected['kode_unik']} - {selected['tanggal'].strftime('%d/%m/%Y')}")
-                    
-                    # Tampilkan semua evidence untuk kombinasi ini
-                    for ev_id in ev_data.get('ids', []):
-                        ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
-                        if ev:
-                            with st.expander(f"📄 {ev.file_name} | CV: {ev.total_cv} | PIC: {ev.pic_recruiter}", expanded=True):
-                                if hasattr(ev, 'file_data') and ev.file_data:
-                                    try:
-                                        image_data = base64.b64decode(ev.file_data)
-                                        st.image(image_data, caption=ev.file_name, use_container_width=True)
-                                        st.download_button(
-                                            label="⬇️ Download File",
-                                            data=image_data,
-                                            file_name=ev.file_name,
-                                            mime="application/octet-stream",
-                                            key=f"download_ev_{ev_id}"
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Error menampilkan gambar: {str(e)}")
-                                elif ev.file_path and os.path.exists(ev.file_path):
-                                    with open(ev.file_path, "rb") as f:
-                                        file_data = f.read()
-                                    ext = ev.file_name.split('.')[-1].lower() if ev.file_name else ''
-                                    if ext in ['jpg', 'jpeg', 'png', 'gif']:
-                                        st.image(file_data, caption=ev.file_name, use_container_width=True)
-                                    else:
-                                        st.info(f"📄 File {ext.upper()} - Klik download")
-                                    st.download_button(
-                                        label="⬇️ Download File",
-                                        data=file_data,
-                                        file_name=ev.file_name,
-                                        mime="application/octet-stream",
-                                        key=f"download_path_{ev_id}"
-                                    )
-                                else:
-                                    st.info("💡 File tidak ditemukan di server")
-                else:
-                    st.warning("🔒 Evidence ini hanya bisa dilihat oleh PIC yang upload atau Admin")
+            # Tombol clear
+            if st.button("🗑️ Tutup Detail", use_container_width=True):
+                st.session_state['selected_ev_id'] = None
+                st.rerun()
         else:
-            st.info("📭 Tidak ada evidence pada periode ini")
+            st.info("💡 Klik tombol 📎 di kolom Evidence untuk melihat detail")
         
         # ============================================================
         # LEGEND
@@ -512,7 +469,7 @@ def show_monitoring_sourcing():
         st.markdown("### 📌 Legend")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("📎 = Evidence tersedia (klik di dropdown di atas)")
+            st.markdown("📎 = Evidence tersedia (klik tombol untuk lihat)")
         with col2:
             st.markdown("🔒 = Evidence terkunci (hanya PIC/Admin)")
         with col3:
@@ -525,7 +482,30 @@ def show_monitoring_sourcing():
         col1, col2 = st.columns(2)
         with col1:
             if st.button("📥 Export CSV", use_container_width=True):
-                csv = display_df.to_csv(index=False)
+                # Buat export data
+                export_rows = []
+                for row in table_data:
+                    export_row = {
+                        'Kode Unik': row['kode_unik'],
+                        'Posisi': row['posisi'],
+                        'PIC': row['pic_recruiter'],
+                        'Status FPTK': row['status_fptk'],
+                        'FPTK Date': row['fptk_date_real'],
+                        'Filter Kategorisasi': row['filter_kategorisasi'],
+                    }
+                    for tgl in tanggal_list:
+                        tgl_str = tgl.strftime('%Y-%m-%d')
+                        export_row[tgl.strftime('%d/%m')] = row.get(tgl_str, 0)
+                    for tgl in tanggal_list:
+                        tgl_str = tgl.strftime('%Y-%m-%d')
+                        ev_key = f'ev_{tgl_str}'
+                        ev_data = row.get(ev_key)
+                        export_row[f'Evidence {tgl.strftime("%d/%m")}'] = ev_data.get('count', 0) if ev_data else 0
+                    export_row['Total Week'] = row['total_minggu']
+                    export_rows.append(export_row)
+                
+                export_df = pd.DataFrame(export_rows)
+                csv = export_df.to_csv(index=False)
                 st.download_button(
                     "⬇️ Download CSV", 
                     csv, 
@@ -537,6 +517,7 @@ def show_monitoring_sourcing():
             if st.button("🔄 Refresh Cache", use_container_width=True):
                 st.cache_data.clear()
                 st.cache_resource.clear()
+                st.session_state['selected_ev_id'] = None
                 st.success("Cache cleared!")
                 st.rerun()
         
