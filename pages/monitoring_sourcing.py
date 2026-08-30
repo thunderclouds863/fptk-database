@@ -2,24 +2,108 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 from core.database import get_db
-from core.models import DBSourcing, FPTK, User
-from core.auth import get_current_user
+from core.models import DBSourcing, FPTK, User, Evidence
+from core.auth import get_current_user, is_admin
 from datetime import datetime, timedelta
+import time
+
+# ============================================================
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_pic_options_monitoring(_db):
+    """Mengambil opsi PIC - cache 1 jam"""
+    try:
+        pic_list = ["Semua"] + [u[0] for u in _db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
+        return pic_list
+    except:
+        return ["Semua"]
+
+
+@st.cache_data(ttl=300)
+def get_monitoring_data(_db, week_start, week_end, pic_filter, kode_filter):
+    """Mengambil data monitoring - cache 5 menit"""
+    try:
+        query = _db.query(DBSourcing).filter(
+            DBSourcing.sourcing_date >= week_start,
+            DBSourcing.sourcing_date <= week_end
+        )
+        
+        if pic_filter != "Semua":
+            query = query.filter(DBSourcing.rekruter == pic_filter)
+        
+        if kode_filter:
+            query = query.filter(DBSourcing.kode_unik.ilike(f"%{kode_filter}%"))
+        
+        df = pd.read_sql(query.statement, _db.bind)
+        return df
+    except:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def get_fptk_data(_db, week_start, week_end, pic_filter, kode_filter):
+    """Mengambil data FPTK terkait - cache 5 menit"""
+    try:
+        query = _db.query(FPTK).filter(
+            FPTK.fptk_date_real >= week_start,
+            FPTK.fptk_date_real <= week_end
+        )
+        
+        if pic_filter != "Semua":
+            query = query.filter(FPTK.pic_recruiter == pic_filter)
+        
+        if kode_filter:
+            query = query.filter(FPTK.kode_unik.ilike(f"%{kode_filter}%"))
+        
+        df = pd.read_sql(query.statement, _db.bind)
+        return df
+    except:
+        return pd.DataFrame()
+
+
+@st.cache_data(ttl=300)
+def get_evidence_data(_db, kode_unik_list):
+    """Mengambil data evidence berdasarkan kode unik - cache 5 menit"""
+    if not kode_unik_list:
+        return pd.DataFrame()
+    
+    try:
+        query = _db.query(Evidence).filter(Evidence.kode_unik.in_(kode_unik_list))
+        df = pd.read_sql(query.statement, _db.bind)
+        return df
+    except:
+        return pd.DataFrame()
+
+
+# ============================================================
+# FUNGSI UTAMA
+# ============================================================
 
 def show():
     """Fungsi utama yang dipanggil dari app.py"""
     show_monitoring_sourcing()
 
+
 def show_monitoring_sourcing():
     """Fungsi dengan nama spesifik untuk kompatibilitas"""
     st.title("📈 Monitoring Sourcing")
-    st.markdown("Monitoring aktivitas sourcing per periode")
+    st.markdown("Monitoring aktivitas sourcing per periode dengan evidence")
     
     db = next(get_db())
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login terlebih dahulu.")
         return
+    
+    admin = is_admin(db)
+    
+    # ============================================================
+    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    # ============================================================
+    with st.spinner("📋 Memuat data..."):
+        pic_list = get_pic_options_monitoring(db)
     
     # ============================================================
     # FILTERS
@@ -41,34 +125,23 @@ def show_monitoring_sourcing():
             format_func=lambda x: f"{week_options[x][0].strftime('%d/%m/%Y')} - {week_options[x][1].strftime('%d/%m/%Y')}"
         )
         
-        # PIC Filter
-        pic_list = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
         pic_filter = st.selectbox("PIC Recruiter", pic_list)
-        
-        # Kode Unik Filter
         kode_filter = st.text_input("Filter Kode Unik (opsional)", placeholder="Masukkan Kode Unik...")
         
         st.markdown("---")
         if st.button("🔄 Refresh Data", use_container_width=True):
+            st.cache_data.clear()
             st.rerun()
     
     # ============================================================
-    # QUERY DATA
+    # GET DATA
     # ============================================================
     week_start, week_end = week_options[selected_week]
     
-    query = db.query(DBSourcing).filter(
-        DBSourcing.sourcing_date >= week_start,
-        DBSourcing.sourcing_date <= week_end
-    )
+    with st.spinner("📊 Memuat data..."):
+        df = get_monitoring_data(db, week_start, week_end, pic_filter, kode_filter)
+        fptk_df = get_fptk_data(db, week_start, week_end, pic_filter, kode_filter)
     
-    if pic_filter != "Semua":
-        query = query.filter(DBSourcing.rekruter == pic_filter)
-    
-    if kode_filter:
-        query = query.filter(DBSourcing.kode_unik.ilike(f"%{kode_filter}%"))
-    
-    df = pd.read_sql(query.statement, db.bind)
     total = len(df)
     
     # ============================================================
@@ -85,7 +158,6 @@ def show_monitoring_sourcing():
     col3.metric("Unique Posisi", df['posisi'].nunique() if 'posisi' in df else 0)
     col4.metric("Unique Nama", df['nama'].nunique() if 'nama' in df else 0)
     
-    # Hitung sourcing per hari
     if total > 0 and 'sourcing_date' in df:
         daily_avg = df.groupby(df['sourcing_date']).size().mean()
         col5.metric("Rata-rata CV/hari", f"{daily_avg:.1f}")
@@ -99,12 +171,10 @@ def show_monitoring_sourcing():
         col1, col2 = st.columns(2)
         
         with col1:
-            # Daily distribution
             df['date'] = pd.to_datetime(df['sourcing_date'])
             daily = df.groupby(df['date'].dt.date).size().reset_index()
             daily.columns = ['Tanggal', 'Jumlah']
             
-            # Tambahkan hari kosong
             all_dates = pd.date_range(week_start, week_end)
             daily_full = pd.DataFrame({'Tanggal': all_dates})
             daily_full['Tanggal'] = daily_full['Tanggal'].dt.date
@@ -118,7 +188,6 @@ def show_monitoring_sourcing():
             st.plotly_chart(fig, use_container_width=True)
         
         with col2:
-            # Distribution by PIC
             if 'rekruter' in df and df['rekruter'].notna().any():
                 pic_counts = df['rekruter'].value_counts().reset_index()
                 pic_counts.columns = ['PIC', 'Jumlah']
@@ -126,80 +195,212 @@ def show_monitoring_sourcing():
                              title='👤 Distribusi per PIC')
                 fig.update_layout(height=350)
                 st.plotly_chart(fig, use_container_width=True)
-            else:
-                st.info("Belum ada data PIC")
+    
+    st.markdown("---")
     
     # ============================================================
-    # TABLE
+    # 🔥🔥🔥 TABLE MONITORING DENGAN EVIDENCE 🔥🔥🔥
     # ============================================================
-    st.subheader("📋 Detail Data Sourcing")
+    st.subheader("📋 Monitoring Sourcing per Kode Unik")
     
     if total > 0:
-        # Pilih kolom yang akan ditampilkan
-        display_cols = ['id', 'nama', 'posisi', 'kode_unik', 'rekruter', 'sourcing_date',
-                       'sumber_sourcing', 'model_rekrutmen']
-        available_cols = [c for c in display_cols if c in df.columns]
+        # ============================================================
+        # GET EVIDENCE DATA
+        # ============================================================
+        kode_unik_list = df['kode_unik'].dropna().unique().tolist()
+        evidence_df = get_evidence_data(db, kode_unik_list)
         
-        display_df = df[available_cols].copy()
+        # ============================================================
+        # BUILD TABLE PER KODE UNIK
+        # ============================================================
         
-        # Rename kolom
-        rename_map = {
-            'id': 'ID', 'nama': 'Nama', 'posisi': 'Posisi', 
-            'kode_unik': 'Kode Unik', 'rekruter': 'PIC',
-            'sourcing_date': 'Tgl Sourcing', 'sumber_sourcing': 'Sumber',
-            'model_rekrutmen': 'Model'
+        # Group by kode_unik
+        grouped = df.groupby('kode_unik')
+        
+        # Nama hari dalam bahasa Indonesia
+        hari_indonesia = {
+            0: 'Sen', 1: 'Sel', 2: 'Rab', 3: 'Kam', 4: 'Jum', 5: 'Sab', 6: 'Min'
         }
-        display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
+        
+        # Buat 7 hari ke depan dari week_start
+        hari_list = [(week_start + timedelta(days=i)) for i in range(7)]
+        
+        table_data = []
+        
+        for kode_unik, group in grouped:
+            row = {
+                'kode_unik': kode_unik,
+                'posisi': group.iloc[0].get('posisi', '-'),
+                'pic_recruiter': group.iloc[0].get('rekruter', '-'),
+                'total_cv': len(group)
+            }
+            
+            # Data FPTK
+            fptk_row = fptk_df[fptk_df['kode_unik'] == kode_unik] if not fptk_df.empty else pd.DataFrame()
+            if not fptk_row.empty:
+                row['status_fptk'] = fptk_row.iloc[0].get('status', '-')
+                row['fptk_date_real'] = fptk_row.iloc[0].get('fptk_date_real', '-')
+                row['filter_kategorisasi'] = fptk_row.iloc[0].get('filter_kategorisasi_fptk', '-')
+            else:
+                row['status_fptk'] = '-'
+                row['fptk_date_real'] = '-'
+                row['filter_kategorisasi'] = '-'
+            
+            # Hitung CV per hari
+            for hari in hari_list:
+                count = len(group[group['sourcing_date'] == hari])
+                row[hari.strftime('%a')] = count
+            
+            # Total minggu ini
+            row['total_minggu'] = len(group)
+            
+            # Evidence per hari
+            for hari in hari_list:
+                hari_str = hari.strftime('%a')
+                if not evidence_df.empty:
+                    ev_rows = evidence_df[
+                        (evidence_df['kode_unik'] == kode_unik) & 
+                        (evidence_df['tanggal'] == hari)
+                    ]
+                    if not ev_rows.empty:
+                        # Cek akses: admin atau PIC yang upload
+                        ev = ev_rows.iloc[0]
+                        can_view = admin or (ev.get('pic_recruiter') == user.pic_recruiter)
+                        if can_view:
+                            row[f'ev_{hari_str}'] = f"📎 {len(ev_rows)}"
+                        else:
+                            row[f'ev_{hari_str}'] = f"🔒 {len(ev_rows)}"
+                    else:
+                        row[f'ev_{hari_str}'] = '-'
+                else:
+                    row[f'ev_{hari_str}'] = '-'
+            
+            table_data.append(row)
+        
+        # ============================================================
+        # CREATE DATAFRAME
+        # ============================================================
+        display_df = pd.DataFrame(table_data)
+        
+        # Urutkan kolom
+        kolom_utama = ['kode_unik', 'posisi', 'pic_recruiter', 'status_fptk', 'fptk_date_real', 'filter_kategorisasi']
+        kolom_hari = [h.strftime('%a') for h in hari_list]
+        kolom_ev = [f'ev_{h.strftime("%a")}' for h in hari_list]
+        kolom_total = ['total_minggu']
+        
+        # Susun kolom: utama, Sen, Ev1, Sel, Ev2, ...
+        final_columns = []
+        final_columns.extend(kolom_utama)
+        
+        for i, hari in enumerate(kolom_hari):
+            final_columns.append(hari)
+            if i < len(kolom_ev):
+                final_columns.append(kolom_ev[i])
+        
+        final_columns.extend(kolom_total)
+        
+        # Filter kolom yang ada
+        available_cols = [c for c in final_columns if c in display_df.columns]
+        display_df = display_df[available_cols]
         
         # Format tanggal
-        if 'Tgl Sourcing' in display_df.columns:
-            display_df['Tgl Sourcing'] = pd.to_datetime(display_df['Tgl Sourcing']).dt.strftime('%d/%m/%Y')
+        if 'fptk_date_real' in display_df.columns:
+            display_df['fptk_date_real'] = display_df['fptk_date_real'].apply(
+                lambda x: x.strftime('%d/%m/%y') if isinstance(x, pd.Timestamp) else (x if x != '-' else '-')
+            )
         
-        # Tampilkan dengan pagination
-        page_size = st.selectbox("Baris per halaman", [10, 25, 50, 100], index=1)
-        total_pages = (len(display_df) + page_size - 1) // page_size
-        page = st.number_input("Halaman", min_value=1, max_value=max(1, total_pages), value=1)
+        # Rename kolom untuk display
+        rename_map = {
+            'kode_unik': 'Kode Unik',
+            'posisi': 'Posisi',
+            'pic_recruiter': 'PIC Recruiter',
+            'status_fptk': 'Status FPTK',
+            'fptk_date_real': 'FPTK Date (Real)',
+            'filter_kategorisasi': 'Filter Kategorisasi FPTK',
+            'total_minggu': 'Total Week'
+        }
         
-        start_idx = (page - 1) * page_size
-        end_idx = min(start_idx + page_size, len(display_df))
+        # Rename hari
+        for hari in kolom_hari:
+            rename_map[hari] = hari
         
-        st.dataframe(display_df.iloc[start_idx:end_idx], use_container_width=True, height=400)
+        # Rename evidence
+        for hari in kolom_hari:
+            rename_map[f'ev_{hari}'] = f'Ev{kolom_hari.index(hari) + 1}'
         
-        # Export
+        display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
+        
+        # Tampilkan dataframe
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=500
+        )
+        
+        # ============================================================
+        # LEGEND
+        # ============================================================
+        st.caption("📎 = Evidence tersedia (klik untuk view) | 🔒 = Evidence terkunci (hanya PIC/Admin)")
+        
+        # ============================================================
+        # EXPORT
+        # ============================================================
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("📥 Export CSV"):
+            if st.button("📥 Export CSV", use_container_width=True):
                 csv = df.to_csv(index=False)
-                st.download_button("Download CSV", csv, 
-                                   f"monitoring_{week_start.strftime('%Y%m%d')}.csv", 
-                                   "text/csv")
+                st.download_button(
+                    "⬇️ Download CSV", 
+                    csv, 
+                    f"monitoring_{week_start.strftime('%Y%m%d')}.csv", 
+                    "text/csv"
+                )
+        
         with col2:
-            if st.button("📊 Export Excel"):
-                # Buat Excel dengan styling
-                output = pd.ExcelWriter(f"monitoring_{week_start.strftime('%Y%m%d')}.xlsx", engine='xlsxwriter')
-                df.to_excel(output, sheet_name='Monitoring', index=False)
-                output.close()
-                st.success("Export Excel selesai!")
+            if st.button("🔄 Refresh Cache", use_container_width=True):
+                st.cache_data.clear()
+                st.success("Cache cleared!")
+                st.rerun()
+        
     else:
         st.info("Tidak ada data untuk periode yang dipilih.")
         
-        # Tampilkan data FPTK terkait (jika ada)
+        # ============================================================
+        # TAMPILKAN FPTK TERKAIT
+        # ============================================================
         st.subheader("📋 FPTK Terkait")
-        fptk_query = db.query(FPTK).filter(
-            FPTK.fptk_date_real >= week_start,
-            FPTK.fptk_date_real <= week_end
-        )
-        if pic_filter != "Semua":
-            fptk_query = fptk_query.filter(FPTK.pic_recruiter == pic_filter)
-        if kode_filter:
-            fptk_query = fptk_query.filter(FPTK.kode_unik.ilike(f"%{kode_filter}%"))
         
-        fptk_df = pd.read_sql(fptk_query.statement, db.bind)
-        if len(fptk_df) > 0:
-            st.dataframe(fptk_df[['kode_unik', 'posisi', 'pic_recruiter', 'status', 'fptk_date_real']].head(20), 
-                        use_container_width=True)
+        fptk_display = fptk_df.copy()
+        if not fptk_display.empty:
+            display_cols = ['kode_unik', 'posisi', 'pic_recruiter', 'status', 'fptk_date_real', 'filter_kategorisasi_fptk']
+            available_cols = [c for c in display_cols if c in fptk_display.columns]
+            st.dataframe(fptk_display[available_cols], use_container_width=True)
         else:
             st.info("Tidak ada FPTK terkait.")
+
+
+# ============================================================
+# FUNGSI UNTUK VIEW EVIDENCE (POPUP/DETAIL)
+# ============================================================
+
+def view_evidence(kode_unik, tanggal, db):
+    """Fungsi untuk melihat evidence detail"""
+    evidence_list = db.query(Evidence).filter(
+        Evidence.kode_unik == kode_unik,
+        Evidence.tanggal == tanggal
+    ).all()
+    
+    if evidence_list:
+        st.markdown(f"### 📎 Evidence untuk {kode_unik} - {tanggal.strftime('%d/%m/%Y')}")
+        for ev in evidence_list:
+            st.markdown(f"- **File:** {ev.file_name}")
+            st.markdown(f"  **Total CV:** {ev.total_cv}")
+            st.markdown(f"  **Upload oleh:** {ev.pic_recruiter}")
+            st.markdown(f"  **Tanggal Upload:** {ev.created_at.strftime('%d/%m/%Y %H:%M') if ev.created_at else '-'}")
+            st.markdown("---")
+    else:
+        st.info("Tidak ada evidence untuk tanggal ini.")
+
 
 # Untuk kompatibilitas dengan pemanggilan lama
 if __name__ == "__main__":
