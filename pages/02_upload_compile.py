@@ -82,6 +82,50 @@ for num in range(1, 6):
 
 
 # ============================================================
+# 🔥🔥🔥 FUNGSI DETAIL SLA OTOMATIS 🔥🔥🔥
+# ============================================================
+
+def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, today=None):
+    """
+    Menghitung Detail SLA secara OTOMATIS berdasarkan tanggal sekarang.
+    """
+    if today is None:
+        today = datetime.now().date()
+    
+    # Jika status Cancel → selalu Cancel FPTK
+    if status == "Cancel":
+        return "Cancel FPTK"
+    
+    # Jika status Closed
+    if status == "Closed":
+        if offering_date and deadline_sla:
+            if offering_date <= deadline_sla:
+                return "Closed Lulus SLA"
+            else:
+                return "Closed Tidak Lulus SLA"
+        else:
+            # Jika offering_date atau deadline_sla tidak ada
+            if fptk_date_real and deadline_sla:
+                if today <= deadline_sla:
+                    return "OP Belum Lewat SLA"
+                else:
+                    return "OP Tidak Lulus SLA"
+            return "OP Belum Lewat SLA"
+    
+    # Jika status OP
+    if status == "OP":
+        if deadline_sla:
+            if today <= deadline_sla:
+                return "OP Belum Lewat SLA"
+            else:
+                return "OP Tidak Lulus SLA"
+        else:
+            return "OP Belum Lewat SLA"
+    
+    return "OP Belum Lewat SLA"
+
+
+# ============================================================
 # 🔥🔥🔥 CACHE FUNCTIONS (FIX: PAKAI _db) 🔥🔥🔥
 # ============================================================
 
@@ -649,14 +693,14 @@ def show_upload_compile():
                     deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
                 
-                detail_sla_options = [
-                    "OP Belum Lewat SLA",
-                    "OP Tidak Lulus SLA",
-                    "Closed Lulus SLA",
-                    "Closed Tidak Lulus SLA",
-                    "Cancel FPTK"
-                ]
-                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options)
+                # 🔥🔥🔥 DETAIL SLA OTOMATIS 🔥🔥🔥
+                auto_detail_sla = calculate_detail_sla_auto(
+                    status=status,
+                    fptk_date_real=fptk_date,
+                    deadline_sla=deadline_sla if fptk_date and sla_days else None,
+                    offering_date=None
+                )
+                st.text_input("Detail SLA (auto)", value=auto_detail_sla, disabled=True)
             
             if status == "Closed":
                 offering_date = st.date_input("Offering Date (required untuk Closed)", datetime.now())
@@ -754,6 +798,15 @@ def show_upload_compile():
                     
                     progress_bar = st.progress(0, text="Menyimpan FPTK...")
                     
+                    # 🔥🔥🔥 HITUNG DETAIL SLA OTOMATIS 🔥🔥🔥
+                    deadline_sla = fptk_date + timedelta(days=sla_days) if fptk_date else None
+                    auto_detail_sla = calculate_detail_sla_auto(
+                        status=status,
+                        fptk_date_real=fptk_date,
+                        deadline_sla=deadline_sla,
+                        offering_date=offering_date
+                    )
+                    
                     for i in range(vacancy):
                         fptk_date_kode = start_date + timedelta(days=i)
                         kode_angka = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
@@ -779,7 +832,6 @@ def show_upload_compile():
                         
                         last_kode_unik = kode_unik_baru
                         
-                        deadline_sla = fptk_date + timedelta(days=sla_days) if fptk_date else None
                         week_num = fptk_date.isocalendar()[1] if fptk_date else None
                         month_name = fptk_date.strftime("%B") if fptk_date else None
                         kode_bu = kode_pic[:4] if kode_pic else ""
@@ -794,8 +846,6 @@ def show_upload_compile():
                             filter_kat = 'Level 3'
                         elif level_number == 4:
                             filter_kat = 'Level 4'
-                        
-                        detail_sla = calculate_detail_sla(status, deadline_sla, offering_date)
                         
                         new_fptk = FPTK(
                             kode_unik=kode_unik_baru,
@@ -820,7 +870,7 @@ def show_upload_compile():
                             fptk_cancel_date=cancel_date,
                             jumlah_sla=sla_days,
                             deadline_sla=deadline_sla,
-                            detail_sla=detail_sla,
+                            detail_sla=auto_detail_sla,  # 🔥 PAKAI OTOMATIS
                             week_fptk_date=week_num,
                             month_fptk_date=month_name,
                             kode_bu=kode_bu,
@@ -855,6 +905,7 @@ def show_upload_compile():
                         st.info(f"📋 Kode Unik terakhir: **{last_kode_unik}**")
                         st.info(f"📋 Start Date Kode: **{start_date.strftime('%d/%m/%Y')}**")
                         st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
+                        st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
                         st.balloons()
                         st.cache_data.clear()
                     else:
@@ -865,31 +916,38 @@ def show_upload_compile():
                     db.rollback()
     
     # ============================================================
-    # TAB 3: PASTE EMAIL BODY
+    # TAB 3: PASTE EMAIL BODY (DIPERBAIKI)
     # ============================================================
     
     with tab3:
         st.subheader("📧 Paste Email Body")
         st.caption("Paste isi email permintaan FPTK. Sistem akan otomatis mengekstrak data.")
         
+        # 🔥🔥🔥 GUNAKAN SESSION STATE UNTUK MENYIMPAN HASIL PARSE 🔥🔥🔥
+        if "parsed_email_data" not in st.session_state:
+            st.session_state.parsed_email_data = {}
+        
         email_body = st.text_area(
             "Paste Email Body di sini",
             height=200,
-            placeholder="Copy paste isi email permintaan FPTK..."
+            placeholder="Copy paste isi email permintaan FPTK...",
+            key="email_body_input"
         )
         
         col1, col2 = st.columns([1, 5])
         with col1:
             process_email = st.button("🔍 Proses Email", type="primary")
         
-        parsed_data = {}
+        parsed_data = st.session_state.parsed_email_data.copy()
         
         if process_email and email_body:
             with st.spinner("Memproses email..."):
                 parsed_data = parse_email_body(email_body, bu_options, alasan_options, category_options, direktorat_options)
+                st.session_state.parsed_email_data = parsed_data
                 
                 if parsed_data.get("posisi"):
-                    st.success("✅ Email berhasil diparse!")
+                    st.success("✅ Email berhasil diparse! Data sudah terisi di form.")
+                    st.rerun()
                 else:
                     st.warning("⚠️ Tidak ada data yang terdeteksi dari email.")
         
@@ -917,10 +975,11 @@ def show_upload_compile():
             parsed_data["kode_pic"] = user_pic_code
             parsed_data["kode_bu"] = user_pic_bu
         
+        # 🔥🔥🔥 TAMPILKAN FORM DENGAN DATA DARI SESSION STATE 🔥🔥🔥
         st.markdown("---")
         st.markdown("### Data FPTK (Hasil Parse / Manual)")
         
-        with st.form("fptk_email_form"):
+        with st.form("fptk_email_form", clear_on_submit=False):
             col1, col2 = st.columns(2)
             
             with col1:
@@ -1029,14 +1088,20 @@ def show_upload_compile():
                     deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
                 
-                detail_sla_options = [
-                    "OP Belum Lewat SLA",
-                    "OP Tidak Lulus SLA",
-                    "Closed Lulus SLA",
-                    "Closed Tidak Lulus SLA",
-                    "Cancel FPTK"
-                ]
-                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options)
+                # 🔥🔥🔥 DETAIL SLA OTOMATIS 🔥🔥🔥
+                # Hitung berdasarkan status dan tanggal yang dipilih
+                if status == "Closed":
+                    offering_date_temp = datetime.now().date()  # Temporary
+                else:
+                    offering_date_temp = None
+                
+                auto_detail_sla_display = calculate_detail_sla_auto(
+                    status=status,
+                    fptk_date_real=fptk_date,
+                    deadline_sla=deadline_sla if fptk_date and sla_days else None,
+                    offering_date=offering_date_temp
+                )
+                st.text_input("Detail SLA (auto)", value=auto_detail_sla_display, disabled=True)
             
             if status == "Closed":
                 offering_date = st.date_input("Offering Date (required untuk Closed)", datetime.now())
@@ -1126,6 +1191,14 @@ def show_upload_compile():
                     elif level_number == 4:
                         filter_kat = 'Level 4'
                     
+                    # 🔥🔥🔥 DETAIL SLA OTOMATIS 🔥🔥🔥
+                    auto_detail_sla = calculate_detail_sla_auto(
+                        status=status,
+                        fptk_date_real=fptk_date,
+                        deadline_sla=deadline_sla,
+                        offering_date=offering_date
+                    )
+                    
                     if db.is_active:
                         db.rollback()
                     
@@ -1152,6 +1225,7 @@ def show_upload_compile():
                         fptk_cancel_date=cancel_date,
                         jumlah_sla=sla_days,
                         deadline_sla=deadline_sla,
+                        detail_sla=auto_detail_sla,  # 🔥 PAKAI OTOMATIS
                         week_fptk_date=week_num,
                         month_fptk_date=month_name,
                         kode_bu=kode_bu,
@@ -1173,11 +1247,16 @@ def show_upload_compile():
                     db.add(new_fptk)
                     db.commit()
                     
+                    # 🔥 HAPUS DATA PARSE SETELAH BERHASIL SIMPAN
+                    st.session_state.parsed_email_data = {}
+                    
                     st.success(f"✅ FPTK berhasil disimpan dari email!")
                     st.info(f"📋 Kode Unik: **{kode_unik}**")
                     st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
+                    st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
                     st.balloons()
                     st.cache_data.clear()
+                    st.rerun()
                     
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
