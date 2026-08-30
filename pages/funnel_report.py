@@ -287,17 +287,19 @@ def show_funnel_report():
     display_df = display_df[desired_order]
     
     # ============================================================
-    # STYLING - WARNA UNTUK V, X, -
+    # STYLING - WARNA UNTUK V, X, - (PAKAI .map BUKAN .applymap)
     # ============================================================
     def color_status(val):
         if val == 'V':
             return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # Hijau
         elif val == 'X':
             return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'  # Merah
-        else:
+        elif val == '-':
             return 'background-color: #e9ecef; color: #6c757d;'  # Abu-abu
+        else:
+            return ''
     
-    # Apply styling hanya ke kolom pipeline
+    # Pipeline columns untuk styling
     pipeline_columns = [
         'Sourcing FL', 'Lolos Sourcing HR', 'Shortlisted User', 'Lulus Psikotes',
         'Lulus HR Interview', 'Lulus Technical Case', 'Lulus Market Visit',
@@ -305,18 +307,29 @@ def show_funnel_report():
         'Lolos MCU', 'Lolos Offering', 'Day One'
     ]
     
-    # Buat styler
-    styled_df = display_df.style.applymap(
-        color_status,
-        subset=[col for col in pipeline_columns if col in display_df.columns]
-    )
+    # Filter kolom yang ada di dataframe
+    existing_pipeline_cols = [col for col in pipeline_columns if col in display_df.columns]
     
-    # Tampilkan dataframe dengan styling
-    st.dataframe(
-        styled_df,
-        use_container_width=True,
-        height=500
-    )
+    # 🔥🔥🔥 PAKAI .map BUKAN .applymap 🔥🔥🔥
+    if existing_pipeline_cols:
+        styled_df = display_df.style.map(
+            color_status,
+            subset=existing_pipeline_cols
+        )
+        
+        # Tampilkan dataframe dengan styling
+        st.dataframe(
+            styled_df,
+            use_container_width=True,
+            height=500
+        )
+    else:
+        # Tampilkan tanpa styling
+        st.dataframe(
+            display_df,
+            use_container_width=True,
+            height=500
+        )
     
     # ============================================================
     # 📊 SUMMARY PER TAHAP DARI DETAIL DATA
