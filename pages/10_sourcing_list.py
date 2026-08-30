@@ -2,9 +2,52 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from core.database import get_db
-from core.models import DBSourcing, User, FPTK
+from core.models import DBSourcing, User, FPTK, MasterDropdown
 from core.auth import get_current_user, is_admin
 from datetime import datetime
+import time
+
+# ============================================================
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_sourcing_list_options(_db):
+    """Mengambil semua opsi untuk sourcing list - cache 1 jam"""
+    try:
+        master = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+        pic_options = sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
+        
+        # Ambil dari data existing
+        sourcing_data = _db.query(DBSourcing).all()
+        sumber_options = sorted(set([s.sumber_sourcing for s in sourcing_data if s.sumber_sourcing]))
+        model_options = sorted(set([s.model_rekrutmen for s in sourcing_data if s.model_rekrutmen]))
+        
+        return {
+            'pic_options': pic_options,
+            'sumber_options': sumber_options,
+            'model_options': model_options
+        }
+    except Exception as e:
+        return {
+            'pic_options': [],
+            'sumber_options': [],
+            'model_options': []
+        }
+
+
+@st.cache_data(ttl=3600)
+def get_sourcing_list_static_options():
+    """Opsi statis - cache 1 jam"""
+    return {
+        'pipeline_status_options': ["", "V", "X"],
+        'pipeline_stages': [
+            "Sourcing HR", "Shortlist CV", "Psikotes", "HR Interview",
+            "Technical Test", "Market Visit", "User Interview",
+            "Panel Interview", "Reference Check", "MCU", "Offering", "Day 1"
+        ]
+    }
+
 
 def show_sourcing_list():
     st.title("📋 Database Sourcing")
@@ -19,39 +62,37 @@ def show_sourcing_list():
     admin = is_admin(db)
     
     # ============================================================
+    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    # ============================================================
+    with st.spinner("📋 Memuat data..."):
+        options = get_sourcing_list_options(db)
+        static_options = get_sourcing_list_static_options()
+    
+    pic_options = options['pic_options']
+    sumber_options = options['sumber_options']
+    model_options = options['model_options']
+    pipeline_status_options = static_options['pipeline_status_options']
+    pipeline_stages = static_options['pipeline_stages']
+    
+    # ============================================================
     # FILTERS
     # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filter")
         
-        # Search
         search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
+        pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + pic_options)
+        sumber_filter = st.selectbox("Sumber Sourcing", ["Semua"] + sumber_options)
+        model_filter = st.selectbox("Model Rekrutmen", ["Semua"] + model_options)
         
-        # PIC filter
-        pic_options = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
-        pic_filter = st.selectbox("PIC Recruiter", pic_options)
+        stage_filter = st.selectbox("Tahap Pipeline", ["Semua"] + pipeline_stages)
         
-        # Sumber filter
-        sumber_options = ["Semua"] + [s[0] for s in db.query(DBSourcing.sumber_sourcing).distinct().all() if s[0]]
-        sumber_filter = st.selectbox("Sumber Sourcing", sumber_options)
-        
-        # Model filter
-        model_options = ["Semua"] + [m[0] for m in db.query(DBSourcing.model_rekrutmen).distinct().all() if m[0]]
-        model_filter = st.selectbox("Model Rekrutmen", model_options)
-        
-        # Status pipeline filter
-        stage_options = ["Semua", "Sourcing HR", "Shortlist CV", "Psikotes", "HR Interview", 
-                         "User Interview", "Offering", "Day 1"]
-        stage_filter = st.selectbox("Tahap Pipeline", stage_options)
-        
-        # Date range
         col1, col2 = st.columns(2)
         with col1:
             date_from = st.date_input("Dari", datetime.now().replace(year=2020))
         with col2:
             date_to = st.date_input("Sampai", datetime.now())
         
-        # Show only my data
         show_mine = st.checkbox("Hanya data saya", value=False) if not admin else False
         
         st.markdown("---")
@@ -86,32 +127,35 @@ def show_sourcing_list():
     if date_to:
         query = query.filter(DBSourcing.sourcing_date <= date_to)
     
-    # Stage filter
-    if stage_filter != "Semua":
-        stage_map = {
-            "Sourcing HR": DBSourcing.sourcing_hr.isnot(None),
-            "Shortlist CV": DBSourcing.shortlist_cv.isnot(None),
-            "Psikotes": DBSourcing.psikotes.isnot(None),
-            "HR Interview": DBSourcing.hr_interview.isnot(None),
-            "User Interview": DBSourcing.user_interview.isnot(None),
-            "Offering": DBSourcing.offering.isnot(None),
-            "Day 1": DBSourcing.day1.isnot(None),
-        }
-        if stage_filter in stage_map:
-            query = query.filter(stage_map[stage_filter])
+    # Stage filter - mapping ke field
+    stage_field_map = {
+        "Sourcing HR": DBSourcing.sourcing_hr,
+        "Shortlist CV": DBSourcing.shortlist_cv,
+        "Psikotes": DBSourcing.psikotes,
+        "HR Interview": DBSourcing.hr_interview,
+        "Technical Test": DBSourcing.technical_test_case_study,
+        "Market Visit": DBSourcing.market_visit,
+        "User Interview": DBSourcing.user_interview,
+        "Panel Interview": DBSourcing.panel_interview,
+        "Reference Check": DBSourcing.reference_check,
+        "MCU": DBSourcing.mcu,
+        "Offering": DBSourcing.offering,
+        "Day 1": DBSourcing.day1,
+    }
+    
+    if stage_filter != "Semua" and stage_filter in stage_field_map:
+        query = query.filter(stage_field_map[stage_filter].isnot(None))
     
     total = query.count()
     st.markdown(f"**Total Kandidat: {total}**")
     
     if total > 0:
-        # Pagination
         page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
         page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
         offset = (page - 1) * page_size
         
         df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
         
-        # Display
         st.dataframe(
             df,
             use_container_width=True,
@@ -135,7 +179,7 @@ def show_sourcing_list():
         )
         
         # ============================================================
-        # ACTION BUTTONS (Detail, Edit, Delete)
+        # ACTION BUTTONS
         # ============================================================
         st.markdown("---")
         col1, col2, col3, col4 = st.columns([1, 1, 1, 3])
@@ -168,7 +212,6 @@ def show_sourcing_list():
                 else:
                     st.error("Anda tidak punya akses untuk menghapus data ini.")
         
-        # Export
         with col4:
             if st.button("📥 Export CSV", use_container_width=True):
                 csv = df.to_csv(index=False)
