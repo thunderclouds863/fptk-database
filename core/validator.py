@@ -158,7 +158,7 @@ def safe_level_fptk_from_string(value):
 
 def safe_level_number_from_string(value):
     """Ambil angka dari level_number"""
-    if value is None or pd.isna(value)):
+    if value is None or pd.isna(value):
         return None
     
     if isinstance(value, (int, float)):
