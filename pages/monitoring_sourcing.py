@@ -10,10 +10,10 @@ import base64
 import os
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# 🔥🔥🔥 CACHE FUNCTIONS (GANTI ke st.cache_resource) 🔥🔥🔥
 # ============================================================
 
-@st.cache_data(ttl=3600)
+@st.cache_resource(ttl=3600)
 def get_pic_options_monitoring(_db):
     """Mengambil opsi PIC - cache 1 jam"""
     try:
@@ -23,7 +23,7 @@ def get_pic_options_monitoring(_db):
         return ["Semua"]
 
 
-@st.cache_data(ttl=300)
+@st.cache_resource(ttl=300)
 def get_monitoring_data(_db, week_start, week_end, pic_filter, kode_filter):
     """Mengambil data monitoring - cache 5 menit"""
     try:
@@ -44,7 +44,7 @@ def get_monitoring_data(_db, week_start, week_end, pic_filter, kode_filter):
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=300)
+@st.cache_resource(ttl=300)
 def get_fptk_data(_db, kode_unik_list):
     """Mengambil data FPTK berdasarkan list kode unik - cache 5 menit"""
     if not kode_unik_list:
@@ -58,7 +58,7 @@ def get_fptk_data(_db, kode_unik_list):
         return pd.DataFrame()
 
 
-@st.cache_data(ttl=300)
+@st.cache_resource(ttl=300)
 def get_evidence_data(_db, kode_unik_list):
     """Mengambil data evidence berdasarkan kode unik - cache 5 menit"""
     if not kode_unik_list:
@@ -99,7 +99,6 @@ def show_evidence_detail(evidence_id, db):
         # Cek apakah ada file_data
         if hasattr(ev, 'file_data') and ev.file_data:
             try:
-                # Coba decode base64
                 image_data = base64.b64decode(ev.file_data)
                 st.image(image_data, caption=ev.file_name, use_container_width=True)
             except:
@@ -190,6 +189,7 @@ def show_monitoring_sourcing():
         st.markdown("---")
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
+            st.cache_resource.clear()
             st.rerun()
     
     # ============================================================
@@ -273,7 +273,7 @@ def show_monitoring_sourcing():
         tanggal_list = [(week_start + timedelta(days=i)) for i in range(7)]
         
         table_data = []
-        evidence_map = {}  # Untuk menyimpan evidence per kode_unik per tanggal
+        evidence_map = {}
         
         for kode_unik, group in grouped:
             row = {
@@ -326,7 +326,6 @@ def show_monitoring_sourcing():
                             'can_view': can_view,
                             'ids': ev_ids
                         }
-                        # Simpan di evidence_map
                         evidence_map[f"{kode_unik}_{tgl_str}"] = ev_ids
                     else:
                         row[f'ev_{tgl_str}'] = None
@@ -420,7 +419,7 @@ def show_monitoring_sourcing():
         display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
         
         # ============================================================
-        # 🔥🔥🔥 TAMPILKAN TABEL DENGAN EVIDENCE KLIKABLE 🔥🔥🔥
+        # TAMPILKAN TABEL
         # ============================================================
         st.dataframe(
             display_df,
@@ -430,13 +429,12 @@ def show_monitoring_sourcing():
         )
         
         # ============================================================
-        # 🔥🔥🔥 EVIDENCE VIEWER (KLIK LANGSUNG DARI TABEL) 🔥🔥🔥
+        # EVIDENCE VIEWER
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Evidence Viewer")
         st.caption("Klik tombol di bawah untuk melihat evidence per Kode Unik dan Tanggal")
         
-        # Pilih dari tabel dengan cara yang lebih mudah
         col1, col2 = st.columns(2)
         
         with col1:
@@ -444,10 +442,8 @@ def show_monitoring_sourcing():
             selected_kode = st.selectbox("Pilih Kode Unik", kode_options, key="ev_kode_select")
         
         with col2:
-            # Tanggal options berdasarkan kode unik yang dipilih
             tanggal_options = []
             if selected_kode:
-                # Cari di evidence_map
                 for tgl in tanggal_list:
                     key = f"{selected_kode}_{tgl.strftime('%Y-%m-%d')}"
                     if key in evidence_map and evidence_map[key]:
@@ -472,7 +468,6 @@ def show_monitoring_sourcing():
             if key in evidence_map and evidence_map[key]:
                 ev_ids = evidence_map[key]
                 
-                # Cek akses
                 can_view = admin
                 if not can_view:
                     for ev_id in ev_ids:
@@ -488,7 +483,6 @@ def show_monitoring_sourcing():
                         ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
                         if ev:
                             with st.expander(f"📄 {ev.file_name} | CV: {ev.total_cv} | PIC: {ev.pic_recruiter}", expanded=True):
-                                # Tampilkan gambar jika ada
                                 if hasattr(ev, 'file_data') and ev.file_data:
                                     try:
                                         image_data = base64.b64decode(ev.file_data)
@@ -507,7 +501,6 @@ def show_monitoring_sourcing():
                                     with open(ev.file_path, "rb") as f:
                                         file_data = f.read()
                                     
-                                    # Coba tampilkan sebagai gambar
                                     ext = ev.file_name.split('.')[-1].lower() if ev.file_name else ''
                                     if ext in ['jpg', 'jpeg', 'png', 'gif']:
                                         st.image(file_data, caption=ev.file_name, use_container_width=True)
@@ -559,6 +552,7 @@ def show_monitoring_sourcing():
         with col2:
             if st.button("🔄 Refresh Cache", use_container_width=True):
                 st.cache_data.clear()
+                st.cache_resource.clear()
                 st.success("Cache cleared!")
                 st.rerun()
         
