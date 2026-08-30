@@ -11,19 +11,25 @@ from core.utils import parse_date_dmy, safe_int, normalize_key
 # HELPER: GENERATE KODE UNIK
 # ============================================================
 
-def generate_kode_unik_validator(kode_pic, posisi, fptk_date):
-    """Generate Kode Unik dari Kode PIC + Posisi + Tanggal"""
-    if not kode_pic or not posisi or not fptk_date:
-        if kode_pic and fptk_date:
-            date_code = fptk_date.strftime("%d%m%y")
-            return f"{kode_pic}XXXX{date_code}"
+def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
+    """
+    Generate Kode Unik dari:
+    - Kode PIC
+    - Kode Angka (dari kolom Kode Angka (ID) di Excel)
+    - FPTK Date Kode
+    Format: [Kode PIC][Kode Angka][FPTK Date Kode DDMMYY]
+    Contoh: ADM001300826
+    """
+    if not kode_pic or not kode_angka or not fptk_date_kode:
         return ""
     
-    date_code = fptk_date.strftime("%d%m%y")
-    posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
-    if not posisi_code:
-        posisi_code = "XXXX"
-    return f"{kode_pic}{posisi_code}{date_code}"
+    # Ambil angka dari kode_angka (hapus huruf)
+    angka_part = re.sub(r'[^0-9]', '', str(kode_angka))
+    if not angka_part:
+        angka_part = "001"
+    
+    date_code = fptk_date_kode.strftime("%d%m%y") if hasattr(fptk_date_kode, 'strftime') else str(fptk_date_kode)
+    return f"{kode_pic}{angka_part}{date_code}"
 
 
 # ============================================================
@@ -152,7 +158,7 @@ def safe_level_fptk_from_string(value):
 
 def safe_level_number_from_string(value):
     """Ambil angka dari level_number"""
-    if value is None or pd.isna(value):
+    if value is None or pd.isna(value)):
         return None
     
     if isinstance(value, (int, float)):
@@ -176,7 +182,7 @@ def safe_level_number_from_string(value):
 
 
 # ============================================================
-# VALIDATE FPTK FILE (DIPERBAIKI)
+# VALIDATE FPTK FILE (DIPERBAIKI - PAKAI KODE ANGKA DARI EXCEL)
 # ============================================================
 def validate_fptk_file(
     df: pd.DataFrame,
@@ -204,7 +210,9 @@ def validate_fptk_file(
         "kode_unik": ["Kode Unik", "KodeUNIK", "Unique Code"],
         "posisi": ["Posisi", "Posisi - Kebutuhan TA", "Posisi Kebutuhan", "Position"],
         "kode_pic": ["Kode PIC", "PIC Code", "Kode PIC Recruiter"],
+        "kode_angka": ["Kode Angka (ID)", "Kode Angka", "ID", "Kode ID"],
         "fptk_date_real": ["FPTK Date (Real)", "FPTK DATE (Real)", "FPTK Date Real", "Tanggal FPTK"],
+        "fptk_date_kode": ["FPTK Date (Kode)", "FPTK DATE (Kode)", "Tanggal Kode FPTK"],
         "business_unit": ["Business Unit", "PT / Business Unit", "BU", "Business"],
         "direktorat": ["Direktorat", "DIRECTORATE", "Directorate"],
         "divisi": ["Divisi", "Divisi (Sesuai SO)", "Divisi Sesuai SO", "Division"],
@@ -285,23 +293,71 @@ def validate_fptk_file(
     for idx, row in df.iterrows():
         row_num = idx + 2
 
-        # 1. KODE UNIK - AUTO GENERATE JIKA KOSONG
-        kode_unik = row.get("kode_unik")
-        kode_pic = row.get("kode_pic")
-        posisi = row.get("posisi")
-        fptk_date = row.get("fptk_date_real")
+        # 1. KODE ANGKA (ID) - HARUS DARI EXCEL
+        kode_angka = row.get("kode_angka")
+        if pd.isna(kode_angka) or str(kode_angka).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "Kode Angka (ID)",
+                "value": kode_angka,
+                "error": "Kode Angka (ID) tidak boleh kosong",
+                "expected": "Kode Angka dari kolom Kode Angka (ID)"
+            })
+            continue  # Skip generate kode_unik karena kode_angka tidak ada
         
+        # 2. KODE PIC
+        kode_pic = row.get("kode_pic")
+        if pd.isna(kode_pic) or str(kode_pic).strip() == "":
+            #  PAKAI "ADM" UNTUK ADMIN ATAU USER TANPA KODE PIC 
+            df.at[idx, 'kode_pic'] = "ADM"
+            kode_pic = "ADM"
+            errors.append({
+                "row": row_num,
+                "field": "Kode PIC",
+                "value": kode_pic,
+                "warning": True,
+                "error": "Kode PIC kosong, auto-set menjadi ADM",
+                "expected": "Kode PIC (contoh: CORPOme, MPPau)"
+            })
+        
+        # 3. FPTK DATE KODE
+        fptk_date_kode = row.get("fptk_date_kode")
+        if pd.isna(fptk_date_kode) or str(fptk_date_kode).strip() == "":
+            #  PAKAI FPTK DATE REAL JIKA KODE KOSONG 
+            fptk_date_real = row.get("fptk_date_real")
+            if fptk_date_real and _is_valid_date(fptk_date_real):
+                df.at[idx, 'fptk_date_kode'] = fptk_date_real
+                fptk_date_kode = fptk_date_real
+                errors.append({
+                    "row": row_num,
+                    "field": "FPTK Date (Kode)",
+                    "value": fptk_date_kode,
+                    "warning": True,
+                    "error": "FPTK Date (Kode) kosong, auto-set dari FPTK Date (Real)",
+                    "expected": "FPTK Date (Kode) akan diisi otomatis"
+                })
+            else:
+                errors.append({
+                    "row": row_num,
+                    "field": "FPTK Date (Kode)",
+                    "value": fptk_date_kode,
+                    "error": "FPTK Date (Kode) tidak boleh kosong",
+                    "expected": "Format tanggal yang valid"
+                })
+                continue
+        
+        # 4.  GENERATE KODE UNIK = KODE PIC + KODE ANGKA + FPTK DATE KODE 
+        kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
-            # 🔥🔥🔥 GENERATE KODE UNIK OTOMATIS 🔥🔥🔥
-            if kode_pic and posisi and fptk_date:
-                kode_unik_baru = generate_kode_unik_validator(kode_pic, posisi, fptk_date)
+            if kode_pic and kode_angka and fptk_date_kode:
+                kode_unik_baru = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
                 df.at[idx, 'kode_unik'] = kode_unik_baru
                 errors.append({
                     "row": row_num,
                     "field": "Kode Unik",
                     "value": kode_unik,
                     "warning": True,
-                    "error": f"Kode Unik kosong, auto-generate menjadi: {kode_unik_baru}",
+                    "error": f"Kode Unik kosong, auto-generate dari Kode PIC + Kode Angka + FPTK Date Kode menjadi: {kode_unik_baru}",
                     "expected": "Kode Unik akan digenerate otomatis"
                 })
             else:
@@ -309,40 +365,24 @@ def validate_fptk_file(
                     "row": row_num,
                     "field": "Kode Unik",
                     "value": kode_unik,
-                    "error": "Kode Unik tidak boleh kosong dan tidak bisa di-generate (Kode PIC/Posisi/Tanggal tidak lengkap)",
-                    "expected": "Format: [Kode PIC][4 huruf posisi][tanggal DDMMYY]"
+                    "error": "Kode Unik tidak bisa di-generate (Kode PIC/Kode Angka/FPTK Date Kode tidak lengkap)",
+                    "expected": "Format: [Kode PIC][Kode Angka][FPTK Date Kode DDMMYY]"
+                })
+        else:
+            # Cek apakah kode_unik sesuai format
+            kode_unik_clean = str(kode_unik).strip()
+            expected_kode_unik = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
+            if expected_kode_unik and kode_unik_clean != expected_kode_unik:
+                errors.append({
+                    "row": row_num,
+                    "field": "Kode Unik",
+                    "value": kode_unik,
+                    "warning": True,
+                    "error": f"Kode Unik '{kode_unik}' tidak sesuai format. Seharusnya: {expected_kode_unik}",
+                    "expected": "Kode Unik akan tetap digunakan, tapi sebaiknya disesuaikan"
                 })
         
-        else:
-            kode_unik_clean = str(kode_unik).strip()
-            
-            # 🔥🔥🔥 CEK DUPLIKAT - JADI WARNING BUKAN ERROR 🔥🔥🔥
-            existing_same_code = db.query(FPTK).filter(
-                FPTK.kode_unik == kode_unik_clean
-            ).all()
-            
-            if existing_same_code:
-                existing_positions = [x.posisi for x in existing_same_code]
-                posisi_upload = str(row.get("posisi")).strip()
-                
-                # Kode unik sama tapi posisi beda
-                if posisi_upload not in existing_positions:
-                    errors.append({
-                        "row": row_num,
-                        "field": "Kode Unik",
-                        "value": kode_unik,
-                        "warning": True,
-                        "error": (
-                            f"Kode Unik '{kode_unik}' sudah digunakan "
-                            f"dengan posisi berbeda: {', '.join(existing_positions)}"
-                        ),
-                        "expected": (
-                            "Pastikan Kode Unik sesuai posisi. "
-                            "Data tetap akan diinsert dengan auto-increment."
-                        )
-                    })
-        
-        # 2. POSISI
+        # 5. POSISI
         posisi = row.get("posisi")
         if pd.isna(posisi) or str(posisi).strip() == "":
             errors.append({
@@ -353,20 +393,7 @@ def validate_fptk_file(
                 "expected": "Nama posisi minimal 3 karakter"
             })
         
-        # 3. KODE PIC - AUTO GENERATE JIKA KOSONG
-        if pd.isna(kode_pic) or str(kode_pic).strip() == "":
-            # 🔥🔥🔥 PAKAI "ADM" UNTUK ADMIN ATAU USER TANPA KODE PIC 🔥🔥🔥
-            df.at[idx, 'kode_pic'] = "ADM"
-            errors.append({
-                "row": row_num,
-                "field": "Kode PIC",
-                "value": kode_pic,
-                "warning": True,
-                "error": "Kode PIC kosong, auto-set menjadi ADM",
-                "expected": "Kode PIC (contoh: CORPOme, MPPau)"
-            })
-        
-        # 4. FPTK DATE REAL
+        # 6. FPTK DATE REAL
         fptk_date = row.get("fptk_date_real")
         if pd.isna(fptk_date) or str(fptk_date).strip() == "":
             errors.append({
@@ -385,7 +412,7 @@ def validate_fptk_file(
                 "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
             })
         
-        # 5. BUSINESS UNIT
+        # 7. BUSINESS UNIT
         bu = row.get("business_unit")
         if pd.isna(bu) or str(bu).strip() == "":
             errors.append({
@@ -396,7 +423,7 @@ def validate_fptk_file(
                 "expected": "Business Unit yang valid"
             })
         
-        # 6. DIREKTORAT
+        # 8. DIREKTORAT
         direktorat = row.get("direktorat")
         if pd.isna(direktorat) or str(direktorat).strip() == "":
             errors.append({
@@ -407,7 +434,7 @@ def validate_fptk_file(
                 "expected": "Nama Direktorat yang valid"
             })
         
-        # 7. LEVEL FPTK
+        # 9. LEVEL FPTK
         level = row.get("level_fptk")
         if pd.isna(level) or str(level).strip() == "":
             errors.append({
@@ -425,16 +452,15 @@ def validate_fptk_file(
                     num = int(match.group(1))
                     if 1 <= num <= 5:
                         suggested = f"{num}A"
+                        df.at[idx, 'level_fptk'] = suggested
                         errors.append({
                             "row": row_num,
                             "field": "Level FPTK",
                             "value": level,
                             "warning": True,
                             "error": f"Level FPTK '{level}' diformat ulang menjadi '{suggested}'",
-                            "expected": f"Level FPTK harus: 1A, 1B, 2A, 2B, 3A, 3B, 4A, 4B, 5A, 5B",
-                            "example": f"Ganti '{level}' menjadi '{suggested}' atau '{num}B'"
+                            "expected": f"Level FPTK harus: 1A, 1B, 2A, 2B, 3A, 3B, 4A, 4B, 5A, 5B"
                         })
-                        df.at[idx, 'level_fptk'] = suggested
                     else:
                         errors.append({
                             "row": row_num,
@@ -452,7 +478,7 @@ def validate_fptk_file(
                         "expected": "Level FPTK harus format [1-5][A-B]"
                     })
         
-        # 8. VACANCY
+        # 10. VACANCY
         vacancy = row.get("vacancy")
         if pd.isna(vacancy) or safe_int(vacancy) <= 0:
             errors.append({
@@ -463,7 +489,7 @@ def validate_fptk_file(
                 "expected": "Angka positif (minimal 1)"
             })
         
-        # 9. STATUS
+        # 11. STATUS
         status = row.get("status")
         if pd.isna(status) or str(status).strip() == "":
             errors.append({
@@ -484,7 +510,7 @@ def validate_fptk_file(
                     "expected": "Status harus: OP, Closed, atau Cancel"
                 })
         
-        # 10. OFFERING DATE (jika status Closed)
+        # 12. OFFERING DATE (jika status Closed)
         if str(status).strip() == "Closed":
             offering_date = row.get("offering_date")
             if pd.isna(offering_date) or str(offering_date).strip() == "":
@@ -504,7 +530,7 @@ def validate_fptk_file(
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
                 })
         
-        # 11. CANCEL DATE (jika status Cancel)
+        # 13. CANCEL DATE (jika status Cancel)
         if str(status).strip() == "Cancel":
             cancel_date = row.get("fptk_cancel_date")
             if pd.isna(cancel_date) or str(cancel_date).strip() == "":
@@ -524,7 +550,7 @@ def validate_fptk_file(
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
                 })
         
-        # 12. LEVEL NUMBER - AUTO FIX
+        # 14. LEVEL NUMBER - AUTO FIX
         raw_level_number = row.get("level_number")
         level_num = safe_level_number_from_string(raw_level_number)
         
