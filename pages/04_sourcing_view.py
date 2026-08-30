@@ -49,19 +49,19 @@ def get_sourcing_options_view():
 def get_pipeline_stages_view():
     """Pipeline stages lengkap - cache 1 jam"""
     return [
-        {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
-        {"field": "sourcing_hr", "label": "Sourcing HR"},
-        {"field": "shortlist_cv", "label": "Shortlist CV"},
-        {"field": "psikotes", "label": "Psikotes"},
-        {"field": "hr_interview", "label": "HR Interview"},
-        {"field": "technical_test_case_study", "label": "Technical Test"},
-        {"field": "market_visit", "label": "Market Visit"},
-        {"field": "user_interview", "label": "User Interview"},
-        {"field": "panel_interview", "label": "Panel Interview"},
-        {"field": "reference_check", "label": "Reference Check"},
-        {"field": "mcu", "label": "MCU"},
-        {"field": "offering", "label": "Offering"},
-        {"field": "day1", "label": "Day 1"}
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance", "has_detail": False},
+        {"field": "sourcing_hr", "label": "Sourcing HR", "has_detail": True},
+        {"field": "shortlist_cv", "label": "Shortlist CV", "has_detail": True},
+        {"field": "psikotes", "label": "Psikotes", "has_detail": True},
+        {"field": "hr_interview", "label": "HR Interview", "has_detail": True},
+        {"field": "technical_test_case_study", "label": "Technical Test", "has_detail": True},
+        {"field": "market_visit", "label": "Market Visit", "has_detail": True},
+        {"field": "user_interview", "label": "User Interview", "has_detail": True},
+        {"field": "panel_interview", "label": "Panel Interview", "has_detail": True},
+        {"field": "reference_check", "label": "Reference Check", "has_detail": True},
+        {"field": "mcu", "label": "MCU", "has_detail": True},
+        {"field": "offering", "label": "Offering", "has_detail": True},
+        {"field": "day1", "label": "Day 1", "has_detail": True}
     ]
 
 
@@ -331,7 +331,7 @@ def show_sourcing_view():
                 st.markdown(f"**ID:** {detail.id}")
                 st.markdown(f"**No:** {detail.no or '-'}")
                 st.markdown(f"**Nama:** {detail.nama}")
-                st.markdown(f"**Posisi:** {detail.posisi or '-'}")  # ✅ SUDAH DIPERBAIKI
+                st.markdown(f"**Posisi:** {detail.posisi or '-'}")
                 st.markdown(f"**Kode Unik:** {detail.kode_unik}")
             with col2:
                 st.markdown(f"**Email:** {detail.email or '-'}")
@@ -358,14 +358,19 @@ def show_sourcing_view():
             pipeline_data = []
             for stage in pipeline_stages:
                 field = getattr(detail, stage["field"])
-                date_field = getattr(detail, f"tanggal_{stage['field']}")
-                detail_field = getattr(detail, f"detail_keterangan_{stage['field']}")
+                
+                # 🔥🔥🔥 CEK FIELD SEBELUM DIAKSES 🔥🔥🔥
+                date_field_name = f"tanggal_{stage['field']}"
+                detail_field_name = f"detail_keterangan_{stage['field']}"
+                
+                date_value = getattr(detail, date_field_name) if hasattr(detail, date_field_name) else None
+                detail_value = getattr(detail, detail_field_name) if hasattr(detail, detail_field_name) else None
                 
                 pipeline_data.append({
                     "Tahap": stage["label"],
                     "Status": field or "-",
-                    "Tanggal": date_field.strftime('%d/%m/%Y') if date_field else "-",
-                    "Keterangan": detail_field or "-"
+                    "Tanggal": date_value.strftime('%d/%m/%Y') if date_value else "-",
+                    "Keterangan": detail_value or "-"
                 })
             
             pipeline_df = pd.DataFrame(pipeline_data)
@@ -465,8 +470,8 @@ def show_sourcing_view():
                     detail_field = f"detail_keterangan_{status_field}"
                     
                     status_value = getattr(detail, status_field)
-                    date_value = getattr(detail, date_field)
-                    detail_value = getattr(detail, detail_field)
+                    date_value = getattr(detail, date_field) if hasattr(detail, date_field) else None
+                    detail_value = getattr(detail, detail_field) if hasattr(detail, detail_field) else None
                     
                     with cols[i % 3]:
                         st.markdown(f"**{label}**")
@@ -485,17 +490,19 @@ def show_sourcing_view():
                             key=f"date_{date_field}"
                         )
                         
-                        new_detail = st.text_area(
-                            f"Keterangan {label}",
-                            value=detail_value or "",
-                            key=f"detail_{detail_field}",
-                            height=50
-                        )
+                        # Hanya tampilkan keterangan jika field-nya ada
+                        if hasattr(detail, detail_field):
+                            new_detail = st.text_area(
+                                f"Keterangan {label}",
+                                value=detail_value or "",
+                                key=f"detail_{detail_field}",
+                                height=50
+                            )
+                            setattr(detail, detail_field, new_detail if new_detail else None)
                         
                         # Update values
                         setattr(detail, status_field, new_status if new_status else None)
                         setattr(detail, date_field, new_date)
-                        setattr(detail, detail_field, new_detail if new_detail else None)
                 
                 st.markdown("---")
                 st.markdown("### 📝 Catatan & Blacklist")
