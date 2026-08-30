@@ -10,7 +10,7 @@ import base64
 import os
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS (GANTI ke st.cache_resource) 🔥🔥🔥
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
 # ============================================================
 
 @st.cache_resource(ttl=3600)
@@ -96,7 +96,6 @@ def show_evidence_detail(evidence_id, db):
         st.markdown(f"**Total CV:** {ev.total_cv}")
         st.markdown(f"**Upload:** {ev.created_at.strftime('%d/%m/%Y %H:%M') if ev.created_at else '-'}")
         
-        # Cek apakah ada file_data
         if hasattr(ev, 'file_data') and ev.file_data:
             try:
                 image_data = base64.b64decode(ev.file_data)
@@ -104,7 +103,6 @@ def show_evidence_detail(evidence_id, db):
             except:
                 st.info("File tidak bisa ditampilkan sebagai gambar")
         else:
-            # Cek file di path
             if ev.file_path and os.path.exists(ev.file_path):
                 with open(ev.file_path, "rb") as f:
                     file_data = f.read()
@@ -118,7 +116,6 @@ def show_evidence_detail(evidence_id, db):
             else:
                 st.info("💡 File tidak ditemukan di server")
         
-        # Download jika ada file_data
         if hasattr(ev, 'file_data') and ev.file_data:
             try:
                 file_bytes = base64.b64decode(ev.file_data)
@@ -429,25 +426,61 @@ def show_monitoring_sourcing():
         )
         
         # ============================================================
-        # EVIDENCE VIEWER
+        # 🔥🔥🔥 EVIDENCE VIEWER (DENGAN KODE UNIK + POSISI) 🔥🔥🔥
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Evidence Viewer")
-        st.caption("Klik tombol di bawah untuk melihat evidence per Kode Unik dan Tanggal")
-        
+        st.caption("Pilih Kode Unik / Posisi dan Tanggal untuk melihat evidence")
+
+        # 🔥🔥🔥 BUAT OPSI DENGAN KODE UNIK + POSISI 🔥🔥🔥
+        kode_posisi_options = []
+        for row in table_data:
+            kode = row.get('kode_unik', '')
+            posisi = row.get('posisi', '')
+            # Cek apakah ada evidence untuk kode ini
+            has_evidence = False
+            for tgl in tanggal_list:
+                tgl_str = tgl.strftime('%Y-%m-%d')
+                ev_key = f'ev_{tgl_str}'
+                if ev_key in row and row[ev_key] and row[ev_key].get('count', 0) > 0:
+                    has_evidence = True
+                    break
+            
+            if has_evidence:
+                display_text = f"{kode} | {posisi[:50]}..." if len(posisi) > 50 else f"{kode} | {posisi}"
+                kode_posisi_options.append({
+                    'display': display_text,
+                    'kode_unik': kode,
+                    'posisi': posisi
+                })
+
         col1, col2 = st.columns(2)
-        
+
         with col1:
-            kode_options = sorted(display_df['Kode Unik'].unique().tolist())
-            selected_kode = st.selectbox("Pilih Kode Unik", kode_options, key="ev_kode_select")
-        
+            if kode_posisi_options:
+                selected_option = st.selectbox(
+                    "Pilih Kode Unik / Posisi",
+                    kode_posisi_options,
+                    format_func=lambda x: x['display'],
+                    key="ev_kode_select"
+                )
+                selected_kode = selected_option['kode_unik'] if selected_option else None
+            else:
+                st.info("Tidak ada evidence untuk periode ini")
+                selected_kode = None
+
         with col2:
             tanggal_options = []
             if selected_kode:
-                for tgl in tanggal_list:
-                    key = f"{selected_kode}_{tgl.strftime('%Y-%m-%d')}"
-                    if key in evidence_map and evidence_map[key]:
-                        tanggal_options.append(tgl)
+                # Cari tanggal yang punya evidence untuk kode unik ini
+                for row in table_data:
+                    if row.get('kode_unik') == selected_kode:
+                        for tgl in tanggal_list:
+                            tgl_str = tgl.strftime('%Y-%m-%d')
+                            ev_key = f'ev_{tgl_str}'
+                            if ev_key in row and row[ev_key] and row[ev_key].get('count', 0) > 0:
+                                tanggal_options.append(tgl)
+                        break
             
             if tanggal_options:
                 selected_tanggal = st.selectbox(
@@ -459,7 +492,7 @@ def show_monitoring_sourcing():
             else:
                 st.info("Tidak ada evidence untuk kode unik ini")
                 selected_tanggal = None
-        
+
         # ============================================================
         # TAMPILKAN EVIDENCE
         # ============================================================
@@ -477,7 +510,16 @@ def show_monitoring_sourcing():
                             break
                 
                 if can_view:
-                    st.markdown(f"### 📎 Evidence untuk {selected_kode} - {selected_tanggal.strftime('%d/%m/%Y')}")
+                    # Cari posisi untuk ditampilkan
+                    posisi_text = ""
+                    for row in table_data:
+                        if row.get('kode_unik') == selected_kode:
+                            posisi_text = row.get('posisi', '')
+                            break
+                    
+                    st.markdown(f"### 📎 Evidence untuk **{selected_kode}**")
+                    st.markdown(f"📌 **Posisi:** {posisi_text}")
+                    st.markdown(f"📅 **Tanggal:** {selected_tanggal.strftime('%A, %d %B %Y')}")
                     
                     for ev_id in ev_ids:
                         ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
@@ -528,7 +570,7 @@ def show_monitoring_sourcing():
         st.markdown("### 📌 Legend")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("📎 = Evidence tersedia (klik di bawah untuk lihat)")
+            st.markdown("📎 = Evidence tersedia (pilih di atas untuk lihat)")
         with col2:
             st.markdown("🔒 = Evidence terkunci (hanya PIC/Admin)")
         with col3:
