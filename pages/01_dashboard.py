@@ -6,31 +6,181 @@ from core.database import get_db
 from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle
 from core.auth import get_current_user, is_admin
 from datetime import datetime, timedelta
+import time
 
+# ============================================================
+# CACHE FUNCTIONS
+# ============================================================
+
+# 1. CACHE UNTUK FILTER OPTIONS (jarang berubah - 1 jam)
+@st.cache_data(ttl=3600)
+def get_filter_options():
+    """Mendapatkan opsi filter - cache 1 jam"""
+    try:
+        db = next(get_db())
+        pic_options = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
+        bu_options = ["Semua"] + [b[0] for b in db.query(FPTK.business_unit).distinct().all() if b[0]]
+        dir_options = ["Semua"] + [d[0] for d in db.query(FPTK.direktorat).distinct().all() if d[0]]
+        return pic_options, bu_options, dir_options
+    except Exception as e:
+        return ["Semua"], ["Semua"], ["Semua"]
+
+# 2. CACHE UNTUK DATA FPTK (5 menit auto refresh)
+@st.cache_data(ttl=300)  # Auto refresh setiap 5 menit
+def load_fptk_data(
+    pic_filter=None, 
+    status_filter=None, 
+    bu_filter=None, 
+    dir_filter=None,
+    filter_kat=None,
+    date_from=None,
+    date_to=None
+):
+    """
+    Memuat data FPTK dengan filter - cache 5 menit
+    """
+    try:
+        db = next(get_db())
+        query = db.query(FPTK)
+        
+        if pic_filter and pic_filter != "Semua":
+            query = query.filter(FPTK.pic_recruiter == pic_filter)
+        if status_filter and status_filter != "Semua":
+            query = query.filter(FPTK.status == status_filter)
+        if bu_filter and bu_filter != "Semua":
+            query = query.filter(FPTK.business_unit == bu_filter)
+        if dir_filter and dir_filter != "Semua":
+            query = query.filter(FPTK.direktorat == dir_filter)
+        if filter_kat and filter_kat != "Semua":
+            query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
+        if date_from:
+            query = query.filter(FPTK.fptk_date_real >= date_from)
+        if date_to:
+            query = query.filter(FPTK.fptk_date_real <= date_to)
+        
+        df = pd.read_sql(query.statement, db.bind)
+        
+        # Simpan timestamp terakhir query ke session state
+        st.session_state['last_fptk_load'] = datetime.now()
+        
+        return df
+    except Exception as e:
+        st.error(f"❌ Gagal membaca data FPTK: {str(e)}")
+        return pd.DataFrame()
+
+# 3. CACHE UNTUK DATA SOURCING (5 menit auto refresh)
+@st.cache_data(ttl=300)
+def load_sourcing_data(
+    pic_filter=None,
+    date_from=None,
+    date_to=None
+):
+    """Memuat data sourcing dengan cache 5 menit"""
+    try:
+        db = next(get_db())
+        query = db.query(DBSourcing)
+        
+        if pic_filter and pic_filter != "Semua":
+            query = query.filter(DBSourcing.rekruter == pic_filter)
+        if date_from:
+            query = query.filter(DBSourcing.sourcing_date >= date_from)
+        if date_to:
+            query = query.filter(DBSourcing.sourcing_date <= date_to)
+        
+        df = pd.read_sql(query.statement, db.bind)
+        
+        # Simpan timestamp terakhir query ke session state
+        st.session_state['last_sourcing_load'] = datetime.now()
+        
+        return df
+    except Exception as e:
+        return pd.DataFrame()
+
+# 4. CACHE UNTUK METRIK (tergantung data FPTK)
+@st.cache_data(ttl=300)
+def calculate_metrics(df):
+    """
+    Menghitung semua metrik dari DataFrame - cache 5 menit
+    """
+    if df.empty or 'status' not in df:
+        return {
+            'total': 0, 'op': 0, 'closed': 0, 'cancel': 0,
+            'fulfillment_rate': 0, 'closed_sla_rate': 0, 'total_pic': 0
+        }
+    
+    total = len(df)
+    op = len(df[df['status'] == 'OP'])
+    closed = len(df[df['status'] == 'Closed'])
+    cancel = len(df[df['status'] == 'Cancel'])
+    
+    # Fulfillment Rate
+    denominator = total - cancel
+    fulfillment_rate = (closed / denominator * 100) if denominator > 0 else 0
+    
+    # SLA Rate
+    if 'detail_sla' in df.columns:
+        closed_df = df[df['status'] == 'Closed']
+        closed_lulus = len(closed_df[closed_df['detail_sla'] == 'Closed Lulus SLA'])
+        closed_tidak = len(closed_df[closed_df['detail_sla'] == 'Closed Tidak Lulus SLA'])
+        total_closed_sla = closed_lulus + closed_tidak
+        closed_sla_rate = (closed_lulus / total_closed_sla * 100) if total_closed_sla > 0 else 0
+    else:
+        closed_sla_rate = 0
+    
+    total_pic = len(df['pic_recruiter'].unique()) if 'pic_recruiter' in df else 0
+    
+    return {
+        'total': total, 'op': op, 'closed': closed, 'cancel': cancel,
+        'fulfillment_rate': fulfillment_rate, 'closed_sla_rate': closed_sla_rate,
+        'total_pic': total_pic
+    }
+
+# 5. CACHE UNTUK UPLOAD CYCLE (1 menit - lebih dinamis)
+@st.cache_data(ttl=60)
+def get_upload_cycle_progress():
+    """Mendapatkan progress upload cycle - cache 1 menit"""
+    try:
+        db = next(get_db())
+        cycle = db.query(UploadCycle).filter(
+            UploadCycle.ended_at.is_(None)
+        ).order_by(UploadCycle.created_at.desc()).first()
+        
+        if cycle:
+            statuses = db.query(UploadStatus).filter(
+                UploadStatus.cycle_id == cycle.id
+            ).all()
+            progress_data = []
+            for s in statuses:
+                user_obj = db.query(User).filter(User.id == s.user_id).first()
+                progress_data.append({
+                    "User": user_obj.display_name if user_obj else s.user_id,
+                    "PIC": user_obj.pic_recruiter if user_obj else "-",
+                    "Status": s.status
+                })
+            return pd.DataFrame(progress_data)
+        return pd.DataFrame()
+    except Exception as e:
+        return pd.DataFrame()
+
+# 6. CACHE UNTUK ROLE ADMIN (5 menit)
+@st.cache_data(ttl=300)
+def check_admin_role():
+    """Cek apakah user admin - cache 5 menit"""
+    try:
+        db = next(get_db())
+        return is_admin(db)
+    except:
+        return False
+
+# ============================================================
+# FUNGSI UTAMA DASHBOARD
+# ============================================================
 def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
     st.markdown("---")
     
-    try:
-        db = next(get_db())
-    except Exception as e:
-        st.error(f"❌ Gagal koneksi ke database: {str(e)}")
-        return
-    
-    try:
-        user = get_current_user(db)
-    except Exception as e:
-        st.error(f"❌ Gagal mendapatkan user: {str(e)}")
-        return
-    
-    if not user:
-        st.warning("Silakan login terlebih dahulu.")
-        return
-    
-    admin = is_admin(db)
-    
     # ============================================================
-    # SIDEBAR FILTERS
+    # SIDEBAR FILTERS + CACHE CONTROL
     # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filters")
@@ -41,30 +191,82 @@ def show_dashboard():
         with col2:
             date_to = st.date_input("Sampai", datetime.now())
         
-        # PIC Filter
-        try:
-            pic_options = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
-        except:
-            pic_options = ["Semua"]
-        pic_filter = st.sidebar.selectbox("PIC Recruiter", pic_options)
+        # Ambil opsi filter dari CACHE
+        with st.spinner("Loading filter options..."):
+            pic_options, bu_options, dir_options = get_filter_options()
         
+        pic_filter = st.sidebar.selectbox("PIC Recruiter", pic_options)
         status_options = ["Semua", "OP", "Closed", "Cancel"]
         status_filter = st.sidebar.selectbox("Status", status_options)
-        
-        try:
-            bu_options = ["Semua"] + [b[0] for b in db.query(FPTK.business_unit).distinct().all() if b[0]]
-        except:
-            bu_options = ["Semua"]
         bu_filter = st.sidebar.selectbox("Business Unit", bu_options)
-        
-        try:
-            dir_options = ["Semua"] + [d[0] for d in db.query(FPTK.direktorat).distinct().all() if d[0]]
-        except:
-            dir_options = ["Semua"]
         dir_filter = st.sidebar.selectbox("Direktorat", dir_options)
-        
         filter_kat_options = ["Semua", "CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"]
         filter_kat = st.sidebar.selectbox("Filter Kategorisasi", filter_kat_options)
+        
+        st.markdown("---")
+        
+        # ============================================================
+        # CACHE CONTROL SECTION
+        # ============================================================
+        st.markdown("### ⚡ Cache Control")
+        
+        # Tampilkan info kapan terakhir update
+        last_fptk = st.session_state.get('last_fptk_load', datetime.now())
+        last_sourcing = st.session_state.get('last_sourcing_load', datetime.now())
+        
+        st.caption(f"🕐 FPTK: {last_fptk.strftime('%H:%M:%S')}")
+        st.caption(f"🕐 Sourcing: {last_sourcing.strftime('%H:%M:%S')}")
+        
+        # Hitung waktu sampai auto refresh (5 menit = 300 detik)
+        time_diff = (datetime.now() - last_fptk).seconds
+        remaining = max(0, 300 - time_diff)
+        if remaining > 0:
+            st.caption(f"⏳ Auto refresh in {remaining//60}m {remaining%60}s")
+        else:
+            st.caption("🔄 Auto refreshing...")
+        
+        st.markdown("---")
+        
+        # Tombol Refresh
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
+                # Hapus semua cache
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.success("✅ All cache cleared! Reloading...")
+                time.sleep(0.5)
+                st.rerun()
+        
+        with col2:
+            if st.button("🗑️ Clear Cache", use_container_width=True):
+                # Hapus cache data saja (tetap pertahankan filter options)
+                load_fptk_data.clear()
+                load_sourcing_data.clear()
+                calculate_metrics.clear()
+                get_upload_cycle_progress.clear()
+                st.success("✅ Data cache cleared! Reloading...")
+                time.sleep(0.5)
+                st.rerun()
+        
+        # Tombol refresh spesifik per fungsi
+        with st.expander("🔧 Advanced Cache Control", expanded=False):
+            if st.button("🧹 Clear FPTK Cache", use_container_width=True):
+                load_fptk_data.clear()
+                calculate_metrics.clear()
+                st.success("✅ FPTK cache cleared!")
+                st.rerun()
+            
+            if st.button("🧹 Clear Sourcing Cache", use_container_width=True):
+                load_sourcing_data.clear()
+                st.success("✅ Sourcing cache cleared!")
+                st.rerun()
+            
+            if st.button("🧹 Clear All Cache", use_container_width=True):
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.success("✅ All cache cleared!")
+                st.rerun()
         
         st.markdown("---")
         
@@ -73,97 +275,42 @@ def show_dashboard():
             st.session_state.export_data = True
 
     # ============================================================
-    # BUILD QUERY FPTK
+    # LOAD DATA (dengan spinner & cache)
     # ============================================================
-    try:
-        query = db.query(FPTK)
+    with st.spinner("📊 Memuat data..."):
+        # Load FPTK data dari cache
+        df = load_fptk_data(
+            pic_filter=pic_filter,
+            status_filter=status_filter,
+            bu_filter=bu_filter,
+            dir_filter=dir_filter,
+            filter_kat=filter_kat,
+            date_from=date_from,
+            date_to=date_to
+        )
         
-        if pic_filter != "Semua":
-            query = query.filter(FPTK.pic_recruiter == pic_filter)
-        if status_filter != "Semua":
-            query = query.filter(FPTK.status == status_filter)
-        if bu_filter != "Semua":
-            query = query.filter(FPTK.business_unit == bu_filter)
-        if dir_filter != "Semua":
-            query = query.filter(FPTK.direktorat == dir_filter)
-        if filter_kat != "Semua":
-            query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
-        if date_from:
-            query = query.filter(FPTK.fptk_date_real >= date_from)
-        if date_to:
-            query = query.filter(FPTK.fptk_date_real <= date_to)
-        
-        df = pd.read_sql(query.statement, db.bind)
-    except Exception as e:
-        st.error(f"❌ Gagal membaca data FPTK: {str(e)}")
-        df = pd.DataFrame()
+        # Load Sourcing data dari cache
+        df_sourcing = load_sourcing_data(
+            pic_filter=pic_filter,
+            date_from=date_from,
+            date_to=date_to
+        )
     
-    total = len(df)
+    # Cek admin role dari cache
+    admin = check_admin_role()
     
     # ============================================================
-    # BUILD QUERY SOURCING
+    # METRIC CARDS
     # ============================================================
-    try:
-        sourcing_query = db.query(DBSourcing)
-        if pic_filter != "Semua":
-            sourcing_query = sourcing_query.filter(DBSourcing.rekruter == pic_filter)
-        if date_from:
-            sourcing_query = sourcing_query.filter(DBSourcing.sourcing_date >= date_from)
-        if date_to:
-            sourcing_query = sourcing_query.filter(DBSourcing.sourcing_date <= date_to)
-        total_sourcing = sourcing_query.count()
-    except:
-        total_sourcing = 0
+    metrics = calculate_metrics(df)
     
-    # ============================================================
-    # METRIC CARDS (6 cards)
-    # ============================================================
-    if not df.empty and 'status' in df:
-        total = len(df)
-        op = len(df[df['status'] == 'OP'])
-        closed = len(df[df['status'] == 'Closed'])
-        cancel = len(df[df['status'] == 'Cancel'])
-        
-        # Fulfillment Rate = Closed / (Total - Cancel)
-        denominator = total - cancel
-        if denominator > 0:
-            fulfillment_rate = (closed / denominator) * 100
-        else:
-            fulfillment_rate = 0
-        
-        # Closed Sesuai SLA Rate
-        # Hitung dari detail_sla column
-        if 'detail_sla' in df.columns and not df.empty:
-            closed_df = df[df['status'] == 'Closed']
-            closed_lulus = len(closed_df[closed_df['detail_sla'] == 'Closed Lulus SLA'])
-            closed_tidak = len(closed_df[closed_df['detail_sla'] == 'Closed Tidak Lulus SLA'])
-            total_closed_sla = closed_lulus + closed_tidak
-            if total_closed_sla > 0:
-                closed_sla_rate = (closed_lulus / total_closed_sla) * 100
-            else:
-                closed_sla_rate = 0
-        else:
-            closed_sla_rate = 0
-        
-        # PIC Active
-        total_pic = len(df['pic_recruiter'].unique()) if 'pic_recruiter' in df else 0
-    else:
-        total = 0
-        op = 0
-        closed = 0
-        cancel = 0
-        fulfillment_rate = 0
-        closed_sla_rate = 0
-        total_pic = 0
-    
-    # Display 6 metric cards
     c1, c2, c3, c4, c5, c6 = st.columns(6)
-    c1.metric("Total FPTK", f"{total:,}")
-    c2.metric("OP", f"{op:,}")
-    c3.metric("Closed", f"{closed:,}")
-    c4.metric("Cancel", f"{cancel:,}")
-    c5.metric("Fulfillment Rate", f"{fulfillment_rate:.1f}%")
-    c6.metric("Closed Sesuai SLA", f"{closed_sla_rate:.1f}%")
+    c1.metric("Total FPTK", f"{metrics['total']:,}")
+    c2.metric("OP", f"{metrics['op']:,}")
+    c3.metric("Closed", f"{metrics['closed']:,}")
+    c4.metric("Cancel", f"{metrics['cancel']:,}")
+    c5.metric("Fulfillment Rate", f"{metrics['fulfillment_rate']:.1f}%")
+    c6.metric("Closed Sesuai SLA", f"{metrics['closed_sla_rate']:.1f}%")
     st.markdown("---")
     
     # ============================================================
@@ -172,8 +319,7 @@ def show_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        # LINE CHART: Trend FPTK per Minggu
-        if total > 0 and 'fptk_date_real' in df:
+        if metrics['total'] > 0 and 'fptk_date_real' in df:
             df['date'] = pd.to_datetime(df['fptk_date_real'])
             trend = df.groupby(df['date'].dt.to_period('W')).size().reset_index()
             trend.columns = ['Minggu', 'Jumlah']
@@ -185,8 +331,7 @@ def show_dashboard():
             st.info("Tidak ada data trend")
     
     with col2:
-        # PIE CHART: Status Distribution
-        if total > 0:
+        if metrics['total'] > 0:
             status_counts = df['status'].value_counts().reset_index()
             status_counts.columns = ['Status', 'Count']
             fig = px.pie(status_counts, values='Count', names='Status', title='📊 Distribusi Status',
@@ -197,12 +342,12 @@ def show_dashboard():
             st.info("Tidak ada data status")
     
     # ============================================================
-    # ROW 2: 3 PIE/ DONUT CHARTS (Direktorat, BU, Level)
+    # ROW 2: 3 PIE/ DONUT CHARTS
     # ============================================================
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        if total > 0 and 'direktorat' in df and df['direktorat'].notna().any():
+        if metrics['total'] > 0 and 'direktorat' in df and df['direktorat'].notna().any():
             dir_counts = df['direktorat'].value_counts().reset_index()
             dir_counts.columns = ['Direktorat', 'Count']
             fig = px.pie(dir_counts, values='Count', names='Direktorat', title='🏢 Direktorat')
@@ -212,7 +357,7 @@ def show_dashboard():
             st.info("Tidak ada data")
     
     with col2:
-        if total > 0 and 'business_unit' in df and df['business_unit'].notna().any():
+        if metrics['total'] > 0 and 'business_unit' in df and df['business_unit'].notna().any():
             bu_counts = df['business_unit'].value_counts().reset_index()
             bu_counts.columns = ['Business Unit', 'Count']
             fig = px.pie(bu_counts, values='Count', names='Business Unit', title='🏢 Business Unit')
@@ -222,7 +367,7 @@ def show_dashboard():
             st.info("Tidak ada data")
     
     with col3:
-        if total > 0 and 'level_fptk' in df and df['level_fptk'].notna().any():
+        if metrics['total'] > 0 and 'level_fptk' in df and df['level_fptk'].notna().any():
             level_counts = df['level_fptk'].value_counts().reset_index()
             level_counts.columns = ['Level', 'Count']
             fig = px.bar(level_counts, x='Level', y='Count', title='📊 Level FPTK', color='Count')
@@ -237,7 +382,7 @@ def show_dashboard():
     col1, col2 = st.columns(2)
     
     with col1:
-        if total > 0 and 'jumlah_sla' in df and 'pic_recruiter' in df:
+        if metrics['total'] > 0 and 'jumlah_sla' in df and 'pic_recruiter' in df:
             sla_df = df[df['jumlah_sla'] > 0][['pic_recruiter', 'jumlah_sla']].dropna()
             if len(sla_df) > 0:
                 top_pics = sla_df['pic_recruiter'].value_counts().head(10).index
@@ -251,7 +396,7 @@ def show_dashboard():
             st.info("Tidak ada data SLA")
     
     with col2:
-        if total > 0 and 'pic_recruiter' in df:
+        if metrics['total'] > 0 and 'pic_recruiter' in df:
             pic_counts = df['pic_recruiter'].value_counts().reset_index()
             pic_counts.columns = ['PIC', 'Jumlah FPTK']
             pic_counts = pic_counts.head(10)
@@ -266,39 +411,39 @@ def show_dashboard():
     # ============================================================
     st.subheader("🔍 Funnel Sourcing")
     
-    stages = [
-        ("Sourcing HR", 'sourcing_hr'),
-        ("Shortlist CV", 'shortlist_cv'),
-        ("Psikotes", 'psikotes'),
-        ("HR Interview", 'hr_interview'),
-        ("User Interview", 'user_interview'),
-        ("Offering", 'offering'),
-        ("Day 1", 'day1')
-    ]
-    
-    funnel_data = []
-    for label, col in stages:
-        if col in DBSourcing.__table__.columns:
-            try:
-                count = sourcing_query.filter(getattr(DBSourcing, col).isnot(None)).count()
-            except:
+    if not df_sourcing.empty:
+        funnel_data = []
+        stages = [
+            ("Sourcing HR", 'sourcing_hr'),
+            ("Shortlist CV", 'shortlist_cv'),
+            ("Psikotes", 'psikotes'),
+            ("HR Interview", 'hr_interview'),
+            ("User Interview", 'user_interview'),
+            ("Offering", 'offering'),
+            ("Day 1", 'day1')
+        ]
+        
+        for label, col in stages:
+            if col in df_sourcing.columns:
+                count = df_sourcing[col].notna().sum()
+            else:
                 count = 0
             funnel_data.append({"Stage": label, "Count": count})
-        else:
-            funnel_data.append({"Stage": label, "Count": 0})
-    
-    if funnel_data and any(d['Count'] > 0 for d in funnel_data):
+        
         df_funnel = pd.DataFrame(funnel_data)
-        fig = go.Figure(go.Funnel(
-            y=df_funnel['Stage'],
-            x=df_funnel['Count'],
-            textposition="inside",
-            textinfo="value+percent initial"
-        ))
-        fig.update_layout(title="Funnel Sourcing", height=500)
-        st.plotly_chart(fig, use_container_width=True)
+        if df_funnel['Count'].sum() > 0:
+            fig = go.Figure(go.Funnel(
+                y=df_funnel['Stage'],
+                x=df_funnel['Count'],
+                textposition="inside",
+                textinfo="value+percent initial"
+            ))
+            fig.update_layout(title="Funnel Sourcing", height=500)
+            st.plotly_chart(fig, use_container_width=True)
+        else:
+            st.info("Tidak ada data funnel sourcing")
     else:
-        st.info("Tidak ada data funnel sourcing")
+        st.info("Tidak ada data sourcing")
 
     # ============================================================
     # ROW 5: SLA COMPLIANCE + HEATMAP
@@ -312,7 +457,6 @@ def show_dashboard():
                 detail_counts = df['detail_sla'].value_counts().reset_index()
                 detail_counts.columns = ['Detail SLA', 'Count']
                 
-                # Urutkan sesuai dengan yang diinginkan
                 sla_order = [
                     "OP Belum Lewat SLA",
                     "OP Tidak Lulus SLA",
@@ -321,18 +465,16 @@ def show_dashboard():
                     "Cancel FPTK"
                 ]
                 
-                # Filter hanya yang ada di data
                 sla_order_existing = [s for s in sla_order if s in detail_counts['Detail SLA'].values]
                 detail_counts = detail_counts[detail_counts['Detail SLA'].isin(sla_order_existing)]
                 
                 if not detail_counts.empty:
-                    # Warna untuk setiap kategori
                     color_map = {
-                        "OP Belum Lewat SLA": "#2ecc71",      # Hijau
-                        "OP Tidak Lulus SLA": "#e74c3c",       # Merah
-                        "Closed Lulus SLA": "#3498db",         # Biru
-                        "Closed Tidak Lulus SLA": "#e67e22",   # Orange
-                        "Cancel FPTK": "#95a5a6"               # Abu-abu
+                        "OP Belum Lewat SLA": "#2ecc71",
+                        "OP Tidak Lulus SLA": "#e74c3c",
+                        "Closed Lulus SLA": "#3498db",
+                        "Closed Tidak Lulus SLA": "#e67e22",
+                        "Cancel FPTK": "#95a5a6"
                     }
                     
                     fig = px.bar(
@@ -376,30 +518,14 @@ def show_dashboard():
     if admin:
         st.markdown("---")
         st.subheader("🔄 Upload Cycle Progress (Admin)")
-        try:
-            cycle = db.query(UploadCycle).filter(UploadCycle.ended_at.is_(None)).order_by(UploadCycle.created_at.desc()).first()
-            if cycle:
-                statuses = db.query(UploadStatus).filter(UploadStatus.cycle_id == cycle.id).all()
-                if statuses:
-                    progress_data = []
-                    for s in statuses:
-                        user_obj = db.query(User).filter(User.id == s.user_id).first()
-                        progress_data.append({
-                            "User": user_obj.display_name if user_obj else s.user_id,
-                            "PIC": user_obj.pic_recruiter if user_obj else "-",
-                            "Status": s.status
-                        })
-                    df_progress = pd.DataFrame(progress_data)
-                    done = len(df_progress[df_progress['Status'] == 'Done'])
-                    st.progress(done / len(df_progress) if len(df_progress) > 0 else 0, 
-                               text=f"Progress: {done}/{len(df_progress)} user selesai")
-                    st.dataframe(df_progress, use_container_width=True, height=200)
-                else:
-                    st.info("Belum ada status upload")
-            else:
-                st.info("Tidak ada cycle aktif")
-        except:
-            st.info("Upload cycle belum tersedia")
+        df_progress = get_upload_cycle_progress()
+        if not df_progress.empty:
+            done = len(df_progress[df_progress['Status'] == 'Done'])
+            st.progress(done / len(df_progress) if len(df_progress) > 0 else 0, 
+                       text=f"Progress: {done}/{len(df_progress)} user selesai")
+            st.dataframe(df_progress, use_container_width=True, height=200)
+        else:
+            st.info("Belum ada data upload cycle")
     
     # ============================================================
     # EXPORT
@@ -411,6 +537,6 @@ def show_dashboard():
             st.download_button(
                 "📥 Download Data (CSV)",
                 csv,
-                f"fptk_export_{datetime.now().strftime('%Y%m%d')}.csv",
+                f"fptk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 "text/csv"
             )
