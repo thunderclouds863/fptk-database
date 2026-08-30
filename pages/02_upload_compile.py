@@ -86,17 +86,12 @@ for num in range(1, 6):
 # ============================================================
 
 def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, today=None):
-    """
-    Menghitung Detail SLA secara OTOMATIS berdasarkan tanggal sekarang.
-    """
     if today is None:
         today = datetime.now().date()
     
-    # Jika status Cancel → selalu Cancel FPTK
     if status == "Cancel":
         return "Cancel FPTK"
     
-    # Jika status Closed
     if status == "Closed":
         if offering_date and deadline_sla:
             if offering_date <= deadline_sla:
@@ -111,7 +106,6 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
                     return "OP Tidak Lulus SLA"
             return "OP Belum Lewat SLA"
     
-    # Jika status OP
     if status == "OP":
         if deadline_sla:
             if today <= deadline_sla:
@@ -125,7 +119,6 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
 
 
 def sanitize_value(value):
-    """Mengubah string kosong menjadi None untuk menghindari constraint violation"""
     if value == "" or value == " ":
         return None
     return value
@@ -137,7 +130,6 @@ def sanitize_value(value):
 
 @st.cache_data(ttl=3600)
 def get_master_options(_db):
-    """Mengambil semua opsi dari MasterDropdown - di-cache 1 jam"""
     try:
         master_records = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
         
@@ -237,18 +229,78 @@ def get_all_bu_codes():
 
 
 # ============================================================
-# 🔥🔥🔥 FUNGSI COMPILE DENGAN PROGRESS 🔥🔥🔥
+# 🔥🔥🔥 FUNGSI GENERATE KODE UNIK & KODE ANGKA 🔥🔥🔥
 # ============================================================
+
+def generate_kode_angka(db, posisi, kode_pic):
+    """
+    Generate Kode Angka dengan auto-increment dari angka terakhir
+    Format: [KodePIC][AngkaAutoIncrement]
+    Contoh: ADM001, ADM002, dst.
+    """
+    if not posisi or not kode_pic:
+        return f"{kode_pic}001" if kode_pic else "ADM001"
+    
+    # Cari angka terakhir untuk posisi dan kode_pic yang sama
+    last_entry = db.query(FPTK).filter(
+        FPTK.posisi == posisi,
+        FPTK.kode_pic == kode_pic
+    ).order_by(FPTK.id.desc()).first()
+    
+    if last_entry and last_entry.kode_angka:
+        # Ambil angka dari kode_angka (format: [KodePIC][Angka])
+        last_angka = re.sub(r'[^0-9]', '', last_entry.kode_angka)
+        if last_angka and last_angka.isdigit():
+            new_number = int(last_angka) + 1
+            return f"{kode_pic}{str(new_number).zfill(3)}"
+    
+    # Jika belum ada, mulai dari 001
+    return f"{kode_pic}001"
+
+
+def generate_kode_unik(kode_pic, posisi, fptk_date):
+    """Generate Kode Unik dari Kode PIC + Posisi + Tanggal"""
+    if not kode_pic or not posisi or not fptk_date:
+        if kode_pic and fptk_date:
+            date_code = fptk_date.strftime("%d%m%y")
+            return f"{kode_pic}XXXX{date_code}"
+        return ""
+    
+    date_code = fptk_date.strftime("%d%m%y")
+    posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
+    if not posisi_code:
+        posisi_code = "XXXX"
+    return f"{kode_pic}{posisi_code}{date_code}"
+
+
+def get_last_fptk_date_kode(db, posisi, kode_pic):
+    """Mendapatkan fptk_date_kode terakhir untuk posisi dan kode_pic"""
+    last_entry = db.query(FPTK).filter(
+        FPTK.posisi == posisi,
+        FPTK.kode_pic == kode_pic
+    ).order_by(FPTK.fptk_date_kode.desc()).first()
+    
+    if last_entry and last_entry.fptk_date_kode:
+        return last_entry.fptk_date_kode
+    return None
+
+
+def check_duplicate(db, kode_unik, posisi):
+    """Cek apakah kombinasi kode_unik + posisi sudah ada"""
+    if not kode_unik:
+        return None
+    return db.query(FPTK).filter(
+        FPTK.kode_unik == kode_unik,
+        FPTK.posisi == posisi
+    ).first()
+
 
 def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
     """Compile file dengan progress bar"""
-    
-    # Step 1: Validasi
     status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
     progress_placeholder.progress(10, text="Validasi file...")
     time.sleep(0.3)
     
-    # Step 2: Compile FPTK
     status_placeholder.info("📊 Step 2/5: Compile FPTK...")
     progress_placeholder.progress(30, text="Compile FPTK...")
     time.sleep(0.3)
@@ -273,7 +325,6 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     status_placeholder.info("📊 Step 3/5: Compile DB Sourcing...")
     time.sleep(0.3)
     
-    # Step 3: Compile DB Sourcing
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Sourcing" in xls.sheet_names:
@@ -299,7 +350,6 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     status_placeholder.info("📊 Step 4/5: Compile DB Kode Posisi...")
     time.sleep(0.3)
     
-    # Step 4: Compile DB Kode Posisi
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Kode Posisi" in xls.sheet_names:
@@ -323,7 +373,6 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     except Exception as e:
         st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
     
-    # Step 5: Finalisasi
     progress_placeholder.progress(95, text="Finalisasi...")
     status_placeholder.info("📊 Step 5/5: Menyimpan status...")
     time.sleep(0.3)
@@ -335,99 +384,6 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     time.sleep(0.5)
     
     return True, result
-
-
-# ============================================================
-# 🔥🔥🔥 FUNGSI HANDLE DUPLIKAT KODE UNIK 🔥🔥🔥
-# ============================================================
-
-def handle_duplicate_kode_unik(db, kode_unik, posisi, kode_pic, fptk_date, vacancy, **kwargs):
-    """
-    Handle duplicate kode_unik dengan auto-increment
-    Returns: (new_kode_unik, new_fptk_date_kode, should_continue)
-    """
-    # Cek apakah duplikat
-    existing = db.query(FPTK).filter(
-        FPTK.kode_unik == kode_unik,
-        FPTK.posisi == posisi
-    ).first()
-    
-    if not existing:
-        return kode_unik, fptk_date, True
-    
-    # Tampilkan warning
-    st.warning(f"⚠️ Kode Unik '{kode_unik}' dengan Posisi '{posisi}' sudah ada di database!")
-    st.info(f"📋 Data yang sudah ada: Kode Unik: {existing.kode_unik}, FPTK Date Kode: {existing.fptk_date_kode.strftime('%d/%m/%Y') if existing.fptk_date_kode else '-'}")
-    
-    # Pilihan user
-    col1, col2 = st.columns(2)
-    with col1:
-        force_insert = st.button("✅ Tetap Masukkan (Auto-increment Kode)", key="force_insert_btn")
-    with col2:
-        cancel_insert = st.button("❌ Batal", key="cancel_insert_btn")
-    
-    if cancel_insert:
-        st.info("❌ Insert dibatalkan.")
-        return kode_unik, fptk_date, False
-    
-    if force_insert:
-        with st.spinner("🔄 Memproses dengan Kode Unik baru..."):
-            # Cari fptk_date_kode terakhir untuk posisi ini
-            last_entry = db.query(FPTK).filter(
-                FPTK.posisi == posisi,
-                FPTK.kode_pic == kode_pic
-            ).order_by(FPTK.fptk_date_kode.desc()).first()
-            
-            if last_entry and last_entry.fptk_date_kode:
-                new_fptk_date_kode = last_entry.fptk_date_kode + timedelta(days=1)
-            else:
-                new_fptk_date_kode = fptk_date
-            
-            # Generate ulang kode_unik
-            date_code_new = new_fptk_date_kode.strftime("%d%m%y")
-            posisi_code_new = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
-            kode_unik_baru = f"{kode_pic}{posisi_code_new}{date_code_new}"
-            
-            # Cek apakah kode_unik baru juga duplikat
-            suffix_index = 0
-            while db.query(FPTK).filter(
-                FPTK.kode_unik == kode_unik_baru,
-                FPTK.posisi == posisi
-            ).first():
-                suffix_index += 1
-                test_kode = f"{kode_pic}{posisi_code_new}{date_code_new}{chr(65 + suffix_index - 1)}"
-                if not db.query(FPTK).filter(
-                    FPTK.kode_unik == test_kode,
-                    FPTK.posisi == posisi
-                ).first():
-                    kode_unik_baru = test_kode
-                    break
-                if suffix_index > 100:
-                    break
-            
-            st.info(f"✅ Kode Unik baru: **{kode_unik_baru}** (FPTK Date Kode: {new_fptk_date_kode.strftime('%d/%m/%Y')})")
-            
-            return kode_unik_baru, new_fptk_date_kode, True
-    
-    # Jika user belum memilih
-    st.info("⏳ Silakan pilih 'Tetap Masukkan' atau 'Batal'")
-    return kode_unik, fptk_date, False
-
-
-# ============================================================
-# FUNGSI GENERATE KODE UNIK
-# ============================================================
-
-def generate_kode_unik(kode_pic, posisi, fptk_date):
-    """Generate Kode Unik dari Kode PIC + Posisi + Tanggal"""
-    if not kode_pic or not posisi or not fptk_date:
-        return ""
-    
-    date_code = fptk_date.strftime("%d%m%y")
-    posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
-    if not posisi_code:
-        posisi_code = "XXXX"
-    return f"{kode_pic}{posisi_code}{date_code}"
 
 
 # ============================================================
@@ -444,9 +400,6 @@ def show_upload_compile():
         st.warning("Silakan login terlebih dahulu.")
         return
 
-    # ============================================================
-    # 🔥🔥🔥 PAKAI CACHE UNTUK MASTER OPTIONS 🔥🔥🔥
-    # ============================================================
     with st.spinner("📋 Memuat data master..."):
         master_options = get_master_options(db)
     
@@ -513,7 +466,6 @@ def show_upload_compile():
         st.markdown("---")
         st.subheader("📁 Upload File Excel")
         
-        # Template download
         active_template = get_active_template(db)
         
         if active_template:
@@ -535,9 +487,6 @@ def show_upload_compile():
         )
         is_sto = st.checkbox("☑️ File ini adalah file STO (Tulang Punggung)")
         
-        # ============================================================
-        # 🔥🔥🔥 PROGRESS BAR & STATUS 🔥🔥🔥
-        # ============================================================
         progress_placeholder = st.empty()
         status_placeholder = st.empty()
         
@@ -554,7 +503,6 @@ def show_upload_compile():
                     status_placeholder.info(f"📄 Memproses file {file_num}/{total_files}: **{file.name}**")
                     
                     try:
-                        # Read file
                         df = pd.read_excel(file, sheet_name="FPTK", header=None)
                         header_row = None
                         for i, row in df.iterrows():
@@ -572,13 +520,11 @@ def show_upload_compile():
                         df.columns = df.iloc[header_row].astype(str).str.strip()
                         df = df.iloc[header_row+1:].reset_index(drop=True)
                         
-                        # Validate
                         validated, errors = validate_fptk_file(df, db, user.id, is_sto)
                         
                         warnings = [e for e in errors if e.get("warning") == True]
                         real_errors = [e for e in errors if e.get("warning") != True]
                         
-                        # Show warnings
                         if warnings:
                             st.warning(f"⚠️ {file.name}: {len(warnings)} warning")
                             with st.expander(f"⚠️ Lihat Warning Detail ({len(warnings)})", expanded=False):
@@ -589,7 +535,6 @@ def show_upload_compile():
                                     error_msg = err.get("error", "")
                                     st.markdown(f"- **Row {row}** - {field}: `{value}` → {error_msg}")
                         
-                        # Show errors
                         if real_errors:
                             st.error(f"❌ {file.name}: {len([e for e in real_errors if e.get('field') != 'SUMMARY'])} error (file ditolak)")
                             with st.expander(f"❌ Lihat Error Detail ({len(real_errors)})", expanded=True):
@@ -607,9 +552,6 @@ def show_upload_compile():
                             error_count += 1
                             continue
                         
-                        # ============================================================
-                        # 🔥🔥🔥 COMPILE DENGAN PROGRESS 🔥🔥🔥
-                        # ============================================================
                         success, result = compile_with_progress(
                             file, df, db, user, cycle, is_sto,
                             progress_placeholder, status_placeholder
@@ -626,9 +568,6 @@ def show_upload_compile():
                         db.rollback()
                         error_count += 1
                 
-                # ============================================================
-                # SUMMARY
-                # ============================================================
                 progress_placeholder.empty()
                 status_placeholder.empty()
                 
@@ -686,7 +625,7 @@ def show_upload_compile():
             st.info("📭 Silakan upload file terlebih dahulu")
     
     # ============================================================
-    # TAB 2: INPUT MANUAL FPTK (DENGAN HANDLE DUPLIKAT)
+    # TAB 2: INPUT MANUAL FPTK (DIPERBAIKI)
     # ============================================================
     
     with tab2:
@@ -713,6 +652,12 @@ def show_upload_compile():
                     user_pic_code = val["code"]
                     user_pic_bu = val["bu"]
                     break
+        
+        # 🔥🔥🔥 JIKA USER ADALAH ADMIN DAN KODE_PIC KOSONG, PAKAI "ADM" 🔥🔥🔥
+        if is_admin(db) and not user_pic_code:
+            user_pic_code = "ADM"
+            user_pic_bu = "CORP"
+            user_pic_name = "Admin"
         
         st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
         
@@ -786,7 +731,6 @@ def show_upload_compile():
                     deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
                 
-                # 🔥🔥🔥 DETAIL SLA OTOMATIS 🔥🔥🔥
                 auto_detail_sla = calculate_detail_sla_auto(
                     status=status,
                     fptk_date_real=fptk_date,
@@ -844,28 +788,29 @@ def show_upload_compile():
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
             # 🔥🔥🔥 GENERATE KODE UNIK 🔥🔥🔥
-            if not kode_unik and kode_pic:
+            if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
+            
+            # 🔥🔥🔥 GENERATE KODE ANGKA 🔥🔥🔥
+            kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # 🔥🔥🔥 HANDLE DUPLIKAT 🔥🔥🔥
+                # 🔥🔥🔥 CEK DUPLIKAT 🔥🔥🔥
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
+                kode_angka_used = kode_angka
                 
-                # Cek duplikat
-                existing = db.query(FPTK).filter(
-                    FPTK.kode_unik == kode_unik,
-                    FPTK.posisi == posisi
-                ).first()
+                existing = check_duplicate(db, kode_unik, posisi)
                 
                 if existing:
                     st.warning(f"⚠️ Kode Unik '{kode_unik}' dengan Posisi '{posisi}' sudah ada di database!")
+                    st.info(f"📋 Data yang sudah ada: Kode Unik: {existing.kode_unik}, FPTK Date Kode: {existing.fptk_date_kode.strftime('%d/%m/%Y') if existing.fptk_date_kode else '-'}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -878,31 +823,22 @@ def show_upload_compile():
                         should_continue = False
                     elif force_insert:
                         with st.spinner("🔄 Memproses dengan Kode Unik baru..."):
-                            last_entry = db.query(FPTK).filter(
-                                FPTK.posisi == posisi,
-                                FPTK.kode_pic == kode_pic
-                            ).order_by(FPTK.fptk_date_kode.desc()).first()
-                            
-                            if last_entry and last_entry.fptk_date_kode:
-                                new_fptk_date_kode = last_entry.fptk_date_kode + timedelta(days=1)
+                            last_date = get_last_fptk_date_kode(db, posisi, kode_pic)
+                            if last_date:
+                                new_fptk_date_kode = last_date + timedelta(days=1)
                             else:
                                 new_fptk_date_kode = fptk_date
                             
-                            date_code_new = new_fptk_date_kode.strftime("%d%m%y")
-                            posisi_code_new = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
-                            kode_unik_baru = f"{kode_pic}{posisi_code_new}{date_code_new}"
+                            kode_unik_baru = generate_kode_unik(kode_pic, posisi, new_fptk_date_kode)
+                            
+                            # Ambil posisi_code untuk suffix
+                            posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
                             
                             suffix_index = 0
-                            while db.query(FPTK).filter(
-                                FPTK.kode_unik == kode_unik_baru,
-                                FPTK.posisi == posisi
-                            ).first():
+                            while check_duplicate(db, kode_unik_baru, posisi):
                                 suffix_index += 1
-                                test_kode = f"{kode_pic}{posisi_code_new}{date_code_new}{chr(65 + suffix_index - 1)}"
-                                if not db.query(FPTK).filter(
-                                    FPTK.kode_unik == test_kode,
-                                    FPTK.posisi == posisi
-                                ).first():
+                                test_kode = f"{kode_pic}{posisi_code}{new_fptk_date_kode.strftime('%d%m%y')}{chr(65 + suffix_index - 1)}"
+                                if not check_duplicate(db, test_kode, posisi):
                                     kode_unik_baru = test_kode
                                     break
                                 if suffix_index > 100:
@@ -914,10 +850,6 @@ def show_upload_compile():
                     else:
                         st.info("⏳ Silakan pilih 'Tetap Masukkan' atau 'Batal'")
                         should_continue = False
-                else:
-                    # Tidak ada duplikat, lanjutkan
-                    kode_unik_used = kode_unik
-                    fptk_date_kode_used = fptk_date
                 
                 if should_continue:
                     try:
@@ -947,34 +879,35 @@ def show_upload_compile():
                             offering_date=offering_date
                         )
                         
+                        kode_angka_base = kode_angka_used
+                        posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
+                        
                         for i in range(vacancy):
                             fptk_date_kode_current = fptk_date_kode_used + timedelta(days=i)
-                            kode_angka = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
-                            date_code = fptk_date_kode_current.strftime("%d%m%y")
-                            kode_unik_baru = f"{kode_pic}{kode_angka}{date_code}"
+                            kode_angka_current = kode_angka_base
                             
-                            existing_check = db.query(FPTK).filter(
-                                FPTK.kode_unik == kode_unik_baru,
-                                FPTK.posisi == posisi
-                            ).first()
+                            if i > 0:
+                                angka_part = re.sub(r'[^0-9]', '', kode_angka_base)
+                                if angka_part and angka_part.isdigit():
+                                    new_num = int(angka_part) + i
+                                    kode_angka_current = f"{kode_pic}{str(new_num).zfill(3)}"
+                            
+                            date_code = fptk_date_kode_current.strftime("%d%m%y")
+                            kode_unik_baru = f"{kode_pic}{posisi_code}{date_code}"
+                            
+                            existing_check = check_duplicate(db, kode_unik_baru, posisi)
                             suffix_index = 0
                             while existing_check:
                                 suffix_index += 1
-                                test_kode = f"{kode_pic}{kode_angka}{date_code}{chr(65 + suffix_index - 1)}"
-                                existing_check = db.query(FPTK).filter(
-                                    FPTK.kode_unik == test_kode,
-                                    FPTK.posisi == posisi
-                                ).first()
+                                test_kode = f"{kode_pic}{posisi_code}{date_code}{chr(65 + suffix_index - 1)}"
+                                existing_check = check_duplicate(db, test_kode, posisi)
                                 if not existing_check:
                                     kode_unik_baru = test_kode
                                     break
                                 if suffix_index > 100:
                                     break
                             
-                            existing_check = db.query(FPTK).filter(
-                                FPTK.kode_unik == kode_unik_baru,
-                                FPTK.posisi == posisi
-                            ).first()
+                            existing_check = check_duplicate(db, kode_unik_baru, posisi)
                             if existing_check:
                                 skipped_count += 1
                                 continue
@@ -1002,7 +935,7 @@ def show_upload_compile():
                                 kode_pic=sanitize_value(kode_pic),
                                 fptk_date_real=fptk_date,
                                 fptk_date_kode=fptk_date_kode_current,
-                                kode_angka=sanitize_value(kode_angka),
+                                kode_angka=sanitize_value(kode_angka_current),
                                 business_unit=business_unit,
                                 direktorat=direktorat,
                                 divisi=sanitize_value(divisi),
@@ -1064,7 +997,7 @@ def show_upload_compile():
                         db.rollback()
     
     # ============================================================
-    # TAB 3: PASTE EMAIL BODY (DENGAN HANDLE DUPLIKAT)
+    # TAB 3: PASTE EMAIL BODY (DIPERBAIKI)
     # ============================================================
     
     with tab3:
@@ -1098,29 +1031,31 @@ def show_upload_compile():
                 else:
                     st.warning("⚠️ Tidak ada data yang terdeteksi dari email.")
         
+        # Default PIC untuk admin
+        user_pic_name = user.pic_recruiter or ""
+        user_pic_code = ""
+        
         if not parsed_data.get("pic_recruiter"):
             pic_mapping = get_pic_mapping()
-            user_pic_name = user.pic_recruiter or ""
-            user_pic_code = ""
-            user_pic_bu = ""
             
             for key, val in pic_mapping.items():
                 if val["name"].lower() == user_pic_name.lower():
                     user_pic_code = val["code"]
-                    user_pic_bu = val["bu"]
                     break
             
             if not user_pic_code:
                 for key, val in pic_mapping.items():
                     if key == user.username.lower():
-                        user_pic_name = val["name"]
                         user_pic_code = val["code"]
-                        user_pic_bu = val["bu"]
                         break
             
-            parsed_data["pic_recruiter"] = user_pic_name
-            parsed_data["kode_pic"] = user_pic_code
-            parsed_data["kode_bu"] = user_pic_bu
+            # 🔥🔥🔥 JIKA ADMIN, PAKAI "ADM" 🔥🔥🔥
+            if is_admin(db) and not user_pic_code:
+                user_pic_code = "ADM"
+                user_pic_name = "Admin"
+            
+            parsed_data["pic_recruiter"] = user_pic_name or user.username
+            parsed_data["kode_pic"] = user_pic_code or "ADM"
         
         st.markdown("---")
         st.markdown("### Data FPTK (Hasil Parse / Manual)")
@@ -1296,27 +1231,30 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            if not kode_unik and kode_pic:
+            # 🔥🔥🔥 GENERATE KODE UNIK 🔥🔥🔥
+            if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
+            
+            # 🔥🔥🔥 GENERATE KODE ANGKA 🔥🔥🔥
+            kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # 🔥🔥🔥 HANDLE DUPLIKAT 🔥🔥🔥
+                # 🔥🔥🔥 CEK DUPLIKAT 🔥🔥🔥
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
+                kode_angka_used = kode_angka
                 
-                existing = db.query(FPTK).filter(
-                    FPTK.kode_unik == kode_unik,
-                    FPTK.posisi == posisi
-                ).first()
+                existing = check_duplicate(db, kode_unik, posisi)
                 
                 if existing:
                     st.warning(f"⚠️ Kode Unik '{kode_unik}' dengan Posisi '{posisi}' sudah ada di database!")
+                    st.info(f"📋 Data yang sudah ada: Kode Unik: {existing.kode_unik}, FPTK Date Kode: {existing.fptk_date_kode.strftime('%d/%m/%Y') if existing.fptk_date_kode else '-'}")
                     
                     col1, col2 = st.columns(2)
                     with col1:
@@ -1329,31 +1267,21 @@ def show_upload_compile():
                         should_continue = False
                     elif force_insert:
                         with st.spinner("🔄 Memproses dengan Kode Unik baru..."):
-                            last_entry = db.query(FPTK).filter(
-                                FPTK.posisi == posisi,
-                                FPTK.kode_pic == kode_pic
-                            ).order_by(FPTK.fptk_date_kode.desc()).first()
-                            
-                            if last_entry and last_entry.fptk_date_kode:
-                                new_fptk_date_kode = last_entry.fptk_date_kode + timedelta(days=1)
+                            last_date = get_last_fptk_date_kode(db, posisi, kode_pic)
+                            if last_date:
+                                new_fptk_date_kode = last_date + timedelta(days=1)
                             else:
                                 new_fptk_date_kode = fptk_date
                             
-                            date_code_new = new_fptk_date_kode.strftime("%d%m%y")
-                            posisi_code_new = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
-                            kode_unik_baru = f"{kode_pic}{posisi_code_new}{date_code_new}"
+                            kode_unik_baru = generate_kode_unik(kode_pic, posisi, new_fptk_date_kode)
+                            
+                            posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
                             
                             suffix_index = 0
-                            while db.query(FPTK).filter(
-                                FPTK.kode_unik == kode_unik_baru,
-                                FPTK.posisi == posisi
-                            ).first():
+                            while check_duplicate(db, kode_unik_baru, posisi):
                                 suffix_index += 1
-                                test_kode = f"{kode_pic}{posisi_code_new}{date_code_new}{chr(65 + suffix_index - 1)}"
-                                if not db.query(FPTK).filter(
-                                    FPTK.kode_unik == test_kode,
-                                    FPTK.posisi == posisi
-                                ).first():
+                                test_kode = f"{kode_pic}{posisi_code}{new_fptk_date_kode.strftime('%d%m%y')}{chr(65 + suffix_index - 1)}"
+                                if not check_duplicate(db, test_kode, posisi):
                                     kode_unik_baru = test_kode
                                     break
                                 if suffix_index > 100:
@@ -1365,9 +1293,6 @@ def show_upload_compile():
                     else:
                         st.info("⏳ Silakan pilih 'Tetap Masukkan' atau 'Batal'")
                         should_continue = False
-                else:
-                    kode_unik_used = kode_unik
-                    fptk_date_kode_used = fptk_date
                 
                 if should_continue:
                     try:
@@ -1401,13 +1326,16 @@ def show_upload_compile():
                         if db.is_active:
                             db.rollback()
                         
+                        posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
+                        kode_angka_base = kode_angka_used
+                        
                         new_fptk = FPTK(
                             kode_unik=kode_unik_used,
                             posisi=posisi,
                             kode_pic=sanitize_value(kode_pic),
                             fptk_date_real=fptk_date,
                             fptk_date_kode=fptk_date_kode_used,
-                            kode_angka=sanitize_value(f"{kode_pic}{vacancy}" if kode_pic else ""),
+                            kode_angka=sanitize_value(kode_angka_used),
                             business_unit=business_unit,
                             direktorat=direktorat,
                             divisi=sanitize_value(divisi),
@@ -1450,6 +1378,7 @@ def show_upload_compile():
                         
                         st.success(f"✅ FPTK berhasil disimpan dari email!")
                         st.info(f"📋 Kode Unik: **{kode_unik_used}**")
+                        st.info(f"📋 Kode Angka: **{kode_angka_used}**")
                         st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
                         st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
                         st.balloons()
