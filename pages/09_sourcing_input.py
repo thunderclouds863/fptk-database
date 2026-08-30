@@ -5,8 +5,72 @@ from core.database import get_db
 from core.models import DBSourcing, FPTK, MasterDropdown
 from core.auth import get_current_user
 from core.utils import safe_int, parse_phone, is_valid_email
+import time
 
 COPILOT_AGENT_URL = "https://m365.cloud.microsoft/chat/?titleId=T_e0524666-839c-757c-7ef5-d5e72311417d&source=embedded-builder"
+
+
+# ============================================================
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_master_options_sourcing(_db):
+    """Mengambil semua opsi dari MasterDropdown untuk Sourcing - cache 1 jam"""
+    try:
+        master = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+        
+        pic_options = sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
+        bu_options = sorted(set([m.bu for m in master if m.bu]))
+        
+        return {
+            'pic_options': pic_options,
+            'bu_options': bu_options
+        }
+    except Exception as e:
+        return {
+            'pic_options': [],
+            'bu_options': []
+        }
+
+
+@st.cache_data(ttl=3600)
+def get_sourcing_options():
+    """Mengembalikan opsi statis untuk sourcing - cache 1 jam"""
+    return {
+        'sumber_options': ["Jobstreet", "LinkedIn", "Google Form", "Referensi User", "Referensi Karyawan", "Campus Hiring", "Walk-in Interview", "Database Internal", "Freelance", "Lainnya"],
+        'jenjang_options': ["SMA/SMK", "D3", "D4", "S1", "S2"],
+        'univ_options': ["Universitas Indonesia", "Universitas Gadjah Mada", "Institut Teknologi Bandung", "Universitas Airlangga", "Universitas Padjadjaran", "Universitas Diponegoro", "Universitas Brawijaya", "Institut Pertanian Bogor", "Universitas Sebelas Maret", "Telkom University", "Lainnya"],
+        'jurusan_options': ["Manajemen", "Akuntansi", "Teknik Industri", "Teknik Informatika", "Sistem Informasi", "Psikologi", "Ilmu Komunikasi", "Hukum", "Ekonomi", "Lainnya"],
+        'fmcg_options': ["", "Ya", "Tidak"],
+        'pipeline_options': ["", "V", "X"],
+        'status_options': ["", "V", "X"]
+    }
+
+
+@st.cache_data(ttl=3600)
+def get_pipeline_stages():
+    """Pipeline stages untuk sourcing - cache 1 jam"""
+    return [
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance", "desc": "Sourcing oleh freelance"},
+        {"field": "sourcing_hr", "label": "Sourcing HR", "desc": "Sourcing oleh HR internal"},
+        {"field": "shortlist_cv", "label": "Shortlist CV", "desc": "CV sudah di-shortlist"},
+        {"field": "psikotes", "label": "Psikotes", "desc": "Tes psikotes"},
+        {"field": "hr_interview", "label": "HR Interview", "desc": "Interview dengan HR"},
+        {"field": "technical_test_case_study", "label": "Technical Test / Case Study", "desc": "Tes teknis / case study"},
+        {"field": "market_visit", "label": "Market Visit", "desc": "Kunjungan ke pasar / outlet"},
+        {"field": "user_interview", "label": "User Interview", "desc": "Interview dengan user"},
+        {"field": "panel_interview", "label": "Panel Interview", "desc": "Interview panel"},
+        {"field": "reference_check", "label": "Reference Check", "desc": "Cek referensi"},
+        {"field": "mcu", "label": "MCU", "desc": "Medical Check Up"},
+        {"field": "offering", "label": "Offering", "desc": "Penawaran"},
+        {"field": "day1", "label": "Day 1", "desc": "Hari pertama kerja"}
+    ]
+
+
+# ============================================================
+# FUNGSI UTAMA
+# ============================================================
 
 def show_sourcing_input():
     st.title("👤 Input Sourcing / CV")
@@ -18,18 +82,24 @@ def show_sourcing_input():
         st.warning("Silakan login.")
         return
     
-    # Load master data
-    master = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+    # ============================================================
+    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    # ============================================================
+    with st.spinner("📋 Memuat data..."):
+        master_options = get_master_options_sourcing(db)
+        sourcing_options = get_sourcing_options()
+        pipeline_stages = get_pipeline_stages()
     
-    pic_options = sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
-    sumber_options = ["Jobstreet", "LinkedIn", "Google Form", "Referensi User", "Referensi Karyawan", "Campus Hiring", "Walk-in Interview", "Database Internal", "Freelance"]
-    jenjang_options = ["SMA/SMK", "D3", "D4", "S1", "S2"]
-    univ_options = ["Universitas Indonesia", "Universitas Gadjah Mada", "Institut Teknologi Bandung", "Universitas Airlangga", "Universitas Padjadjaran", "Universitas Diponegoro", "Universitas Brawijaya", "Institut Pertanian Bogor", "Universitas Sebelas Maret", "Telkom University", "Lainnya"]
-    jurusan_options = ["Manajemen", "Akuntansi", "Teknik Industri", "Teknik Informatika", "Sistem Informasi", "Psikologi", "Ilmu Komunikasi", "Lainnya"]
-    fmcg_options = ["", "Ya", "Tidak"]
+    pic_options = master_options['pic_options']
+    sumber_options = sourcing_options['sumber_options']
+    jenjang_options = sourcing_options['jenjang_options']
+    univ_options = sourcing_options['univ_options']
+    jurusan_options = sourcing_options['jurusan_options']
+    fmcg_options = sourcing_options['fmcg_options']
+    pipeline_options = sourcing_options['pipeline_options']
     
     # ============================================================
-    # COPILOT AGENT BUTTON (DI LUAR TAB)
+    # COPILOT AGENT BUTTON
     # ============================================================
     st.markdown("---")
     col1, col2, col3 = st.columns([2, 1, 1])
@@ -83,8 +153,29 @@ def show_sourcing_input():
             
             st.markdown("---")
             st.markdown("### Pipeline (Status awal)")
-            sourcing_hr = st.selectbox("Sourcing HR", ["", "V", "X"])
-            tanggal_sourcing = st.date_input("Tanggal Sourcing", datetime.now())
+            
+            # 🔥🔥🔥 SOURCING FREELANCE - PIPELINE AWAL 🔥🔥🔥
+            st.markdown("#### Sourcing Freelance (Pipeline Awal)")
+            col1, col2 = st.columns(2)
+            with col1:
+                sourcing_freelance = st.selectbox("Sourcing Freelance", [""] + pipeline_options)
+            with col2:
+                if sourcing_freelance:
+                    tanggal_sourcing_freelance = st.date_input("Tanggal Sourcing Freelance", datetime.now())
+                else:
+                    tanggal_sourcing_freelance = None
+                    st.date_input("Tanggal Sourcing Freelance", datetime.now(), disabled=True)
+            
+            st.markdown("#### Sourcing HR")
+            col1, col2 = st.columns(2)
+            with col1:
+                sourcing_hr = st.selectbox("Sourcing HR", [""] + pipeline_options)
+            with col2:
+                if sourcing_hr:
+                    tanggal_sourcing = st.date_input("Tanggal Sourcing HR", datetime.now())
+                else:
+                    tanggal_sourcing = None
+                    st.date_input("Tanggal Sourcing HR", datetime.now(), disabled=True)
             
             submitted = st.form_submit_button("💾 Simpan Kandidat", type="primary")
         
@@ -112,6 +203,7 @@ def show_sourcing_input():
                     last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
                     next_no = (last_no.no + 1) if last_no and last_no.no else 1
                     
+                    # 🔥🔥🔥 PIPELINE LENGKAP 🔥🔥🔥
                     new = DBSourcing(
                         no=next_no,
                         nama=nama,
@@ -133,6 +225,10 @@ def show_sourcing_input():
                         last_tenure=last_tenure,
                         total_tenure=total_tenure,
                         pernah_di_fmcg=fmcg,
+                        # 🔥🔥🔥 PIPELINE SOURCING FREELANCE 🔥🔥🔥
+                        sourcing_freelance=sourcing_freelance if sourcing_freelance else None,
+                        tanggal_sourcing_freelance=tanggal_sourcing_freelance if sourcing_freelance else None,
+                        # 🔥🔥🔥 PIPELINE SOURCING HR 🔥🔥🔥
                         sourcing_hr=sourcing_hr if sourcing_hr else None,
                         tanggal_sourcing=tanggal_sourcing if sourcing_hr else None,
                         sourcing_date=datetime.now().date(),
@@ -163,7 +259,6 @@ def show_sourcing_input():
         
         if parse_btn and raw_text:
             with st.spinner("Memproses..."):
-                # Parse sederhana
                 parsed = {}
                 lines = raw_text.split('\n')
                 for line in lines:
@@ -192,11 +287,12 @@ def show_sourcing_input():
                             parsed['last_position'] = val
                         elif 'last company' in key or 'perusahaan terakhir' in key:
                             parsed['last_company'] = val
+                        elif 'sumber' in key or 'source' in key:
+                            parsed['sumber'] = val
                 
                 if parsed.get('nama'):
                     st.success(f"✅ Data ditemukan: {parsed.get('nama')}")
                     
-                    # Preview hasil parse
                     col1, col2 = st.columns(2)
                     with col1:
                         st.json(parsed)
@@ -207,7 +303,6 @@ def show_sourcing_input():
                             if v:
                                 st.markdown(f"- **{k}:** {v}")
                     
-                    # Tombol simpan
                     if st.button("💾 Simpan dari Parse", type="primary"):
                         try:
                             last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
@@ -225,6 +320,7 @@ def show_sourcing_input():
                                 tahun_lulus=parsed.get('tahun_lulus') if parsed.get('tahun_lulus') and str(parsed.get('tahun_lulus')).isdigit() else None,
                                 last_position=parsed.get('last_position', ''),
                                 last_company=parsed.get('last_company', ''),
+                                sumber_sourcing=parsed.get('sumber', ''),
                                 rekruter=user.pic_recruiter,
                                 sourcing_date=datetime.now().date(),
                                 source_user_id=user.id,
@@ -262,7 +358,6 @@ def show_sourcing_input():
             for i, text in enumerate(candidates):
                 status_text.text(f"Memproses {i+1}/{len(candidates)}")
                 
-                # Cari Nama
                 nama = ""
                 lines = text.split('\n')
                 for line in lines:
@@ -272,7 +367,6 @@ def show_sourcing_input():
                             nama = val.strip()
                             break
                 
-                # Kalau gak ada nama, ambil baris pertama yang gak kosong
                 if not nama:
                     for line in lines:
                         if line.strip() and ':' not in line:
