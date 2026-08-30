@@ -5,6 +5,34 @@ from core.models import DBSourcing, FPTK, Evidence, User
 from core.auth import get_current_user, is_admin
 from datetime import datetime
 import hashlib
+import os
+import base64
+
+# ============================================================
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_pic_options_evidence(_db):
+    """Mengambil opsi PIC - cache 1 jam"""
+    try:
+        pic_list = ["Semua"] + [u[0] for u in _db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
+        return pic_list
+    except:
+        return ["Semua"]
+
+
+@st.cache_data(ttl=300)
+def get_sourcing_kode_unik(_db):
+    """Mengambil daftar kode_unik dari sourcing - cache 5 menit"""
+    try:
+        data = _db.query(DBSourcing.kode_unik, DBSourcing.posisi).filter(
+            DBSourcing.kode_unik.isnot(None)
+        ).distinct().all()
+        return data
+    except:
+        return []
+
 
 def show_upload_evidence():
     st.title("📎 Upload Evidence Sourcing")
@@ -19,18 +47,20 @@ def show_upload_evidence():
     admin = is_admin(db)
     
     # ============================================================
-    # UPLOAD EVIDENCE
+    # LOAD FROM CACHE
     # ============================================================
-    st.subheader("📤 Upload Evidence Baru")
-    
-    # Ambil daftar kode_unik dari DB Sourcing
-    sourcing_data = db.query(DBSourcing.kode_unik, DBSourcing.posisi).filter(
-        DBSourcing.kode_unik.isnot(None)
-    ).distinct().all()
+    with st.spinner("📋 Memuat data..."):
+        sourcing_data = get_sourcing_kode_unik(db)
+        pic_list = get_pic_options_evidence(db)
     
     if not sourcing_data:
         st.warning("Belum ada data sourcing dengan Kode Unik.")
         return
+    
+    # ============================================================
+    # UPLOAD EVIDENCE
+    # ============================================================
+    st.subheader("📤 Upload Evidence Baru")
     
     posisi_options = {}
     for s in sourcing_data:
@@ -42,10 +72,8 @@ def show_upload_evidence():
     kode_unik = posisi_options[selected]
     posisi_text = selected.split(" | ")[0]
     
-    # Tanggal evidence
     tanggal = st.date_input("Tanggal Evidence", datetime.now())
     
-    # Cek jumlah CV
     total_cv = db.query(DBSourcing).filter(
         DBSourcing.kode_unik == kode_unik,
         DBSourcing.sourcing_date == tanggal
@@ -53,7 +81,6 @@ def show_upload_evidence():
     
     st.metric("📊 Jumlah CV", total_cv)
     
-    # Upload file
     uploaded_file = st.file_uploader(
         "Pilih file bukti evidence (PDF, Image, Excel)",
         type=["pdf", "jpg", "jpeg", "png", "xlsx", "xlsm"]
@@ -71,6 +98,9 @@ def show_upload_evidence():
             safe_name = f"{tanggal.strftime('%Y-%m-%d')}_{clean_posisi}_{total_cv}_CV.{file_name.split('.')[-1]}"
             
             try:
+                # 🔥🔥🔥 SIMPAN FILE KE DATABASE (BASE64) 🔥🔥🔥
+                file_data_b64 = base64.b64encode(file_bytes).decode('utf-8')
+                
                 new_evidence = Evidence(
                     kode_unik=kode_unik,
                     posisi=posisi_text,
@@ -81,7 +111,8 @@ def show_upload_evidence():
                     total_cv=total_cv,
                     pic_recruiter=user.pic_recruiter or user.username,
                     user_id=user.id,
-                    created_at=datetime.now()
+                    created_at=datetime.now(),
+                    file_data=file_data_b64  # 🔥 Simpan sebagai base64
                 )
                 db.add(new_evidence)
                 db.commit()
@@ -104,22 +135,17 @@ def show_upload_evidence():
                 db.rollback()
     
     # ============================================================
-    # HISTORI EVIDENCE - PAKAI user_id BUKAN uploaded_by
+    # HISTORI EVIDENCE
     # ============================================================
     st.markdown("---")
     st.subheader("📋 Histori Evidence")
     
-    # Filter
     col1, col2 = st.columns(2)
     with col1:
-        pic_filter = st.selectbox(
-            "Filter PIC",
-            ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
-        )
+        pic_filter = st.selectbox("Filter PIC", ["Semua"] + pic_list)
     with col2:
         search_filter = st.text_input("Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...")
     
-    # Query evidence - PAKAI user_id
     query = db.query(Evidence)
     if pic_filter != "Semua":
         query = query.filter(Evidence.pic_recruiter == pic_filter)
@@ -148,12 +174,13 @@ def show_upload_evidence():
         df = pd.DataFrame(data)
         st.dataframe(df, use_container_width=True, height=300)
         
-        # Export
         if st.button("📥 Export CSV"):
             csv = df.to_csv(index=False)
             st.download_button("Download", csv, f"evidence_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
         
-        # Detail evidence
+        # ============================================================
+        # DETAIL EVIDENCE
+        # ============================================================
         st.markdown("---")
         st.subheader("🔍 Detail Evidence")
         
@@ -172,8 +199,29 @@ def show_upload_evidence():
                     st.markdown(f"**File:** {detail.file_name}")
                     st.markdown(f"**PIC:** {detail.pic_recruiter}")
                 
+                # 🔥🔥🔥 TAMPILKAN GAMBAR EVIDENCE 🔥🔥🔥
+                st.markdown("---")
+                st.markdown("### 📎 File Evidence")
+                
+                if hasattr(detail, 'file_data') and detail.file_data:
+                    try:
+                        image_data = base64.b64decode(detail.file_data)
+                        st.image(image_data, caption=detail.file_name, use_container_width=True)
+                        
+                        st.download_button(
+                            "📥 Download File",
+                            image_data,
+                            detail.file_name,
+                            mime="application/octet-stream"
+                        )
+                    except Exception as e:
+                        st.error(f"Error menampilkan gambar: {str(e)}")
+                else:
+                    st.info("💡 File tidak ditemukan di database")
+                
                 # Admin hapus
                 if admin:
+                    st.markdown("---")
                     if st.button("🗑️ Hapus Evidence", type="secondary"):
                         db.delete(detail)
                         db.commit()
@@ -181,3 +229,8 @@ def show_upload_evidence():
                         st.rerun()
     else:
         st.info("Belum ada evidence yang diupload.")
+
+
+# Untuk kompatibilitas
+if __name__ == "__main__":
+    show_upload_evidence()
