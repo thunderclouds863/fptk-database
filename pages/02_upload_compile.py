@@ -75,6 +75,122 @@ for num in range(1, 6):
     for letter in ['A', 'B']:
         LEVEL_OPTIONS.append(f"{num}{letter}")
 
+
+# ============================================================
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# ============================================================
+
+@st.cache_data(ttl=3600)  # Cache 1 jam - jarang berubah
+def get_master_options(db):
+    """Mengambil semua opsi dari MasterDropdown - di-cache 1 jam"""
+    try:
+        master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+        
+        bu_options = sorted(set([m.bu for m in master_records if m.bu]))
+        alasan_options = sorted(set([m.alasan for m in master_records if m.alasan]))
+        category_options = sorted(set([m.category_fptk for m in master_records if m.category_fptk]))
+        filter_options = sorted(set([m.filter_fptk for m in master_records if m.filter_fptk]))
+        status_options = ["OP", "Closed", "Cancel"]
+        lokasi_onboarding_options = sorted(set([m.lokasi_onboarding for m in master_records if m.lokasi_onboarding]))
+        detail_sla_options = sorted(set([m.detail_sla for m in master_records if m.detail_sla]))
+        keterangan_0_options = sorted(set([m.keterangan_0 for m in master_records if m.keterangan_0]))
+        keterangan_1_options = sorted(set([m.keterangan_1 for m in master_records if m.keterangan_1]))
+        keterangan_cancel_options = sorted(set([m.keterangan_cancel for m in master_records if m.keterangan_cancel]))
+        direktorat_options = sorted(set([m.nama_direktorat for m in master_records if m.nama_direktorat]))
+        model_options = sorted(set([m.model for m in master_records if m.model]))
+        sumber_options = sorted(set([m.sumber_sourcing for m in master_records if m.sumber_sourcing]))
+        jenjang_options = sorted(set([m.jenjang_pendidikan for m in master_records if m.jenjang_pendidikan]))
+        univ_options = sorted(set([m.nama_universitas_top10 for m in master_records if m.nama_universitas_top10]))
+        jurusan_options = sorted(set([m.jurusan for m in master_records if m.jurusan]))
+        univ_tier_options = sorted(set([m.university_tier for m in master_records if m.university_tier]))
+        ipk_tier_options = sorted(set([m.ipk_tier for m in master_records if m.ipk_tier]))
+        kode_pic_options = sorted(set([m.kode_pic for m in master_records if m.kode_pic]))
+        
+        return {
+            'bu_options': bu_options,
+            'alasan_options': alasan_options,
+            'category_options': category_options,
+            'filter_options': filter_options,
+            'status_options': status_options,
+            'lokasi_onboarding_options': lokasi_onboarding_options,
+            'detail_sla_options': detail_sla_options,
+            'keterangan_0_options': keterangan_0_options,
+            'keterangan_1_options': keterangan_1_options,
+            'keterangan_cancel_options': keterangan_cancel_options,
+            'direktorat_options': direktorat_options,
+            'model_options': model_options,
+            'sumber_options': sumber_options,
+            'jenjang_options': jenjang_options,
+            'univ_options': univ_options,
+            'jurusan_options': jurusan_options,
+            'univ_tier_options': univ_tier_options,
+            'ipk_tier_options': ipk_tier_options,
+            'kode_pic_options': kode_pic_options
+        }
+    except Exception as e:
+        return {
+            'bu_options': [],
+            'alasan_options': [],
+            'category_options': [],
+            'filter_options': [],
+            'status_options': ["OP", "Closed", "Cancel"],
+            'lokasi_onboarding_options': [],
+            'detail_sla_options': [],
+            'keterangan_0_options': [],
+            'keterangan_1_options': [],
+            'keterangan_cancel_options': [],
+            'direktorat_options': [],
+            'model_options': [],
+            'sumber_options': [],
+            'jenjang_options': [],
+            'univ_options': [],
+            'jurusan_options': [],
+            'univ_tier_options': [],
+            'ipk_tier_options': [],
+            'kode_pic_options': []
+        }
+
+
+@st.cache_data(ttl=3600)  # Cache 1 jam
+def get_pic_mapping():
+    """Mengembalikan PIC Mapping - di-cache karena statis"""
+    return PIC_MAPPING.copy()
+
+
+@st.cache_data(ttl=3600)
+def get_bu_mapping():
+    """Mengembalikan BU Mapping - di-cache karena statis"""
+    return BU_CODE_MAPPING.copy()
+
+
+@st.cache_data(ttl=3600)
+def get_level_options():
+    """Mengembalikan Level Options - di-cache karena statis"""
+    return LEVEL_OPTIONS.copy()
+
+
+@st.cache_data(ttl=3600)
+def get_pic_names_by_bu():
+    """Mengembalikan PIC Names by BU - di-cache karena statis"""
+    return PIC_NAMES_BY_BU.copy()
+
+
+@st.cache_data(ttl=3600)
+def get_all_pic_names():
+    """Mengembalikan ALL PIC Names - di-cache karena statis"""
+    return ALL_PIC_NAMES.copy()
+
+
+@st.cache_data(ttl=3600)
+def get_all_bu_codes():
+    """Mengembalikan ALL BU Codes - di-cache karena statis"""
+    return ALL_BU_CODES.copy()
+
+
+# ============================================================
+# FUNGSI UTAMA
+# ============================================================
+
 def show_upload_compile():
     st.title("📤 Upload & Compile FPTK")
     st.markdown("Upload file Excel recruiter ATAU input FPTK secara manual ATAU paste email body.")
@@ -85,9 +201,34 @@ def show_upload_compile():
         st.warning("Silakan login terlebih dahulu.")
         return
 
-    # ====================================
+    # ============================================================
+    # 🔥🔥🔥 PAKAI CACHE UNTUK MASTER OPTIONS 🔥🔥🔥
+    # ============================================================
+    master_options = get_master_options(db)
+    
+    bu_options = master_options['bu_options']
+    alasan_options = master_options['alasan_options']
+    category_options = master_options['category_options']
+    filter_options = master_options['filter_options']
+    status_options = master_options['status_options']
+    lokasi_onboarding_options = master_options['lokasi_onboarding_options']
+    detail_sla_options = master_options['detail_sla_options']
+    keterangan_0_options = master_options['keterangan_0_options']
+    keterangan_1_options = master_options['keterangan_1_options']
+    keterangan_cancel_options = master_options['keterangan_cancel_options']
+    direktorat_options = master_options['direktorat_options']
+    model_options = master_options['model_options']
+    sumber_options = master_options['sumber_options']
+    jenjang_options = master_options['jenjang_options']
+    univ_options = master_options['univ_options']
+    jurusan_options = master_options['jurusan_options']
+    univ_tier_options = master_options['univ_tier_options']
+    ipk_tier_options = master_options['ipk_tier_options']
+    kode_pic_options = master_options['kode_pic_options']
+
+    # ============================================================
     # ADMIN TEMPLATE MANAGEMENT
-    # ====================================
+    # ============================================================
     
     if is_admin(db):
         st.markdown("---")
@@ -102,30 +243,10 @@ def show_upload_compile():
         if template_file:
             if st.button("💾 Simpan Template", key="save_template_btn"):
                 save_template(db, template_file, user.id)
+                # Hapus cache template agar update
+                st.cache_data.clear()
                 st.success("✅ Template berhasil diperbarui")
                 st.rerun()
-    
-    master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
-    
-    bu_options = sorted(set([m.bu for m in master_records if m.bu]))
-    alasan_options = sorted(set([m.alasan for m in master_records if m.alasan]))
-    category_options = sorted(set([m.category_fptk for m in master_records if m.category_fptk]))
-    filter_options = sorted(set([m.filter_fptk for m in master_records if m.filter_fptk]))
-    status_options = ["OP", "Closed", "Cancel"]
-    lokasi_onboarding_options = sorted(set([m.lokasi_onboarding for m in master_records if m.lokasi_onboarding]))
-    detail_sla_options = sorted(set([m.detail_sla for m in master_records if m.detail_sla]))
-    keterangan_0_options = sorted(set([m.keterangan_0 for m in master_records if m.keterangan_0]))
-    keterangan_1_options = sorted(set([m.keterangan_1 for m in master_records if m.keterangan_1]))
-    keterangan_cancel_options = sorted(set([m.keterangan_cancel for m in master_records if m.keterangan_cancel]))
-    direktorat_options = sorted(set([m.nama_direktorat for m in master_records if m.nama_direktorat]))
-    model_options = sorted(set([m.model for m in master_records if m.model]))
-    sumber_options = sorted(set([m.sumber_sourcing for m in master_records if m.sumber_sourcing]))
-    jenjang_options = sorted(set([m.jenjang_pendidikan for m in master_records if m.jenjang_pendidikan]))
-    univ_options = sorted(set([m.nama_universitas_top10 for m in master_records if m.nama_universitas_top10]))
-    jurusan_options = sorted(set([m.jurusan for m in master_records if m.jurusan]))
-    univ_tier_options = sorted(set([m.university_tier for m in master_records if m.university_tier]))
-    ipk_tier_options = sorted(set([m.ipk_tier for m in master_records if m.ipk_tier]))
-    kode_pic_options = sorted(set([m.kode_pic for m in master_records if m.kode_pic]))
     
     tab1, tab2, tab3 = st.tabs(["📤 Upload Excel", "📝 Input Manual FPTK", "📧 Paste Email Body"])
     
@@ -145,9 +266,9 @@ def show_upload_compile():
         st.markdown("---")
         st.subheader("📁 Upload File Excel")
         
-        # ====================================
+        # ============================================================
         # DOWNLOAD TEMPLATE AKTIF
-        # ====================================
+        # ============================================================
         
         active_template = get_active_template(db)
         
@@ -270,7 +391,6 @@ def show_upload_compile():
                         # ============================================================
                         # COMPILE FPTK
                         # ============================================================
-                        # Clear any pending transaction before compile
                         if db.is_active:
                             db.rollback()
                         
@@ -381,6 +501,8 @@ def show_upload_compile():
                                     st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
                                     db.rollback()
                             
+                            # 🔥 Hapus cache setelah compile
+                            st.cache_data.clear()
                             mark_user_uploading(db, user.id, cycle.id)
                         else:
                             st.error(f"❌ {file.name}: Compile FPTK gagal")
@@ -399,9 +521,6 @@ def show_upload_compile():
         st.markdown("---")
         st.subheader("📜 Riwayat Upload")
         
-        # ============================================================
-        # FIX: Clear pending transaction before querying UploadLog
-        # ============================================================
         try:
             if db.is_active:
                 db.rollback()
@@ -424,25 +543,27 @@ def show_upload_compile():
         except Exception as e:
             db.rollback()
             st.warning(f"⚠️ Gagal mengambil riwayat upload: {str(e)}")
-            # Try to show a simple message instead
             st.info("📭 Silakan upload file terlebih dahulu")
     
     with tab2:
-        st.subheader("Input FPTK Manual")
+        st.subheader("📝 Input FPTK Manual")
         st.caption("Input satu per satu. PIC otomatis dari user yang login.")
+        
+        # 🔥🔥🔥 PAKAI CACHE UNTUK PIC MAPPING 🔥🔥🔥
+        pic_mapping = get_pic_mapping()
         
         user_pic_name = user.pic_recruiter or ""
         user_pic_code = ""
         user_pic_bu = ""
         
-        for key, val in PIC_MAPPING.items():
+        for key, val in pic_mapping.items():
             if val["name"].lower() == user_pic_name.lower():
                 user_pic_code = val["code"]
                 user_pic_bu = val["bu"]
                 break
         
         if not user_pic_code:
-            for key, val in PIC_MAPPING.items():
+            for key, val in pic_mapping.items():
                 if key == user.username.lower():
                     user_pic_name = val["name"]
                     user_pic_code = val["code"]
@@ -488,7 +609,10 @@ def show_upload_compile():
             
             with col2:
                 fptk_date = st.date_input("FPTK Date (Real) *", datetime.now())
-                level_fptk = st.selectbox("Level FPTK *", LEVEL_OPTIONS, index=0)
+                
+                # 🔥 PAKAI CACHE UNTUK LEVEL OPTIONS
+                level_options_cache = get_level_options()
+                level_fptk = st.selectbox("Level FPTK *", level_options_cache, index=0)
                 
                 if level_fptk:
                     match = re.search(r'(\d+)', level_fptk)
@@ -521,14 +645,14 @@ def show_upload_compile():
                     deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
                 
-                detail_sla_options = [
+                detail_sla_options_list = [
                     "OP Belum Lewat SLA",
                     "OP Tidak Lulus SLA",
                     "Closed Lulus SLA",
                     "Closed Tidak Lulus SLA",
                     "Cancel FPTK"
                 ]
-                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options)
+                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options_list)
             
             if status == "Closed":
                 offering_date = st.date_input("Offering Date (required untuk Closed)", datetime.now())
@@ -597,7 +721,6 @@ def show_upload_compile():
                     st.error(f"❌ {err}")
             else:
                 try:
-                    # Hitung SLA
                     if level_number <= 3:
                         sla_days = 30
                     elif level_number == 4:
@@ -605,16 +728,13 @@ def show_upload_compile():
                     else:
                         sla_days = 60
                     
-                    # Category otomatis dari alasan
                     category_auto = determine_category_fptk(alasan)
                     
                     created_count = 0
                     skipped_count = 0
                     last_kode_unik = ""
                     
-                    # ============================================================
                     # CARI LAST FPTK DATE KODE UNTUK POSISI + DATE REAL + KODE PIC YANG SAMA
-                    # ============================================================
                     last_existing = db.query(FPTK).filter(
                         FPTK.posisi == posisi,
                         FPTK.fptk_date_real == fptk_date,
@@ -622,45 +742,16 @@ def show_upload_compile():
                     ).order_by(FPTK.fptk_date_kode.desc()).first()
                     
                     if last_existing and last_existing.fptk_date_kode:
-                        # Mulai dari last_fptk_date_kode + 1
-                        start_date = last_existing.fptk_date_kode + timedelta(days=1)
-                    else:
-                        start_date = fptk_date
-                    
-                    # ============================================================
-                    # LOOP UNTUK SETIAP VACANCY
-                    # ============================================================
-                    created_count = 0
-                    skipped_count = 0
-                    last_kode_unik = ""
-                    
-                    # ============================================================
-                    # CARI LAST FPTK DATE KODE UNTUK POSISI + DATE REAL + KODE PIC YANG SAMA
-                    # ============================================================
-                    last_existing = db.query(FPTK).filter(
-                        FPTK.posisi == posisi,
-                        FPTK.fptk_date_real == fptk_date,
-                        FPTK.kode_pic == kode_pic
-                    ).order_by(FPTK.fptk_date_kode.desc()).first()
-                    
-                    if last_existing and last_existing.fptk_date_kode:
-                        # Mulai dari last_fptk_date_kode + 1
                         start_date = last_existing.fptk_date_kode + timedelta(days=1)
                     else:
                         start_date = fptk_date
                     
                     for i in range(vacancy):
-                        # --- FPTK Date Kode: start_date + i ---
                         fptk_date_kode = start_date + timedelta(days=i)
-                        
-                        # --- Kode Angka (4 huruf pertama dari posisi) ---
                         kode_angka = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
-                        
-                        # --- Kode Unik = Kode PIC + Kode Angka + FPTK Date Kode (ddmmyy) ---
                         date_code = fptk_date_kode.strftime("%d%m%y")
                         kode_unik_baru = f"{kode_pic}{kode_angka}{date_code}"
                         
-                        # --- Cek duplikat Kode Unik ---
                         existing = db.query(FPTK).filter(FPTK.kode_unik == kode_unik_baru).first()
                         suffix_index = 0
                         while existing:
@@ -680,13 +771,11 @@ def show_upload_compile():
                         
                         last_kode_unik = kode_unik_baru
                         
-                        # --- Derived values ---
                         deadline_sla = fptk_date + timedelta(days=sla_days) if fptk_date else None
                         week_num = fptk_date.isocalendar()[1] if fptk_date else None
                         month_name = fptk_date.strftime("%B") if fptk_date else None
                         kode_bu = kode_pic[:4] if kode_pic else ""
                         
-                        # --- Filter Kategorisasi ---
                         filter_kat = ""
                         posisi_lower = posisi.lower()
                         if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
@@ -698,23 +787,18 @@ def show_upload_compile():
                         elif level_number == 4:
                             filter_kat = 'Level 4'
                         
-                        # --- Detail SLA ---
                         detail_sla = calculate_detail_sla(status, deadline_sla, offering_date)
-                        
-                        # --- CATEGORY FPTK OTOMATIS DARI ALASAN ---
                         category_auto = determine_category_fptk(alasan)
                         
-                        # --- Clear pending transaction ---
                         if db.is_active:
                             db.rollback()
                         
-                        # --- Simpan ---
                         new_fptk = FPTK(
                             kode_unik=kode_unik_baru,
                             posisi=posisi,
                             kode_pic=kode_pic,
                             fptk_date_real=fptk_date,
-                            fptk_date_kode=fptk_date_kode,  # +i hari dari start_date
+                            fptk_date_kode=fptk_date_kode,
                             kode_angka=kode_angka,
                             business_unit=business_unit,
                             direktorat=direktorat,
@@ -723,10 +807,10 @@ def show_upload_compile():
                             level_fptk=level_fptk,
                             level_number=level_number,
                             alasan_permintaan_fptk=alasan,
-                            category_fptk=category_auto,  # AUTO dari alasan
+                            category_fptk=category_auto,
                             pic_recruiter=pic_recruiter,
                             filter_kategorisasi_fptk=filter_kat,
-                            vacancy=1,  # Setiap row vacancy = 1
+                            vacancy=1,
                             status=status,
                             offering_date=offering_date,
                             fptk_cancel_date=cancel_date,
@@ -857,12 +941,13 @@ def show_upload_compile():
                 )
                 
                 default_level = parsed_data.get("level_fptk", "1A")
-                if default_level not in LEVEL_OPTIONS:
+                level_options_cache = get_level_options()
+                if default_level not in level_options_cache:
                     default_level = "1A"
                 level_fptk = st.selectbox(
                     "Level FPTK *",
-                    LEVEL_OPTIONS,
-                    index=LEVEL_OPTIONS.index(default_level) if default_level in LEVEL_OPTIONS else 0
+                    level_options_cache,
+                    index=level_options_cache.index(default_level) if default_level in level_options_cache else 0
                 )
                 
                 if level_fptk:
@@ -912,14 +997,14 @@ def show_upload_compile():
                     deadline_sla = calculate_deadline_sla(fptk_date, sla_days)
                     st.text_input("Deadline SLA (auto)", value=deadline_sla.strftime("%d/%m/%Y") if deadline_sla else "-", disabled=True)
                 
-                detail_sla_options = [
+                detail_sla_options_list = [
                     "OP Belum Lewat SLA",
                     "OP Tidak Lulus SLA",
                     "Closed Lulus SLA",
                     "Closed Tidak Lulus SLA",
                     "Cancel FPTK"
                 ]
-                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options)
+                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options_list)
             
             if status == "Closed":
                 offering_date = st.date_input("Offering Date (required untuk Closed)", datetime.now())
@@ -1009,7 +1094,6 @@ def show_upload_compile():
                     elif level_number == 4:
                         filter_kat = 'Level 4'
                     
-                    # Clear pending transaction
                     if db.is_active:
                         db.rollback()
                     
@@ -1065,6 +1149,11 @@ def show_upload_compile():
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
                     db.rollback()
+
+
+# ============================================================
+# FUNGSI PARSE EMAIL (Tidak di-cache karena setiap email berbeda)
+# ============================================================
 
 def parse_email_body(body: str, bu_options: list, alasan_options: list, category_options: list, direktorat_options: list) -> dict:
     result = {
