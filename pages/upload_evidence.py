@@ -9,10 +9,10 @@ import os
 import base64
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+# 🔥🔥🔥 CACHE FUNCTIONS (GANTI ke st.cache_resource) 🔥🔥🔥
 # ============================================================
 
-@st.cache_data(ttl=3600)
+@st.cache_resource(ttl=3600)
 def get_pic_options_evidence(_db):
     """Mengambil opsi PIC - cache 1 jam"""
     try:
@@ -22,7 +22,7 @@ def get_pic_options_evidence(_db):
         return ["Semua"]
 
 
-@st.cache_data(ttl=300)
+@st.cache_resource(ttl=300)
 def get_sourcing_kode_unik(_db):
     """Mengambil daftar kode_unik dari sourcing - cache 5 menit"""
     try:
@@ -32,6 +32,17 @@ def get_sourcing_kode_unik(_db):
         return data
     except:
         return []
+
+
+def check_column_exists(table, column_name, db):
+    """Cek apakah kolom ada di tabel"""
+    try:
+        from sqlalchemy import inspect
+        inspector = inspect(db.bind)
+        columns = [c['name'] for c in inspector.get_columns(table)]
+        return column_name in columns
+    except:
+        return False
 
 
 def show_upload_evidence():
@@ -45,6 +56,15 @@ def show_upload_evidence():
         return
     
     admin = is_admin(db)
+    
+    # ============================================================
+    # CEK APAKAH KOLOM file_data ADA
+    # ============================================================
+    has_file_data = check_column_exists('evidences', 'file_data', db)
+    
+    if not has_file_data:
+        st.warning("⚠️ Kolom 'file_data' belum ada di database. File tidak akan disimpan di database.")
+        st.info("💡 Jalankan SQL: ALTER TABLE evidences ADD COLUMN file_data TEXT;")
     
     # ============================================================
     # LOAD FROM CACHE
@@ -98,8 +118,9 @@ def show_upload_evidence():
             safe_name = f"{tanggal.strftime('%Y-%m-%d')}_{clean_posisi}_{total_cv}_CV.{file_name.split('.')[-1]}"
             
             try:
-                # 🔥🔥🔥 SIMPAN FILE KE DATABASE (BASE64) 🔥🔥🔥
-                file_data_b64 = base64.b64encode(file_bytes).decode('utf-8')
+                file_data_b64 = None
+                if has_file_data:
+                    file_data_b64 = base64.b64encode(file_bytes).decode('utf-8')
                 
                 new_evidence = Evidence(
                     kode_unik=kode_unik,
@@ -111,15 +132,23 @@ def show_upload_evidence():
                     total_cv=total_cv,
                     pic_recruiter=user.pic_recruiter or user.username,
                     user_id=user.id,
-                    created_at=datetime.now(),
-                    file_data=file_data_b64  # 🔥 Simpan sebagai base64
+                    created_at=datetime.now()
                 )
+                
+                if has_file_data:
+                    new_evidence.file_data = file_data_b64
+                
                 db.add(new_evidence)
                 db.commit()
                 
                 st.success("✅ Evidence berhasil direkam!")
                 st.info(f"📋 Nama file: {safe_name}")
                 st.info(f"📋 Total CV: {total_cv}")
+                
+                if has_file_data:
+                    st.info("📁 File disimpan di database")
+                else:
+                    st.warning("⚠️ File tidak disimpan di database (kolom file_data tidak ada)")
                 
                 st.download_button(
                     "📥 Download File",
@@ -199,11 +228,10 @@ def show_upload_evidence():
                     st.markdown(f"**File:** {detail.file_name}")
                     st.markdown(f"**PIC:** {detail.pic_recruiter}")
                 
-                # 🔥🔥🔥 TAMPILKAN GAMBAR EVIDENCE 🔥🔥🔥
                 st.markdown("---")
                 st.markdown("### 📎 File Evidence")
                 
-                if hasattr(detail, 'file_data') and detail.file_data:
+                if has_file_data and hasattr(detail, 'file_data') and detail.file_data:
                     try:
                         image_data = base64.b64decode(detail.file_data)
                         st.image(image_data, caption=detail.file_name, use_container_width=True)
@@ -218,8 +246,17 @@ def show_upload_evidence():
                         st.error(f"Error menampilkan gambar: {str(e)}")
                 else:
                     st.info("💡 File tidak ditemukan di database")
+                    
+                    if detail.file_path and os.path.exists(detail.file_path):
+                        with open(detail.file_path, "rb") as f:
+                            file_data = f.read()
+                        st.download_button(
+                            "📥 Download File (dari path)",
+                            file_data,
+                            detail.file_name,
+                            mime="application/octet-stream"
+                        )
                 
-                # Admin hapus
                 if admin:
                     st.markdown("---")
                     if st.button("🗑️ Hapus Evidence", type="secondary"):
@@ -231,6 +268,5 @@ def show_upload_evidence():
         st.info("Belum ada evidence yang diupload.")
 
 
-# Untuk kompatibilitas
 if __name__ == "__main__":
     show_upload_evidence()
