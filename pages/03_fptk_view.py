@@ -7,6 +7,169 @@ from core.auth import get_current_user, is_admin
 from datetime import datetime, timedelta
 import plotly.express as px
 import re
+import time
+
+# ============================================================
+# 🔥🔥🔥 CACHE FUNCTIONS (FIX: PAKAI _db) 🔥🔥🔥
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_master_options_fptk(_db):
+    """Mengambil semua opsi dari MasterDropdown untuk FPTK View - cache 1 jam"""
+    try:
+        master_records = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+        
+        bu_options = sorted(set([m.bu for m in master_records if m.bu]))
+        alasan_options = sorted(set([m.alasan for m in master_records if m.alasan]))
+        category_options = sorted(set([m.category_fptk for m in master_records if m.category_fptk]))
+        filter_options = sorted(set([m.filter_fptk for m in master_records if m.filter_fptk]))
+        status_options = ["OP", "Closed", "Cancel"]
+        lokasi_onboarding_options = sorted(set([m.lokasi_onboarding for m in master_records if m.lokasi_onboarding]))
+        direktorat_options = sorted(set([m.nama_direktorat for m in master_records if m.nama_direktorat]))
+        pic_options_all = sorted(set([m.pic_recruiter for m in master_records if m.pic_recruiter]))
+        kode_pic_options = sorted(set([m.kode_pic for m in master_records if m.kode_pic]))
+        
+        return {
+            'bu_options': bu_options,
+            'alasan_options': alasan_options,
+            'category_options': category_options,
+            'filter_options': filter_options,
+            'status_options': status_options,
+            'lokasi_onboarding_options': lokasi_onboarding_options,
+            'direktorat_options': direktorat_options,
+            'pic_options_all': pic_options_all,
+            'kode_pic_options': kode_pic_options
+        }
+    except Exception as e:
+        return {
+            'bu_options': [],
+            'alasan_options': [],
+            'category_options': [],
+            'filter_options': [],
+            'status_options': ["OP", "Closed", "Cancel"],
+            'lokasi_onboarding_options': [],
+            'direktorat_options': [],
+            'pic_options_all': [],
+            'kode_pic_options': []
+        }
+
+
+@st.cache_data(ttl=3600)
+def get_level_options_fptk():
+    """Generate Level Options - cache 1 jam"""
+    LEVEL_OPTIONS = []
+    for num in range(1, 6):
+        for letter in ['A', 'B']:
+            LEVEL_OPTIONS.append(f"{num}{letter}")
+    return LEVEL_OPTIONS
+
+
+@st.cache_data(ttl=3600)
+def get_detail_sla_options():
+    """Detail SLA Options - cache 1 jam"""
+    return [
+        "OP Belum Lewat SLA",
+        "OP Tidak Lulus SLA",
+        "Closed Lulus SLA",
+        "Closed Tidak Lulus SLA",
+        "Cancel FPTK"
+    ]
+
+
+# ============================================================
+# 🔥🔥🔥 FUNGSI UPDATE SLA OTOMATIS 🔥🔥🔥
+# ============================================================
+
+def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, fptk_cancel_date, today=None):
+    """
+    Menghitung Detail SLA secara OTOMATIS berdasarkan tanggal sekarang.
+    - OP Belum Lewat SLA: status OP dan today <= deadline_sla
+    - OP Tidak Lulus SLA: status OP dan today > deadline_sla
+    - Closed Lulus SLA: status Closed dan offering_date <= deadline_sla
+    - Closed Tidak Lulus SLA: status Closed dan offering_date > deadline_sla
+    - Cancel FPTK: status Cancel
+    """
+    if today is None:
+        today = datetime.now().date()
+    
+    # Jika status Cancel → selalu Cancel FPTK
+    if status == "Cancel":
+        return "Cancel FPTK"
+    
+    # Jika status Closed
+    if status == "Closed":
+        if offering_date and deadline_sla:
+            if offering_date <= deadline_sla:
+                return "Closed Lulus SLA"
+            else:
+                return "Closed Tidak Lulus SLA"
+        else:
+            # Jika offering_date atau deadline_sla tidak ada, cek berdasarkan fptk_date
+            if fptk_date_real and deadline_sla:
+                if today <= deadline_sla:
+                    return "OP Belum Lewat SLA"
+                else:
+                    return "OP Tidak Lulus SLA"
+            return "OP Belum Lewat SLA"  # Default
+    
+    # Jika status OP
+    if status == "OP":
+        if deadline_sla:
+            if today <= deadline_sla:
+                return "OP Belum Lewat SLA"
+            else:
+                return "OP Tidak Lulus SLA"
+        else:
+            return "OP Belum Lewat SLA"
+    
+    # Default
+    return "OP Belum Lewat SLA"
+
+
+def update_all_sla_bulk(db):
+    """
+    Update SLA untuk SEMUA data FPTK yang perlu di-update.
+    Dipanggil saat halaman di-load.
+    """
+    today = datetime.now().date()
+    updated_count = 0
+    
+    try:
+        # Ambil semua FPTK yang statusnya OP atau Closed
+        fptk_list = db.query(FPTK).filter(
+            FPTK.status.in_(["OP", "Closed", "Cancel"])
+        ).all()
+        
+        for fptk in fptk_list:
+            # Hitung ulang detail_sla
+            new_detail_sla = calculate_detail_sla_auto(
+                status=fptk.status,
+                fptk_date_real=fptk.fptk_date_real,
+                deadline_sla=fptk.deadline_sla,
+                offering_date=fptk.offering_date,
+                fptk_cancel_date=fptk.fptk_cancel_date,
+                today=today
+            )
+            
+            # Update jika berbeda
+            if fptk.detail_sla != new_detail_sla:
+                fptk.detail_sla = new_detail_sla
+                fptk.last_updated_at = datetime.now()
+                updated_count += 1
+        
+        if updated_count > 0:
+            db.commit()
+            return updated_count
+        return 0
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating SLA: {str(e)}")
+        return -1
+
+
+# ============================================================
+# FUNGSI UTAMA
+# ============================================================
 
 def show_fptk_view():
     st.title("📋 FPTK Database")
@@ -21,25 +184,36 @@ def show_fptk_view():
     admin = is_admin(db)
     
     # ============================================================
-    # LOAD MASTER DATA UNTUK DROPDOWN
+    # 🔥🔥🔥 AUTO UPDATE SLA (SETIAP LOAD HALAMAN) 🔥🔥🔥
     # ============================================================
-    master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+    with st.spinner("🔄 Memeriksa dan memperbarui SLA..."):
+        updated = update_all_sla_bulk(db)
+        if updated > 0:
+            st.success(f"✅ {updated} data FPTK diperbarui SLA-nya secara otomatis!")
+        elif updated == 0:
+            st.info("✅ Semua SLA sudah sesuai.")
+        else:
+            st.warning("⚠️ Terjadi error saat update SLA.")
+        time.sleep(0.5)
     
-    bu_options = sorted(set([m.bu for m in master_records if m.bu]))
-    alasan_options = sorted(set([m.alasan for m in master_records if m.alasan]))
-    category_options = sorted(set([m.category_fptk for m in master_records if m.category_fptk]))
-    filter_options = sorted(set([m.filter_fptk for m in master_records if m.filter_fptk]))
-    status_options = ["OP", "Closed", "Cancel"]
-    lokasi_onboarding_options = sorted(set([m.lokasi_onboarding for m in master_records if m.lokasi_onboarding]))
-    direktorat_options = sorted(set([m.nama_direktorat for m in master_records if m.nama_direktorat]))
-    pic_options_all = sorted(set([m.pic_recruiter for m in master_records if m.pic_recruiter]))
-    kode_pic_options = sorted(set([m.kode_pic for m in master_records if m.kode_pic]))
+    # ============================================================
+    # LOAD MASTER DATA DARI CACHE
+    # ============================================================
+    with st.spinner("📋 Memuat data master..."):
+        master_options = get_master_options_fptk(db)
     
-    # Level options
-    LEVEL_OPTIONS = []
-    for num in range(1, 6):
-        for letter in ['A', 'B']:
-            LEVEL_OPTIONS.append(f"{num}{letter}")
+    bu_options = master_options['bu_options']
+    alasan_options = master_options['alasan_options']
+    category_options = master_options['category_options']
+    filter_options = master_options['filter_options']
+    status_options = master_options['status_options']
+    lokasi_onboarding_options = master_options['lokasi_onboarding_options']
+    direktorat_options = master_options['direktorat_options']
+    pic_options_all = master_options['pic_options_all']
+    kode_pic_options = master_options['kode_pic_options']
+    
+    LEVEL_OPTIONS = get_level_options_fptk()
+    detail_sla_options = get_detail_sla_options()
     
     # ============================================================
     # FILTERS
@@ -54,6 +228,19 @@ def show_fptk_view():
         dir_filter = st.selectbox("Direktorat", ["Semua"] + direktorat_options)
         filter_kat_options = ["Semua", "CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"]
         filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options)
+        
+        st.markdown("---")
+        
+        # 🔥🔥🔥 TOMBOL REFRESH SLA MANUAL 🔥🔥🔥
+        if st.button("🔄 Refresh SLA Now", use_container_width=True, type="primary"):
+            with st.spinner("Memperbarui SLA..."):
+                updated = update_all_sla_bulk(db)
+                if updated > 0:
+                    st.success(f"✅ {updated} data SLA diperbarui!")
+                else:
+                    st.info("✅ Semua SLA sudah sesuai.")
+                time.sleep(0.5)
+                st.rerun()
         
         st.markdown("---")
         if st.button("🔄 Reset Filter", use_container_width=True):
@@ -126,7 +313,7 @@ def show_fptk_view():
     # Kolom yang ditampilkan (TANPA ID)
     display_cols = ['FPTK Date Real', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
                     'direktorat', 'status', 'filter_kategorisasi_fptk',  
-                    'vacancy', 'level_fptk', 'jumlah_sla']
+                    'vacancy', 'level_fptk', 'jumlah_sla', 'detail_sla']
     
     # Filter kolom yang ada
     available_cols = [c for c in display_cols if c in df.columns]
@@ -149,7 +336,8 @@ def show_fptk_view():
                 "filter_kategorisasi_fptk": "Filter Kategorisasi",
                 "vacancy": "Vacancy",
                 "level_fptk": "Level",
-                "jumlah_sla": "SLA (hari)"
+                "jumlah_sla": "SLA (hari)",
+                "detail_sla": "Detail SLA"
             }
         )
     
@@ -278,7 +466,6 @@ def show_fptk_view():
             col1, col2, col3 = st.columns(3)
             
             with col1:
-                # Kode Unik - Admin bisa edit, user biasa readonly
                 if admin:
                     new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "")
                 else:
@@ -302,12 +489,10 @@ def show_fptk_view():
                 new_status = st.selectbox("Status", status_options,
                                           index=status_options.index(detail.status) if detail.status in status_options else 0)
                 
-                # Level dropdown
                 default_level = detail.level_fptk or "1A"
                 new_level_fptk = st.selectbox("Level FPTK", LEVEL_OPTIONS,
                                               index=LEVEL_OPTIONS.index(default_level) if default_level in LEVEL_OPTIONS else 0)
                 
-                # Auto level number dari level
                 if new_level_fptk:
                     match = re.search(r'(\d+)', new_level_fptk)
                     new_level_number = int(match.group(1)) if match else 1
@@ -318,10 +503,11 @@ def show_fptk_view():
                 new_vacancy = st.number_input("Vacancy", min_value=1, value=detail.vacancy or 1)
             
             # ============================================================
-            # BAGIAN SLA - DITAMBAHKAN DI SINI
+            # BAGIAN SLA - OTOMATIS BERDASARKAN TANGGAL SEKARANG
             # ============================================================
             st.markdown("---")
-            st.markdown("#### SLA")
+            st.markdown("#### SLA (Otomatis dihitung berdasarkan tanggal)")
+            
             col1, col2, col3 = st.columns(3)
             with col1:
                 new_jumlah_sla = st.number_input("Jumlah SLA (hari)", min_value=0, value=detail.jumlah_sla or 0)
@@ -329,15 +515,16 @@ def show_fptk_view():
                 new_deadline_sla = st.date_input("Deadline SLA", 
                                                   value=detail.deadline_sla if detail.deadline_sla else None)
             with col3:
-                detail_sla_options = [
-                    "OP Belum Lewat SLA",
-                    "OP Tidak Lulus SLA",
-                    "Closed Lulus SLA",
-                    "Closed Tidak Lulus SLA",
-                    "Cancel FPTK"
-                ]
-                new_detail_sla = st.selectbox("Detail SLA", [""] + detail_sla_options,
-                                               index=(detail_sla_options.index(detail.detail_sla) + 1) if detail.detail_sla in detail_sla_options else 0)
+                # 🔥🔥🔥 DETAIL SLA AUTO DARI FUNGSI 🔥🔥🔥
+                auto_detail_sla = calculate_detail_sla_auto(
+                    status=new_status,
+                    fptk_date_real=detail.fptk_date_real,
+                    deadline_sla=new_deadline_sla if new_deadline_sla else detail.deadline_sla,
+                    offering_date=detail.offering_date,
+                    fptk_cancel_date=detail.fptk_cancel_date
+                )
+                st.text_input("Detail SLA (auto)", value=auto_detail_sla, disabled=True)
+                st.caption("⚠️ Detail SLA akan dihitung otomatis saat Anda mengubah status atau tanggal")
             
             st.markdown("---")
             st.markdown("#### Alasan & Category")
@@ -393,61 +580,77 @@ def show_fptk_view():
         # ============================================================
         if submitted:
             try:
-                # Update semua field
-                if admin and new_kode_unik:
-                    detail.kode_unik = new_kode_unik
-                    detail.posisi = new_posisi
-                    detail.pic_recruiter = new_pic_recruiter
-                    detail.kode_pic = new_kode_pic
-                    detail.business_unit = new_business_unit
-                    detail.direktorat = new_direktorat
-                    detail.divisi = new_divisi
-                    detail.department = new_department
-                    detail.status = new_status
-                    detail.level_fptk = new_level_fptk
-                    detail.level_number = new_level_number
-                    detail.vacancy = new_vacancy
-                    detail.alasan_permintaan_fptk = new_alasan
-                    detail.category_fptk = new_category
-                    detail.fptk_date_real = new_fptk_date_real
-                    detail.fptk_date_kode = new_fptk_date_kode
-                    detail.fptk_cancel_date = new_fptk_cancel_date
-                    detail.offering_date = new_offering_date
-                    detail.estimasi_join = new_estimasi_join
-                    detail.nama_kandidat = new_nama_kandidat
-                    detail.lokasi_kerja = new_lokasi_kerja
-                    detail.lokasi_hr = new_lokasi_hr
-                    detail.user_manager = new_user_manager
-                    detail.indirect_user = new_indirect_user
-                    detail.status_karyawan = new_status_karyawan
-                    detail.kebutuhan_laptop = new_kebutuhan_laptop
-                    detail.lokasi_onboarding = new_lokasi_onboarding
-                    detail.fptk_availability = new_fptk_availability
-                    detail.remark = new_remark
-                
-                # Update SLA fields
-                detail.jumlah_sla = new_jumlah_sla
-                detail.deadline_sla = new_deadline_sla
-                detail.detail_sla = new_detail_sla
-                
-                # Hitung ulang SLA jika level berubah (opsional - bisa di-override oleh input manual)
-                # Jika ingin tetap menggunakan perhitungan otomatis berdasarkan level, uncomment kode di bawah
+                # 🔥🔥🔥 HITUNG ULANG SLA OTOMATIS 🔥🔥🔥
                 if new_level_number <= 3:
                     sla_days = 30
                 elif new_level_number == 4:
                     sla_days = 45
                 else:
                     sla_days = 60
-                detail.jumlah_sla = sla_days
-                 
-                if detail.fptk_date_real and sla_days:
-                    detail.deadline_sla = detail.fptk_date_real + timedelta(days=sla_days)
                 
+                # Deadline SLA berdasarkan FPTK Date Real + SLA days
+                if new_fptk_date_real and sla_days:
+                    new_deadline_sla_calc = new_fptk_date_real + timedelta(days=sla_days)
+                else:
+                    new_deadline_sla_calc = new_deadline_sla
+                
+                # 🔥🔥🔥 DETAIL SLA OTOMATIS 🔥🔥🔥
+                new_detail_sla_auto = calculate_detail_sla_auto(
+                    status=new_status,
+                    fptk_date_real=new_fptk_date_real,
+                    deadline_sla=new_deadline_sla_calc,
+                    offering_date=new_offering_date,
+                    fptk_cancel_date=new_fptk_cancel_date
+                )
+                
+                # Update semua field
+                if admin and new_kode_unik:
+                    detail.kode_unik = new_kode_unik
+                
+                detail.posisi = new_posisi
+                detail.pic_recruiter = new_pic_recruiter
+                detail.kode_pic = new_kode_pic
+                detail.business_unit = new_business_unit
+                detail.direktorat = new_direktorat
+                detail.divisi = new_divisi
+                detail.department = new_department
+                detail.status = new_status
+                detail.level_fptk = new_level_fptk
+                detail.level_number = new_level_number
+                detail.vacancy = new_vacancy
+                detail.alasan_permintaan_fptk = new_alasan
+                detail.category_fptk = new_category
+                detail.fptk_date_real = new_fptk_date_real
+                detail.fptk_date_kode = new_fptk_date_kode
+                detail.fptk_cancel_date = new_fptk_cancel_date
+                detail.offering_date = new_offering_date
+                detail.estimasi_join = new_estimasi_join
+                detail.nama_kandidat = new_nama_kandidat
+                detail.lokasi_kerja = new_lokasi_kerja
+                detail.lokasi_hr = new_lokasi_hr
+                detail.user_manager = new_user_manager
+                detail.indirect_user = new_indirect_user
+                detail.status_karyawan = new_status_karyawan
+                detail.kebutuhan_laptop = new_kebutuhan_laptop
+                detail.lokasi_onboarding = new_lokasi_onboarding
+                detail.fptk_availability = new_fptk_availability
+                detail.remark = new_remark
+                
+                # 🔥🔥🔥 UPDATE SLA OTOMATIS 🔥🔥🔥
+                detail.jumlah_sla = sla_days
+                detail.deadline_sla = new_deadline_sla_calc
+                detail.detail_sla = new_detail_sla_auto
+                
+                # Update audit
                 detail.last_updated_at = datetime.now()
                 detail.last_compile_action = "MANUAL_EDIT"
                 
                 db.commit()
-                st.success("✅ Data FPTK berhasil diupdate!")
+                
+                # Clear cache setelah update
+                st.cache_data.clear()
+                
+                st.success(f"✅ Data FPTK berhasil diupdate! Detail SLA: {new_detail_sla_auto}")
                 st.rerun()
                 
             except Exception as e:
