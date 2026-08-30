@@ -10,7 +10,7 @@ import base64
 import os
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+#  CACHE FUNCTIONS 
 # ============================================================
 
 @st.cache_resource(ttl=3600)
@@ -426,13 +426,13 @@ def show_monitoring_sourcing():
         )
         
         # ============================================================
-        # 🔥🔥🔥 EVIDENCE VIEWER (DENGAN KODE UNIK + POSISI) 🔥🔥🔥
+        #  EVIDENCE VIEWER (DENGAN KODE UNIK + POSISI) 
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Evidence Viewer")
         st.caption("Pilih Kode Unik / Posisi dan Tanggal untuk melihat evidence")
 
-        # 🔥🔥🔥 BUAT OPSI DENGAN KODE UNIK + POSISI 🔥🔥🔥
+        #  BUAT OPSI DENGAN KODE UNIK + POSISI 
         kode_posisi_options = []
         for row in table_data:
             kode = row.get('kode_unik', '')
