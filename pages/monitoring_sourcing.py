@@ -7,6 +7,7 @@ from core.auth import get_current_user, is_admin
 from datetime import datetime, timedelta
 import time
 import base64
+import os
 
 # ============================================================
 # 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
@@ -72,6 +73,71 @@ def get_evidence_data(_db, kode_unik_list):
 
 
 # ============================================================
+# FUNGSI TAMPILKAN EVIDENCE
+# ============================================================
+
+def show_evidence_detail(evidence_id, db):
+    """Menampilkan detail evidence di popup/expander"""
+    try:
+        ev = db.query(Evidence).filter(Evidence.id == evidence_id).first()
+        if not ev:
+            st.warning("Evidence tidak ditemukan")
+            return
+        
+        st.markdown(f"### 📎 {ev.file_name}")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown(f"**Kode Unik:** {ev.kode_unik}")
+        with col2:
+            st.markdown(f"**Tanggal:** {ev.tanggal.strftime('%d/%m/%Y') if ev.tanggal else '-'}")
+        with col3:
+            st.markdown(f"**PIC:** {ev.pic_recruiter}")
+        
+        st.markdown(f"**Total CV:** {ev.total_cv}")
+        st.markdown(f"**Upload:** {ev.created_at.strftime('%d/%m/%Y %H:%M') if ev.created_at else '-'}")
+        
+        # Cek apakah ada file_data
+        if hasattr(ev, 'file_data') and ev.file_data:
+            try:
+                # Coba decode base64
+                image_data = base64.b64decode(ev.file_data)
+                st.image(image_data, caption=ev.file_name, use_container_width=True)
+            except:
+                st.info("File tidak bisa ditampilkan sebagai gambar")
+        else:
+            # Cek file di path
+            if ev.file_path and os.path.exists(ev.file_path):
+                with open(ev.file_path, "rb") as f:
+                    file_data = f.read()
+                st.download_button(
+                    "📥 Download File",
+                    file_data,
+                    ev.file_name,
+                    mime="application/octet-stream",
+                    key=f"download_{evidence_id}"
+                )
+            else:
+                st.info("💡 File tidak ditemukan di server")
+        
+        # Download jika ada file_data
+        if hasattr(ev, 'file_data') and ev.file_data:
+            try:
+                file_bytes = base64.b64decode(ev.file_data)
+                st.download_button(
+                    "📥 Download File",
+                    file_bytes,
+                    ev.file_name,
+                    mime="application/octet-stream",
+                    key=f"download_b64_{evidence_id}"
+                )
+            except:
+                pass
+                
+    except Exception as e:
+        st.error(f"Error menampilkan evidence: {str(e)}")
+
+
+# ============================================================
 # FUNGSI UTAMA
 # ============================================================
 
@@ -94,7 +160,7 @@ def show_monitoring_sourcing():
     admin = is_admin(db)
     
     # ============================================================
-    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    # LOAD FROM CACHE
     # ============================================================
     with st.spinner("📋 Memuat data..."):
         pic_list = get_pic_options_monitoring(db)
@@ -195,7 +261,7 @@ def show_monitoring_sourcing():
     st.markdown("---")
     
     # ============================================================
-    # 🔥🔥🔥 TABLE MONITORING DENGAN EVIDENCE 🔥🔥🔥
+    # TABLE MONITORING
     # ============================================================
     st.subheader("📋 Monitoring Sourcing per Kode Unik")
     
@@ -207,6 +273,7 @@ def show_monitoring_sourcing():
         tanggal_list = [(week_start + timedelta(days=i)) for i in range(7)]
         
         table_data = []
+        evidence_map = {}  # Untuk menyimpan evidence per kode_unik per tanggal
         
         for kode_unik, group in grouped:
             row = {
@@ -237,7 +304,7 @@ def show_monitoring_sourcing():
             # Total minggu ini
             row['total_minggu'] = len(group)
             
-            # 🔥🔥🔥 EVIDENCE PER TANGGAL (simpan data terpisah untuk viewer) 🔥🔥🔥
+            # Evidence per tanggal
             for tgl in tanggal_list:
                 tgl_str = tgl.strftime('%Y-%m-%d')
                 if not evidence_df.empty:
@@ -253,12 +320,14 @@ def show_monitoring_sourcing():
                                     can_view = True
                                     break
                         
-                        # 🔥🔥🔥 SIMPAN DATA EVIDENCE DI SESSION STATE 🔥🔥🔥
+                        ev_ids = ev_rows['id'].tolist()
                         row[f'ev_{tgl_str}'] = {
                             'count': len(ev_rows),
                             'can_view': can_view,
-                            'ids': ev_rows['id'].tolist()
+                            'ids': ev_ids
                         }
+                        # Simpan di evidence_map
+                        evidence_map[f"{kode_unik}_{tgl_str}"] = ev_ids
                     else:
                         row[f'ev_{tgl_str}'] = None
                 else:
@@ -267,15 +336,12 @@ def show_monitoring_sourcing():
             table_data.append(row)
         
         # ============================================================
-        # 🔥🔥🔥 BUAT DISPLAY DATAFRAME (TANPA OBJECT DICT) 🔥🔥🔥
+        # BUAT DISPLAY DATAFRAME
         # ============================================================
-        
-        # Buat list untuk display (semua nilai string/int, bukan dict)
         display_rows = []
         for row in table_data:
             display_row = {}
             
-            # Kolom utama
             display_row['fptk_date_real'] = row['fptk_date_real']
             display_row['kode_unik'] = row['kode_unik']
             display_row['posisi'] = row['posisi']
@@ -283,12 +349,10 @@ def show_monitoring_sourcing():
             display_row['status_fptk'] = row['status_fptk']
             display_row['filter_kategorisasi'] = row['filter_kategorisasi']
             
-            # Kolom tanggal
             for tgl in tanggal_list:
                 tgl_str = tgl.strftime('%Y-%m-%d')
                 display_row[tgl_str] = row.get(tgl_str, 0)
             
-            # Kolom evidence (hanya string, bukan dict)
             for tgl in tanggal_list:
                 tgl_str = tgl.strftime('%Y-%m-%d')
                 ev_key = f'ev_{tgl_str}'
@@ -305,14 +369,9 @@ def show_monitoring_sourcing():
             display_row['total_minggu'] = row['total_minggu']
             display_rows.append(display_row)
         
-        # ============================================================
-        # CREATE DISPLAY DATAFRAME
-        # ============================================================
         display_df = pd.DataFrame(display_rows)
         
-        # ============================================================
-        # URUTAN KOLOM
-        # ============================================================
+        # Urutan kolom
         kolom_utama = ['fptk_date_real', 'kode_unik', 'posisi', 'pic_recruiter', 'status_fptk', 'filter_kategorisasi']
         kolom_tanggal = [tgl.strftime('%Y-%m-%d') for tgl in tanggal_list]
         kolom_ev = [f'ev_{tgl.strftime("%Y-%m-%d")}' for tgl in tanggal_list]
@@ -328,21 +387,16 @@ def show_monitoring_sourcing():
         
         final_columns.extend(kolom_total)
         
-        # Filter kolom yang ada
         available_cols = [c for c in final_columns if c in display_df.columns]
         display_df = display_df[available_cols]
         
-        # ============================================================
-        # FORMAT TANGGAL FPTK
-        # ============================================================
+        # Format tanggal FPTK
         if 'fptk_date_real' in display_df.columns:
             display_df['fptk_date_real'] = display_df['fptk_date_real'].apply(
                 lambda x: x.strftime('%d/%m/%y') if isinstance(x, pd.Timestamp) else (x if x != '-' else '-')
             )
         
-        # ============================================================
-        # RENAME KOLOM UNTUK DISPLAY
-        # ============================================================
+        # Rename kolom
         rename_map = {
             'fptk_date_real': 'FPTK Date (Real)',
             'kode_unik': 'Kode Unik',
@@ -366,7 +420,7 @@ def show_monitoring_sourcing():
         display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
         
         # ============================================================
-        # 🔥🔥🔥 TAMPILKAN TABEL DENGAN STYLING RAPI 🔥🔥🔥
+        # 🔥🔥🔥 TAMPILKAN TABEL DENGAN EVIDENCE KLIKABLE 🔥🔥🔥
         # ============================================================
         st.dataframe(
             display_df,
@@ -376,80 +430,99 @@ def show_monitoring_sourcing():
         )
         
         # ============================================================
-        # 🔥🔥🔥 EVIDENCE VIEWER (DI BAWAH TABEL) 🔥🔥🔥
+        # 🔥🔥🔥 EVIDENCE VIEWER (KLIK LANGSUNG DARI TABEL) 🔥🔥🔥
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Evidence Viewer")
-        st.caption("Pilih Kode Unik dan Tanggal untuk melihat evidence / gambar")
+        st.caption("Klik tombol di bawah untuk melihat evidence per Kode Unik dan Tanggal")
         
+        # Pilih dari tabel dengan cara yang lebih mudah
         col1, col2 = st.columns(2)
         
         with col1:
             kode_options = sorted(display_df['Kode Unik'].unique().tolist())
-            selected_kode = st.selectbox("Pilih Kode Unik", kode_options, key="ev_kode")
+            selected_kode = st.selectbox("Pilih Kode Unik", kode_options, key="ev_kode_select")
         
         with col2:
+            # Tanggal options berdasarkan kode unik yang dipilih
             tanggal_options = []
             if selected_kode:
-                # Cari tanggal yang punya evidence untuk kode unik ini
-                for row in table_data:
-                    if row['kode_unik'] == selected_kode:
-                        for tgl in tanggal_list:
-                            tgl_str = tgl.strftime('%Y-%m-%d')
-                            ev_key = f'ev_{tgl_str}'
-                            if ev_key in row and row[ev_key] and row[ev_key].get('count', 0) > 0:
-                                tanggal_options.append(tgl)
-                        break
+                # Cari di evidence_map
+                for tgl in tanggal_list:
+                    key = f"{selected_kode}_{tgl.strftime('%Y-%m-%d')}"
+                    if key in evidence_map and evidence_map[key]:
+                        tanggal_options.append(tgl)
             
             if tanggal_options:
                 selected_tanggal = st.selectbox(
                     "Pilih Tanggal", 
                     tanggal_options,
                     format_func=lambda x: f"{hari_indonesia[x.weekday()]} {x.strftime('%d/%m/%Y')}",
-                    key="ev_tanggal"
+                    key="ev_tanggal_select"
                 )
             else:
                 st.info("Tidak ada evidence untuk kode unik ini")
                 selected_tanggal = None
         
         # ============================================================
-        # 🔥🔥🔥 TAMPILKAN GAMBAR EVIDENCE 🔥🔥🔥
+        # TAMPILKAN EVIDENCE
         # ============================================================
         if selected_kode and selected_tanggal:
-            ev_found = None
-            for row in table_data:
-                if row['kode_unik'] == selected_kode:
-                    tgl_str = selected_tanggal.strftime('%Y-%m-%d')
-                    ev_key = f'ev_{tgl_str}'
-                    if ev_key in row and row[ev_key]:
-                        ev_found = row[ev_key]
-                    break
-            
-            if ev_found and ev_found.get('count', 0) > 0:
-                if ev_found.get('can_view', False):
+            key = f"{selected_kode}_{selected_tanggal.strftime('%Y-%m-%d')}"
+            if key in evidence_map and evidence_map[key]:
+                ev_ids = evidence_map[key]
+                
+                # Cek akses
+                can_view = admin
+                if not can_view:
+                    for ev_id in ev_ids:
+                        ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
+                        if ev and ev.pic_recruiter == user.pic_recruiter:
+                            can_view = True
+                            break
+                
+                if can_view:
                     st.markdown(f"### 📎 Evidence untuk {selected_kode} - {selected_tanggal.strftime('%d/%m/%Y')}")
                     
-                    # Ambil data evidence dari database
-                    evidence_ids = ev_found.get('ids', [])
-                    for ev_id in evidence_ids:
+                    for ev_id in ev_ids:
                         ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
                         if ev:
                             with st.expander(f"📄 {ev.file_name} | CV: {ev.total_cv} | PIC: {ev.pic_recruiter}", expanded=True):
-                                if ev.file_data:
+                                # Tampilkan gambar jika ada
+                                if hasattr(ev, 'file_data') and ev.file_data:
                                     try:
-                                        st.image(ev.file_data, caption=ev.file_name, use_container_width=True)
+                                        image_data = base64.b64decode(ev.file_data)
+                                        st.image(image_data, caption=ev.file_name, use_container_width=True)
                                         
                                         st.download_button(
                                             label="⬇️ Download File",
-                                            data=ev.file_data,
+                                            data=image_data,
                                             file_name=ev.file_name,
-                                            mime="image/png",
-                                            key=f"download_{ev_id}"
+                                            mime="application/octet-stream",
+                                            key=f"download_ev_{ev_id}"
                                         )
                                     except Exception as e:
                                         st.error(f"Error menampilkan gambar: {str(e)}")
+                                elif ev.file_path and os.path.exists(ev.file_path):
+                                    with open(ev.file_path, "rb") as f:
+                                        file_data = f.read()
+                                    
+                                    # Coba tampilkan sebagai gambar
+                                    ext = ev.file_name.split('.')[-1].lower() if ev.file_name else ''
+                                    if ext in ['jpg', 'jpeg', 'png', 'gif']:
+                                        st.image(file_data, caption=ev.file_name, use_container_width=True)
+                                    else:
+                                        st.info(f"📄 File {ext.upper()} - Klik download")
+                                    
+                                    st.download_button(
+                                        label="⬇️ Download File",
+                                        data=file_data,
+                                        file_name=ev.file_name,
+                                        mime="application/octet-stream",
+                                        key=f"download_path_{ev_id}"
+                                    )
                                 else:
-                                    st.info("Tidak ada data gambar untuk evidence ini")
+                                    st.info("💡 File tidak ditemukan di server")
                 else:
                     st.warning("🔒 Evidence ini hanya bisa dilihat oleh PIC yang upload atau Admin")
             else:
@@ -491,17 +564,8 @@ def show_monitoring_sourcing():
         
     else:
         st.info("Tidak ada data untuk periode yang dipilih.")
-        
-        # Tampilkan FPTK terkait
-        st.subheader("📋 FPTK Terkait")
-        if not fptk_df.empty:
-            display_cols = ['kode_unik', 'posisi', 'pic_recruiter', 'status', 'fptk_date_real', 'filter_kategorisasi_fptk']
-            available_cols = [c for c in display_cols if c in fptk_df.columns]
-            st.dataframe(fptk_df[available_cols], use_container_width=True)
-        else:
-            st.info("Tidak ada FPTK terkait.")
 
 
-# Untuk kompatibilitas dengan pemanggilan lama
+# Untuk kompatibilitas
 if __name__ == "__main__":
     show()
