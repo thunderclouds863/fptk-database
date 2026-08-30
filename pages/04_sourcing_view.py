@@ -287,12 +287,10 @@ def show_sourcing_view():
         st.subheader("✏️ Detail & Edit Kandidat")
         st.caption("🔍 Cari berdasarkan Kode Unik, Nama, atau Posisi")
         
-        # 🔥🔥🔥 SEARCH DENGAN AUTOCOMPLETE DARI DATA YANG ADA 🔥🔥🔥
         # Buat list pilihan dengan format "Kode Unik | Nama | Posisi"
         df_all = pd.read_sql(query.statement, db.bind)
         
         if not df_all.empty:
-            # Buat opsi pencarian
             search_options = {}
             for _, row in df_all.iterrows():
                 kode = row.get('kode_unik', '')
@@ -303,7 +301,6 @@ def show_sourcing_view():
                     display += f" | {posisi[:20]}..." if len(posisi) > 20 else f" | {posisi}"
                 search_options[display] = row.get('id')
             
-            # Dropdown untuk memilih
             selected_display = st.selectbox(
                 "Pilih Kandidat (Kode Unik | Nama | Posisi)",
                 list(search_options.keys())
@@ -334,7 +331,7 @@ def show_sourcing_view():
                 st.markdown(f"**ID:** {detail.id}")
                 st.markdown(f"**No:** {detail.no or '-'}")
                 st.markdown(f"**Nama:** {detail.nama}")
-                st.markdown(f"**Posisi:** {detail.posisi or '-'}')
+                st.markdown(f"**Posisi:** {detail.posisi or '-'}")  # ✅ SUDAH DIPERBAIKI
                 st.markdown(f"**Kode Unik:** {detail.kode_unik}")
             with col2:
                 st.markdown(f"**Email:** {detail.email or '-'}")
