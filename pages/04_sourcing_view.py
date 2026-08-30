@@ -37,8 +37,8 @@ def get_sourcing_options_view():
     return {
         'sumber_options': ["Jobstreet", "LinkedIn", "Google Form", "Referensi User", "Referensi Karyawan", "Campus Hiring", "Walk-in Interview", "Database Internal", "Freelance", "Lainnya"],
         'model_options': ["Freelance", "Internal", "Outsource", "Lainnya"],
-        'pipeline_status_options': ["", "V", "X"],
-        'fmcg_options': ["", "Ya", "Tidak"],
+        'pipeline_status_options': ["V", "X"],
+        'fmcg_options': ["Ya", "Tidak"],
         'jenjang_options': ["SMA/SMK", "D3", "D4", "S1", "S2"],
         'univ_tier_options': ["Tier 1", "Tier 2", "Tier 3", "Lainnya"],
         'ipk_tier_options': ["> 3.5", "3.0 - 3.5", "2.5 - 3.0", "< 2.5"]
