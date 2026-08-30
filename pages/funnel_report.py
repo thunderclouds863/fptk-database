@@ -15,19 +15,19 @@ import time
 def get_funnel_pipeline_stages():
     """Pipeline stages untuk funnel - cache 1 jam"""
     return [
-        {"field": "sourcing_freelance", "label": "Sourcing FL", "funnel_label": "Sourcing FL"},
-        {"field": "sourcing_hr", "label": "Lolos Sourcing HR", "funnel_label": "Lolos Sourcing HR"},
-        {"field": "shortlist_cv", "label": "Shortlisted User", "funnel_label": "Shortlisted User"},
-        {"field": "psikotes", "label": "Lulus Psikotes", "funnel_label": "Lulus Psikotes"},
-        {"field": "hr_interview", "label": "Lulus HR Interview", "funnel_label": "Lulus HR Interview"},
-        {"field": "technical_test_case_study", "label": "Lulus Technical Case", "funnel_label": "Lulus Technical Case"},
-        {"field": "market_visit", "label": "Lulus Market Visit", "funnel_label": "Lulus Market Visit"},
-        {"field": "user_interview", "label": "Lulus User Interview", "funnel_label": "Lulus User Interview"},
-        {"field": "panel_interview", "label": "Lulus Panel Interview", "funnel_label": "Lulus Panel Interview"},
-        {"field": "reference_check", "label": "Reference Check", "funnel_label": "Reference Check"},
-        {"field": "mcu", "label": "Lolos MCU", "funnel_label": "Lolos MCU"},
-        {"field": "offering", "label": "Lolos Offering", "funnel_label": "Lolos Offering"},
-        {"field": "day1", "label": "Day One", "funnel_label": "Day One"}
+        {"field": "sourcing_freelance", "label": "Sourcing FL"},
+        {"field": "sourcing_hr", "label": "Lolos Sourcing HR"},
+        {"field": "shortlist_cv", "label": "Shortlisted User"},
+        {"field": "psikotes", "label": "Lulus Psikotes"},
+        {"field": "hr_interview", "label": "Lulus HR Interview"},
+        {"field": "technical_test_case_study", "label": "Lulus Technical Case"},
+        {"field": "market_visit", "label": "Lulus Market Visit"},
+        {"field": "user_interview", "label": "Lulus User Interview"},
+        {"field": "panel_interview", "label": "Lulus Panel Interview"},
+        {"field": "reference_check", "label": "Reference Check"},
+        {"field": "mcu", "label": "Lolos MCU"},
+        {"field": "offering", "label": "Lolos Offering"},
+        {"field": "day1", "label": "Day One"}
     ]
 
 
@@ -80,7 +80,7 @@ def show_funnel_report():
             st.rerun()
     
     # ============================================================
-    # QUERY DATA
+    # QUERY DATA SOURCING
     # ============================================================
     query = db.query(DBSourcing)
     
@@ -99,11 +99,18 @@ def show_funnel_report():
         return
     
     # ============================================================
-    # 📊 METRIC CARDS - TOTAL PER TAHAP
+    # 🔥🔥🔥 JOIN DENGAN FPTK 🔥🔥🔥
     # ============================================================
-    st.markdown("### 📊 Total Kandidat per Tahap")
+    fptk_df = pd.DataFrame()
+    if 'kode_unik' in df.columns:
+        kode_unik_list = df['kode_unik'].dropna().unique().tolist()
+        if kode_unik_list:
+            fptk_query = db.query(FPTK).filter(FPTK.kode_unik.in_(kode_unik_list))
+            fptk_df = pd.read_sql(fptk_query.statement, db.bind)
     
-    # Hitung total per stage (hanya yang statusnya "V")
+    # ============================================================
+    # 🔥🔥🔥 HITUNG TOTAL PER TAHAP (HANYA YANG V) 🔥🔥🔥
+    # ============================================================
     funnel_data = {}
     for stage in pipeline_stages:
         field = stage["field"]
@@ -112,13 +119,18 @@ def show_funnel_report():
             count = len(df[df[field] == "V"])
         else:
             count = 0
-        funnel_data[stage["funnel_label"]] = count
+        funnel_data[stage["label"]] = count
     
-    # Tampilkan metrics dalam beberapa baris
+    # ============================================================
+    # 📊 METRIC CARDS - TOTAL PER TAHAP
+    # ============================================================
+    st.markdown("### 📊 Total Kandidat Lolos per Tahap")
+    st.caption("Menampilkan jumlah kandidat yang LOLOS (V) di setiap tahap pipeline")
+    
+    # Tampilkan metrics dalam beberapa baris (4 kolom per baris)
     stage_labels = list(funnel_data.keys())
     stage_counts = list(funnel_data.values())
     
-    # Tampilkan 4 kolom per baris
     cols_per_row = 4
     for i in range(0, len(stage_labels), cols_per_row):
         cols = st.columns(cols_per_row)
@@ -140,7 +152,6 @@ def show_funnel_report():
     if funnel_data_chart:
         df_funnel = pd.DataFrame(list(funnel_data_chart.items()), columns=["Stage", "Count"])
         
-        # Warna untuk funnel
         colors = ['#2ecc71' if i % 2 == 0 else '#3498db' for i in range(len(df_funnel))]
         
         fig = go.Figure(go.Funnel(
@@ -153,7 +164,7 @@ def show_funnel_report():
         ))
         fig.update_layout(
             height=500,
-            title="Pipeline Sourcing Funnel",
+            title="Pipeline Sourcing Funnel (Kandidat yang Lolos / V)",
             font=dict(size=14)
         )
         st.plotly_chart(fig, use_container_width=True)
@@ -163,101 +174,84 @@ def show_funnel_report():
     st.markdown("---")
     
     # ============================================================
-    # 🔥🔥🔥 DETAIL TABLE (SEMUA KOLOM YANG DIMINTA) 🔥🔥🔥
+    # 🔥🔥🔥 DETAIL TABLE - PER KODE UNIK DENGAN CHECKLIST 🔥🔥🔥
     # ============================================================
-    st.markdown("### 📋 Detail Data Sourcing")
-    st.caption(f"Total: {total} kandidat")
-    
-    # ============================================================
-    # JOIN DENGAN FPTK UNTUK MENDAPATKAN DATA FPTK
-    # ============================================================
-    # Ambil data FPTK berdasarkan kode_unik
-    fptk_df = pd.DataFrame()
-    if 'kode_unik' in df.columns:
-        kode_unik_list = df['kode_unik'].dropna().unique().tolist()
-        if kode_unik_list:
-            fptk_query = db.query(FPTK).filter(FPTK.kode_unik.in_(kode_unik_list))
-            fptk_df = pd.read_sql(fptk_query.statement, db.bind)
+    st.markdown("### 📋 Detail Data Sourcing per Kode Unik")
+    st.caption(f"Total: {total} kandidat | V = Lolos, X = Tidak Lolos, - = Belum diproses")
     
     # ============================================================
-    # BUILD TABLE DENGAN SEMUA KOLOM
+    # BUILD TABLE PER KODE UNIK
     # ============================================================
     
-    # Kolom dari DBSourcing
-    sourcing_cols = {
-        'nama': 'Nama Kandidat',
-        'posisi': 'Posisi',
-        'kode_unik': 'Kode Unik',
-        'rekruter': 'PIC Recruiter',
-        'sourcing_date': 'Sourcing Date'
-    }
-    
-    # Kolom dari FPTK
-    fptk_cols = {
-        'fptk_date_real': 'FPTK Date Real',
-        'business_unit': 'Business Unit',
-        'direktorat': 'Direktorat',
-        'divisi': 'Divisi',
-        'department': 'Department',
-        'level_fptk': 'Level FPTK',
-        'level_number': 'Level Number',
-        'category_fptk': 'Category FPTK',
-        'filter_kategorisasi_fptk': 'Filter Kategorisasi FPTK'
-    }
-    
-    # Kolom pipeline
-    pipeline_cols = {}
-    for stage in pipeline_stages:
-        pipeline_cols[stage["field"]] = stage["label"]
-    
-    # Gabungkan semua kolom
-    all_columns = {**sourcing_cols, **pipeline_cols}
-    
-    # Buat dataframe dengan semua kolom
     display_data = []
     
     for _, row in df.iterrows():
-        row_data = {}
+        kode_unik = row.get('kode_unik', '-')
+        if pd.isna(kode_unik) or kode_unik == '':
+            kode_unik = '-'
         
-        # Ambil data dari DBSourcing
-        for col, label in sourcing_cols.items():
-            row_data[label] = row.get(col, '-')
-            if pd.isna(row_data[label]):
-                row_data[label] = '-'
-        
-        # Ambil data pipeline
-        for col, label in pipeline_cols.items():
-            val = row.get(col, '-')
-            if pd.isna(val):
-                val = '-'
-            row_data[label] = val
+        row_data = {
+            'Kode Unik': kode_unik,
+            'Nama Kandidat': row.get('nama', '-'),
+            'Posisi': row.get('posisi', '-'),
+            'PIC Recruiter': row.get('rekruter', '-'),
+        }
         
         # Ambil data dari FPTK (join berdasarkan kode_unik)
-        kode_unik = row.get('kode_unik')
-        if kode_unik and not fptk_df.empty:
-            fptk_row = fptk_df[fptk_df['kode_unik'] == kode_unik]
-            if not fptk_row.empty:
-                for col, label in fptk_cols.items():
-                    val = fptk_row.iloc[0].get(col, '-')
-                    if pd.isna(val):
-                        val = '-'
-                    # Format tanggal
-                    if col == 'fptk_date_real' and val != '-':
-                        try:
-                            val = pd.to_datetime(val).strftime('%d/%m/%Y')
-                        except:
-                            pass
-                    row_data[label] = val
+        fptk_row = None
+        if kode_unik != '-' and not fptk_df.empty:
+            fptk_rows = fptk_df[fptk_df['kode_unik'] == kode_unik]
+            if not fptk_rows.empty:
+                fptk_row = fptk_rows.iloc[0]
+        
+        # Data dari FPTK
+        if fptk_row is not None:
+            row_data['FPTK Date Real'] = fptk_row.get('fptk_date_real', '-')
+            if row_data['FPTK Date Real'] != '-' and not pd.isna(row_data['FPTK Date Real']):
+                try:
+                    row_data['FPTK Date Real'] = pd.to_datetime(row_data['FPTK Date Real']).strftime('%d/%m/%Y')
+                except:
+                    pass
+            
+            row_data['Business Unit'] = fptk_row.get('business_unit', '-') or '-'
+            row_data['Direktorat'] = fptk_row.get('direktorat', '-') or '-'
+            row_data['Divisi'] = fptk_row.get('divisi', '-') or '-'
+            row_data['Department'] = fptk_row.get('department', '-') or '-'
+            row_data['Level FPTK'] = fptk_row.get('level_fptk', '-') or '-'
+            row_data['Level Number'] = fptk_row.get('level_number', '-') or '-'
+            row_data['Category FPTK'] = fptk_row.get('category_fptk', '-') or '-'
+            row_data['Filter Kategorisasi FPTK'] = fptk_row.get('filter_kategorisasi_fptk', '-') or '-'
+        else:
+            row_data['FPTK Date Real'] = '-'
+            row_data['Business Unit'] = '-'
+            row_data['Direktorat'] = '-'
+            row_data['Divisi'] = '-'
+            row_data['Department'] = '-'
+            row_data['Level FPTK'] = '-'
+            row_data['Level Number'] = '-'
+            row_data['Category FPTK'] = '-'
+            row_data['Filter Kategorisasi FPTK'] = '-'
+        
+        # 🔥🔥🔥 PIPELINE STAGES - CHECKLIST PER KODE UNIK 🔥🔥🔥
+        for stage in pipeline_stages:
+            field = stage["field"]
+            val = row.get(field, '-')
+            if pd.isna(val):
+                val = '-'
+            row_data[stage["label"]] = val
         
         display_data.append(row_data)
     
-    # Buat dataframe final
+    # Buat dataframe
     display_df = pd.DataFrame(display_data)
     
     # Urutkan kolom sesuai yang diminta
     desired_order = [
-        'FPTK Date Real',
+        'Kode Unik',
+        'Nama Kandidat',
         'Posisi',
+        'PIC Recruiter',
+        'FPTK Date Real',
         'Business Unit',
         'Direktorat',
         'Divisi',
@@ -266,7 +260,6 @@ def show_funnel_report():
         'Level Number',
         'Category FPTK',
         'Filter Kategorisasi FPTK',
-        'PIC Recruiter',
         'Sourcing FL',
         'Lolos Sourcing HR',
         'Shortlisted User',
@@ -293,38 +286,85 @@ def show_funnel_report():
     # Urutkan
     display_df = display_df[desired_order]
     
+    # ============================================================
+    # STYLING - WARNA UNTUK V, X, -
+    # ============================================================
+    def color_status(val):
+        if val == 'V':
+            return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # Hijau
+        elif val == 'X':
+            return 'background-color: #f8d7da; color: #721c24; font-weight: bold;'  # Merah
+        else:
+            return 'background-color: #e9ecef; color: #6c757d;'  # Abu-abu
+    
+    # Apply styling hanya ke kolom pipeline
+    pipeline_columns = [
+        'Sourcing FL', 'Lolos Sourcing HR', 'Shortlisted User', 'Lulus Psikotes',
+        'Lulus HR Interview', 'Lulus Technical Case', 'Lulus Market Visit',
+        'Lulus User Interview', 'Lulus Panel Interview', 'Reference Check',
+        'Lolos MCU', 'Lolos Offering', 'Day One'
+    ]
+    
+    # Buat styler
+    styled_df = display_df.style.applymap(
+        color_status,
+        subset=[col for col in pipeline_columns if col in display_df.columns]
+    )
+    
     # Tampilkan dataframe dengan styling
     st.dataframe(
-        display_df,
+        styled_df,
         use_container_width=True,
-        height=500,
-        column_config={
-            "FPTK Date Real": st.column_config.TextColumn("FPTK Date Real", width="small"),
-            "Posisi": st.column_config.TextColumn("Posisi", width="medium"),
-            "Business Unit": st.column_config.TextColumn("Business Unit", width="small"),
-            "Direktorat": st.column_config.TextColumn("Direktorat", width="small"),
-            "Divisi": st.column_config.TextColumn("Divisi", width="medium"),
-            "Department": st.column_config.TextColumn("Department", width="medium"),
-            "Level FPTK": st.column_config.TextColumn("Level", width="small"),
-            "Level Number": st.column_config.TextColumn("Level Number", width="small"),
-            "Category FPTK": st.column_config.TextColumn("Category", width="small"),
-            "Filter Kategorisasi FPTK": st.column_config.TextColumn("Filter Kategorisasi", width="small"),
-            "PIC Recruiter": st.column_config.TextColumn("PIC Recruiter", width="small"),
-            "Sourcing FL": st.column_config.TextColumn("Sourcing FL", width="small"),
-            "Lolos Sourcing HR": st.column_config.TextColumn("Sourcing HR", width="small"),
-            "Shortlisted User": st.column_config.TextColumn("Shortlist", width="small"),
-            "Lulus Psikotes": st.column_config.TextColumn("Psikotes", width="small"),
-            "Lulus HR Interview": st.column_config.TextColumn("HR Interview", width="small"),
-            "Lulus Technical Case": st.column_config.TextColumn("Technical Case", width="small"),
-            "Lulus Market Visit": st.column_config.TextColumn("Market Visit", width="small"),
-            "Lulus User Interview": st.column_config.TextColumn("User Interview", width="small"),
-            "Lulus Panel Interview": st.column_config.TextColumn("Panel Interview", width="small"),
-            "Reference Check": st.column_config.TextColumn("Reference Check", width="small"),
-            "Lolos MCU": st.column_config.TextColumn("MCU", width="small"),
-            "Lolos Offering": st.column_config.TextColumn("Offering", width="small"),
-            "Day One": st.column_config.TextColumn("Day 1", width="small")
-        }
+        height=500
     )
+    
+    # ============================================================
+    # 📊 SUMMARY PER TAHAP DARI DETAIL DATA
+    # ============================================================
+    st.markdown("---")
+    st.markdown("### 📊 Summary Pipeline per Tahap")
+    
+    summary_data = []
+    for stage in pipeline_stages:
+        label = stage["label"]
+        field = stage["field"]
+        
+        # Total kandidat yang masuk stage ini (V + X)
+        total_in_stage = len(df[df[field].notna()]) if field in df.columns else 0
+        
+        # Total yang lolos (V)
+        total_v = len(df[df[field] == "V"]) if field in df.columns else 0
+        
+        # Total yang tidak lolos (X)
+        total_x = len(df[df[field] == "X"]) if field in df.columns else 0
+        
+        # Total yang belum diproses (-)
+        total_empty = len(df[df[field].isna() | (df[field] == "")]) if field in df.columns else 0
+        
+        # Conversion rate dari total kandidat
+        if total > 0:
+            conversion_rate = (total_v / total) * 100
+        else:
+            conversion_rate = 0
+        
+        # Conversion rate dari yang masuk stage
+        if total_in_stage > 0:
+            pass_rate = (total_v / total_in_stage) * 100
+        else:
+            pass_rate = 0
+        
+        summary_data.append({
+            "Tahap": label,
+            "Total Masuk": total_in_stage,
+            "✅ Lolos (V)": total_v,
+            "❌ Tidak Lolos (X)": total_x,
+            "⏳ Belum Diproses": total_empty,
+            "Conversion Rate (dari Total)": f"{conversion_rate:.1f}%",
+            "Pass Rate (dari yang Masuk)": f"{pass_rate:.1f}%"
+        })
+    
+    summary_df = pd.DataFrame(summary_data)
+    st.dataframe(summary_df, use_container_width=True, hide_index=True)
     
     # ============================================================
     # 🔥🔥🔥 EXPORT BUTTON 🔥🔥🔥
@@ -346,53 +386,3 @@ def show_funnel_report():
         if st.button("🔄 Refresh Data", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
-    
-    # ============================================================
-    # 📊 SUMMARY STATISTICS
-    # ============================================================
-    st.markdown("---")
-    st.markdown("### 📊 Summary Statistics")
-    
-    # Hitung conversion rate
-    col1, col2, col3 = st.columns(3)
-    
-    with col1:
-        total_candidates = len(df)
-        st.metric("Total Kandidat", total_candidates)
-    
-    with col2:
-        # Hitung yang lolos sampai Offering
-        offering_count = len(df[df['offering'] == "V"]) if 'offering' in df.columns else 0
-        st.metric("Lolos Offering", offering_count)
-    
-    with col3:
-        # Hitung yang lolos sampai Day 1
-        day1_count = len(df[df['day1'] == "V"]) if 'day1' in df.columns else 0
-        st.metric("Day 1", day1_count)
-    
-    # Conversion rate
-    st.markdown("---")
-    st.markdown("### 📈 Conversion Rate")
-    
-    conversion_data = []
-    prev_count = total_candidates
-    
-    for stage in pipeline_stages:
-        field = stage["field"]
-        label = stage["label"]
-        count = len(df[df[field] == "V"]) if field in df.columns else 0
-        
-        if prev_count > 0:
-            rate = (count / prev_count) * 100
-        else:
-            rate = 0
-        
-        conversion_data.append({
-            "Tahap": label,
-            "Jumlah": count,
-            "Conversion Rate": f"{rate:.1f}%"
-        })
-        
-        prev_count = count if count > 0 else prev_count
-    
-    st.dataframe(pd.DataFrame(conversion_data), use_container_width=True, hide_index=True)
