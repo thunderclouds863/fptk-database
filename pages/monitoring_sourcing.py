@@ -43,20 +43,13 @@ def get_monitoring_data(_db, week_start, week_end, pic_filter, kode_filter):
 
 
 @st.cache_data(ttl=300)
-def get_fptk_data(_db, week_start, week_end, pic_filter, kode_filter):
-    """Mengambil data FPTK terkait - cache 5 menit"""
+def get_fptk_data(_db, kode_unik_list):
+    """Mengambil data FPTK berdasarkan list kode unik - cache 5 menit"""
+    if not kode_unik_list:
+        return pd.DataFrame()
+    
     try:
-        query = _db.query(FPTK).filter(
-            FPTK.fptk_date_real >= week_start,
-            FPTK.fptk_date_real <= week_end
-        )
-        
-        if pic_filter != "Semua":
-            query = query.filter(FPTK.pic_recruiter == pic_filter)
-        
-        if kode_filter:
-            query = query.filter(FPTK.kode_unik.ilike(f"%{kode_filter}%"))
-        
+        query = _db.query(FPTK).filter(FPTK.kode_unik.in_(kode_unik_list))
         df = pd.read_sql(query.statement, _db.bind)
         return df
     except:
@@ -140,7 +133,11 @@ def show_monitoring_sourcing():
     
     with st.spinner("📊 Memuat data..."):
         df = get_monitoring_data(db, week_start, week_end, pic_filter, kode_filter)
-        fptk_df = get_fptk_data(db, week_start, week_end, pic_filter, kode_filter)
+        
+        # 🔥🔥🔥 AMBIL FPTK BERDASARKAN KODE UNIK DARI SOURCING 🔥🔥🔥
+        kode_unik_list = df['kode_unik'].dropna().unique().tolist()
+        fptk_df = get_fptk_data(db, kode_unik_list) if kode_unik_list else pd.DataFrame()
+        evidence_df = get_evidence_data(db, kode_unik_list) if kode_unik_list else pd.DataFrame()
     
     total = len(df)
     
@@ -205,19 +202,13 @@ def show_monitoring_sourcing():
     
     if total > 0:
         # ============================================================
-        # GET EVIDENCE DATA
-        # ============================================================
-        kode_unik_list = df['kode_unik'].dropna().unique().tolist()
-        evidence_df = get_evidence_data(db, kode_unik_list)
-        
-        # ============================================================
         # BUILD TABLE PER KODE UNIK
         # ============================================================
         
         # Group by kode_unik
         grouped = df.groupby('kode_unik')
         
-        # 🔥🔥🔥 BUAT LIST TANGGAL DARI FILTER 🔥🔥🔥
+        # Buat list tanggal dari filter
         tanggal_list = [(week_start + timedelta(days=i)) for i in range(7)]
         
         table_data = []
@@ -230,18 +221,20 @@ def show_monitoring_sourcing():
                 'total_cv': len(group)
             }
             
-            # Data FPTK
+            # 🔥🔥🔥 AMBIL DATA FPTK 🔥🔥🔥
             fptk_row = fptk_df[fptk_df['kode_unik'] == kode_unik] if not fptk_df.empty else pd.DataFrame()
             if not fptk_row.empty:
-                row['status_fptk'] = fptk_row.iloc[0].get('status', '-')
                 row['fptk_date_real'] = fptk_row.iloc[0].get('fptk_date_real', '-')
+                row['status_fptk'] = fptk_row.iloc[0].get('status', '-')
                 row['filter_kategorisasi'] = fptk_row.iloc[0].get('filter_kategorisasi_fptk', '-')
+                row['level_fptk'] = fptk_row.iloc[0].get('level_fptk', '-')
             else:
-                row['status_fptk'] = '-'
                 row['fptk_date_real'] = '-'
+                row['status_fptk'] = '-'
                 row['filter_kategorisasi'] = '-'
+                row['level_fptk'] = '-'
             
-            # 🔥🔥🔥 HITUNG CV PER TANGGAL 🔥🔥🔥
+            # Hitung CV per tanggal
             for tgl in tanggal_list:
                 count = len(group[group['sourcing_date'] == tgl])
                 row[tgl.strftime('%Y-%m-%d')] = count
@@ -261,14 +254,16 @@ def show_monitoring_sourcing():
                         # Cek akses: admin atau PIC yang upload
                         ev = ev_rows.iloc[0]
                         can_view = admin or (ev.get('pic_recruiter') == user.pic_recruiter)
-                        if can_view:
-                            row[f'ev_{tgl_str}'] = f"📎 {len(ev_rows)}"
-                        else:
-                            row[f'ev_{tgl_str}'] = f"🔒 {len(ev_rows)}"
+                        # Simpan info evidence untuk ditampilkan
+                        row[f'ev_{tgl_str}'] = {
+                            'count': len(ev_rows),
+                            'can_view': can_view,
+                            'data': ev_rows.to_dict('records')
+                        }
                     else:
-                        row[f'ev_{tgl_str}'] = '-'
+                        row[f'ev_{tgl_str}'] = None
                 else:
-                    row[f'ev_{tgl_str}'] = '-'
+                    row[f'ev_{tgl_str}'] = None
             
             table_data.append(row)
         
@@ -277,13 +272,13 @@ def show_monitoring_sourcing():
         # ============================================================
         display_df = pd.DataFrame(table_data)
         
-        # 🔥🔥🔥 SUSUN KOLOM DENGAN HEADER TANGGAL 🔥🔥🔥
-        kolom_utama = ['kode_unik', 'posisi', 'pic_recruiter', 'status_fptk', 'fptk_date_real', 'filter_kategorisasi']
+        # 🔥🔥🔥 URUTAN KOLOM: FPTK Date Real di KOLOM PERTAMA 🔥🔥🔥
+        kolom_utama = ['fptk_date_real', 'kode_unik', 'posisi', 'pic_recruiter', 'status_fptk', 'filter_kategorisasi']
         kolom_tanggal = [tgl.strftime('%Y-%m-%d') for tgl in tanggal_list]
         kolom_ev = [f'ev_{tgl.strftime("%Y-%m-%d")}' for tgl in tanggal_list]
         kolom_total = ['total_minggu']
         
-        # Susun kolom: utama, tanggal1, ev1, tanggal2, ev2, ...
+        # Susun kolom: FPTK Date, Kode Unik, Posisi, PIC, Status, Filter, tanggal1, ev1, tanggal2, ev2, ...
         final_columns = []
         final_columns.extend(kolom_utama)
         
@@ -298,7 +293,7 @@ def show_monitoring_sourcing():
         available_cols = [c for c in final_columns if c in display_df.columns]
         display_df = display_df[available_cols]
         
-        # Format tanggal FPTK
+        # 🔥🔥🔥 FORMAT TANGGAL FPTK 🔥🔥🔥
         if 'fptk_date_real' in display_df.columns:
             display_df['fptk_date_real'] = display_df['fptk_date_real'].apply(
                 lambda x: x.strftime('%d/%m/%y') if isinstance(x, pd.Timestamp) else (x if x != '-' else '-')
@@ -306,30 +301,40 @@ def show_monitoring_sourcing():
         
         # 🔥🔥🔥 RENAME KOLOM UNTUK DISPLAY 🔥🔥🔥
         rename_map = {
+            'fptk_date_real': 'FPTK Date (Real)',
             'kode_unik': 'Kode Unik',
             'posisi': 'Posisi',
             'pic_recruiter': 'PIC Recruiter',
             'status_fptk': 'Status FPTK',
-            'fptk_date_real': 'FPTK Date (Real)',
             'filter_kategorisasi': 'Filter Kategorisasi FPTK',
             'total_minggu': 'Total Week'
         }
         
         # Rename tanggal dengan format yang lebih friendly
+        hari_indonesia = {
+            0: 'Sen', 1: 'Sel', 2: 'Rab', 3: 'Kam', 4: 'Jum', 5: 'Sab', 6: 'Min'
+        }
         for tgl in tanggal_list:
             tgl_str = tgl.strftime('%Y-%m-%d')
-            # Format: dd/mm/yy + nama hari
-            hari_indonesia = {
-                0: 'Sen', 1: 'Sel', 2: 'Rab', 3: 'Kam', 4: 'Jum', 5: 'Sab', 6: 'Min'
-            }
             hari = hari_indonesia[tgl.weekday()]
             tgl_display = f"{hari} {tgl.strftime('%d/%m/%y')}"
             rename_map[tgl_str] = tgl_display
-            rename_map[f'ev_{tgl_str}'] = f'Ev{tgl.strftime("%d%m")}'
+            rename_map[f'ev_{tgl_str}'] = f'Evidence {tgl.strftime("%d/%m")}'
         
         display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
         
-        # Tampilkan dataframe
+        # ============================================================
+        # 🔥🔥🔥 TAMPILKAN TABEL DENGAN EVIDENCE KLIKABLE 🔥🔥🔥
+        # ============================================================
+        
+        # Konversi evidence ke format yang bisa ditampilkan
+        ev_columns = [col for col in display_df.columns if col.startswith('Evidence')]
+        
+        for col in ev_columns:
+            display_df[col] = display_df[col].apply(
+                lambda x: '📎 ' + str(x['count']) if x and isinstance(x, dict) and x.get('count', 0) > 0 else '-'
+            )
+        
         st.dataframe(
             display_df,
             use_container_width=True,
@@ -337,17 +342,74 @@ def show_monitoring_sourcing():
         )
         
         # ============================================================
+        # 🔥🔥🔥 EVIDENCE DETAIL VIEW (KLIK UNTUK LIHAT) 🔥🔥🔥
+        # ============================================================
+        st.markdown("---")
+        st.markdown("### 📎 Detail Evidence")
+        st.caption("Klik tombol di bawah untuk melihat evidence per Kode Unik dan Tanggal")
+        
+        # Pilih kode unik untuk melihat evidence
+        kode_options = sorted(display_df['Kode Unik'].unique().tolist())
+        selected_kode = st.selectbox("Pilih Kode Unik", kode_options)
+        
+        if selected_kode:
+            # Cari data untuk kode unik tersebut
+            row_data = None
+            for row in table_data:
+                if row['kode_unik'] == selected_kode:
+                    row_data = row
+                    break
+            
+            if row_data:
+                st.markdown(f"### Evidence untuk: **{selected_kode}**")
+                
+                # Tampilkan evidence per tanggal
+                for tgl in tanggal_list:
+                    tgl_str = tgl.strftime('%Y-%m-%d')
+                    ev_key = f'ev_{tgl_str}'
+                    
+                    if ev_key in row_data and row_data[ev_key]:
+                        ev_info = row_data[ev_key]
+                        if ev_info.get('count', 0) > 0:
+                            hari = hari_indonesia[tgl.weekday()]
+                            with st.expander(f"📎 {hari}, {tgl.strftime('%d/%m/%Y')} - {ev_info['count']} evidence"):
+                                if ev_info.get('can_view', False):
+                                    for ev in ev_info.get('data', []):
+                                        st.markdown(f"- **File:** {ev.get('file_name', '-')}")
+                                        st.markdown(f"  **Total CV:** {ev.get('total_cv', '-')}")
+                                        st.markdown(f"  **Upload oleh:** {ev.get('pic_recruiter', '-')}")
+                                        st.markdown(f"  **Tanggal Upload:** {ev.get('created_at', '-')}")
+                                        st.markdown("---")
+                                else:
+                                    st.warning("🔒 Evidence ini hanya bisa dilihat oleh PIC yang upload atau Admin")
+        
+        # ============================================================
         # LEGEND
         # ============================================================
-        st.caption("📎 = Evidence tersedia (klik untuk view) | 🔒 = Evidence terkunci (hanya PIC/Admin)")
+        st.markdown("---")
+        st.markdown("### 📌 Legend")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.markdown("📎 = Evidence tersedia")
+        with col2:
+            st.markdown("🔒 = Evidence terkunci (hanya PIC/Admin)")
+        with col3:
+            st.markdown("- = Tidak ada evidence")
         
         # ============================================================
         # EXPORT
         # ============================================================
+        st.markdown("---")
         col1, col2 = st.columns(2)
         with col1:
             if st.button("📥 Export CSV", use_container_width=True):
-                csv = df.to_csv(index=False)
+                # Export tanpa kolom evidence object
+                export_df = display_df.copy()
+                for col in ev_columns:
+                    export_df[col] = export_df[col].apply(
+                        lambda x: str(x) if x != '-' else '-'
+                    )
+                csv = export_df.to_csv(index=False)
                 st.download_button(
                     "⬇️ Download CSV", 
                     csv, 
@@ -364,41 +426,14 @@ def show_monitoring_sourcing():
     else:
         st.info("Tidak ada data untuk periode yang dipilih.")
         
-        # ============================================================
-        # TAMPILKAN FPTK TERKAIT
-        # ============================================================
+        # Tampilkan FPTK terkait
         st.subheader("📋 FPTK Terkait")
-        
-        fptk_display = fptk_df.copy()
-        if not fptk_display.empty:
+        if not fptk_df.empty:
             display_cols = ['kode_unik', 'posisi', 'pic_recruiter', 'status', 'fptk_date_real', 'filter_kategorisasi_fptk']
-            available_cols = [c for c in display_cols if c in fptk_display.columns]
-            st.dataframe(fptk_display[available_cols], use_container_width=True)
+            available_cols = [c for c in display_cols if c in fptk_df.columns]
+            st.dataframe(fptk_df[available_cols], use_container_width=True)
         else:
             st.info("Tidak ada FPTK terkait.")
-
-
-# ============================================================
-# FUNGSI UNTUK VIEW EVIDENCE (POPUP/DETAIL)
-# ============================================================
-
-def view_evidence(kode_unik, tanggal, db):
-    """Fungsi untuk melihat evidence detail"""
-    evidence_list = db.query(Evidence).filter(
-        Evidence.kode_unik == kode_unik,
-        Evidence.tanggal == tanggal
-    ).all()
-    
-    if evidence_list:
-        st.markdown(f"### 📎 Evidence untuk {kode_unik} - {tanggal.strftime('%d/%m/%Y')}")
-        for ev in evidence_list:
-            st.markdown(f"- **File:** {ev.file_name}")
-            st.markdown(f"  **Total CV:** {ev.total_cv}")
-            st.markdown(f"  **Upload oleh:** {ev.pic_recruiter}")
-            st.markdown(f"  **Tanggal Upload:** {ev.created_at.strftime('%d/%m/%Y %H:%M') if ev.created_at else '-'}")
-            st.markdown("---")
-    else:
-        st.info("Tidak ada evidence untuk tanggal ini.")
 
 
 # Untuk kompatibilitas dengan pemanggilan lama
