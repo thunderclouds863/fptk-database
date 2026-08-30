@@ -10,7 +10,7 @@ import base64
 import os
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS (GANTI ke st.cache_resource) 🔥🔥🔥
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
 # ============================================================
 
 @st.cache_resource(ttl=3600)
@@ -76,8 +76,8 @@ def get_evidence_data(_db, kode_unik_list):
 # FUNGSI TAMPILKAN EVIDENCE
 # ============================================================
 
-def show_evidence_detail(evidence_id, db):
-    """Menampilkan detail evidence di popup/expander"""
+def show_evidence_modal(evidence_id, db):
+    """Menampilkan evidence di modal/expander"""
     try:
         ev = db.query(Evidence).filter(Evidence.id == evidence_id).first()
         if not ev:
@@ -96,44 +96,41 @@ def show_evidence_detail(evidence_id, db):
         st.markdown(f"**Total CV:** {ev.total_cv}")
         st.markdown(f"**Upload:** {ev.created_at.strftime('%d/%m/%Y %H:%M') if ev.created_at else '-'}")
         
-        # Cek apakah ada file_data
+        # Tampilkan gambar jika ada
         if hasattr(ev, 'file_data') and ev.file_data:
             try:
                 image_data = base64.b64decode(ev.file_data)
                 st.image(image_data, caption=ev.file_name, use_container_width=True)
-            except:
-                st.info("File tidak bisa ditampilkan sebagai gambar")
-        else:
-            # Cek file di path
-            if ev.file_path and os.path.exists(ev.file_path):
-                with open(ev.file_path, "rb") as f:
-                    file_data = f.read()
-                st.download_button(
-                    "📥 Download File",
-                    file_data,
-                    ev.file_name,
-                    mime="application/octet-stream",
-                    key=f"download_{evidence_id}"
-                )
-            else:
-                st.info("💡 File tidak ditemukan di server")
-        
-        # Download jika ada file_data
-        if hasattr(ev, 'file_data') and ev.file_data:
-            try:
-                file_bytes = base64.b64decode(ev.file_data)
-                st.download_button(
-                    "📥 Download File",
-                    file_bytes,
-                    ev.file_name,
-                    mime="application/octet-stream",
-                    key=f"download_b64_{evidence_id}"
-                )
-            except:
-                pass
                 
+                st.download_button(
+                    "📥 Download File",
+                    image_data,
+                    ev.file_name,
+                    mime="application/octet-stream",
+                    key=f"download_modal_{evidence_id}"
+                )
+            except Exception as e:
+                st.error(f"Error menampilkan gambar: {str(e)}")
+        elif ev.file_path and os.path.exists(ev.file_path):
+            with open(ev.file_path, "rb") as f:
+                file_data = f.read()
+            
+            ext = ev.file_name.split('.')[-1].lower() if ev.file_name else ''
+            if ext in ['jpg', 'jpeg', 'png', 'gif']:
+                st.image(file_data, caption=ev.file_name, use_container_width=True)
+            
+            st.download_button(
+                "📥 Download File",
+                file_data,
+                ev.file_name,
+                mime="application/octet-stream",
+                key=f"download_modal_path_{evidence_id}"
+            )
+        else:
+            st.info("💡 File tidak ditemukan di server")
+            
     except Exception as e:
-        st.error(f"Error menampilkan evidence: {str(e)}")
+        st.error(f"Error: {str(e)}")
 
 
 # ============================================================
@@ -141,12 +138,10 @@ def show_evidence_detail(evidence_id, db):
 # ============================================================
 
 def show():
-    """Fungsi utama yang dipanggil dari app.py"""
     show_monitoring_sourcing()
 
 
 def show_monitoring_sourcing():
-    """Fungsi dengan nama spesifik untuk kompatibilitas"""
     st.title("📈 Monitoring Sourcing")
     st.markdown("Monitoring aktivitas sourcing per periode dengan evidence")
     
@@ -419,107 +414,130 @@ def show_monitoring_sourcing():
         display_df = display_df.rename(columns={k: v for k, v in rename_map.items() if k in display_df.columns})
         
         # ============================================================
-        # TAMPILKAN TABEL
+        # 🔥🔥🔥 TAMPILKAN TABEL DENGAN EVIDENCE KLIKABLE 🔥🔥🔥
         # ============================================================
         st.dataframe(
             display_df,
             use_container_width=True,
-            height=500,
+            height=400,
             hide_index=True
         )
         
         # ============================================================
-        # EVIDENCE VIEWER
+        # 🔥🔥🔥 EVIDENCE VIEWER (KLIK LANGSUNG DARI TABEL) 🔥🔥🔥
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Evidence Viewer")
-        st.caption("Klik tombol di bawah untuk melihat evidence per Kode Unik dan Tanggal")
+        st.caption("Klik tombol di bawah untuk melihat evidence yang dipilih dari tabel")
         
+        # Pilih dari tabel - gunakan selectbox dengan format yang jelas
         col1, col2 = st.columns(2)
         
         with col1:
-            kode_options = sorted(display_df['Kode Unik'].unique().tolist())
-            selected_kode = st.selectbox("Pilih Kode Unik", kode_options, key="ev_kode_select")
+            # Buat opsi yang menunjukkan evidence yang tersedia
+            ev_options = []
+            ev_option_map = {}
+            
+            for row in table_data:
+                kode = row['kode_unik']
+                for tgl in tanggal_list:
+                    tgl_str = tgl.strftime('%Y-%m-%d')
+                    ev_key = f'ev_{tgl_str}'
+                    if ev_key in row and row[ev_key] and row[ev_key].get('count', 0) > 0:
+                        hari = hari_indonesia[tgl.weekday()]
+                        label = f"{kode} | {hari} {tgl.strftime('%d/%m/%Y')} ({row[ev_key]['count']} files)"
+                        ev_options.append(label)
+                        ev_option_map[label] = {
+                            'kode_unik': kode,
+                            'tanggal': tgl,
+                            'ev_data': row[ev_key]
+                        }
+            
+            if ev_options:
+                selected_ev_label = st.selectbox(
+                    "Pilih Evidence dari tabel",
+                    ev_options,
+                    key="ev_select_direct"
+                )
+                
+                if selected_ev_label:
+                    selected_ev = ev_option_map[selected_ev_label]
+                    selected_kode = selected_ev['kode_unik']
+                    selected_tanggal = selected_ev['tanggal']
+                    ev_data = selected_ev['ev_data']
+                else:
+                    selected_kode = None
+                    selected_tanggal = None
+                    ev_data = None
+            else:
+                st.info("Tidak ada evidence di tabel ini")
+                selected_kode = None
+                selected_tanggal = None
+                ev_data = None
         
         with col2:
-            tanggal_options = []
+            # Filter tanggal berdasarkan kode unik yang dipilih
             if selected_kode:
-                for tgl in tanggal_list:
-                    key = f"{selected_kode}_{tgl.strftime('%Y-%m-%d')}"
-                    if key in evidence_map and evidence_map[key]:
-                        tanggal_options.append(tgl)
-            
-            if tanggal_options:
-                selected_tanggal = st.selectbox(
-                    "Pilih Tanggal", 
-                    tanggal_options,
-                    format_func=lambda x: f"{hari_indonesia[x.weekday()]} {x.strftime('%d/%m/%Y')}",
-                    key="ev_tanggal_select"
-                )
-            else:
-                st.info("Tidak ada evidence untuk kode unik ini")
-                selected_tanggal = None
+                # Cari kode unik di display_df untuk dapat informasi
+                st.markdown(f"**Kode Unik:** {selected_kode}")
+                st.markdown(f"**Tanggal:** {selected_tanggal.strftime('%d/%m/%Y') if selected_tanggal else '-'}")
+                
+                if ev_data and ev_data.get('count', 0) > 0:
+                    st.info(f"📎 {ev_data['count']} file evidence tersedia")
+                    if ev_data.get('can_view', False):
+                        st.success("✅ Anda memiliki akses untuk melihat evidence ini")
+                    else:
+                        st.warning("🔒 Evidence terkunci (hanya PIC/Admin)")
         
         # ============================================================
-        # TAMPILKAN EVIDENCE
+        # 🔥🔥🔥 TAMPILKAN EVIDENCE YANG DIPILIH 🔥🔥🔥
         # ============================================================
-        if selected_kode and selected_tanggal:
-            key = f"{selected_kode}_{selected_tanggal.strftime('%Y-%m-%d')}"
-            if key in evidence_map and evidence_map[key]:
-                ev_ids = evidence_map[key]
+        if selected_kode and selected_tanggal and ev_data:
+            if ev_data.get('can_view', False):
+                st.markdown("---")
+                st.markdown(f"### 📎 Evidence untuk {selected_kode} - {selected_tanggal.strftime('%d/%m/%Y')}")
                 
-                can_view = admin
-                if not can_view:
-                    for ev_id in ev_ids:
-                        ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
-                        if ev and ev.pic_recruiter == user.pic_recruiter:
-                            can_view = True
-                            break
-                
-                if can_view:
-                    st.markdown(f"### 📎 Evidence untuk {selected_kode} - {selected_tanggal.strftime('%d/%m/%Y')}")
-                    
-                    for ev_id in ev_ids:
-                        ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
-                        if ev:
-                            with st.expander(f"📄 {ev.file_name} | CV: {ev.total_cv} | PIC: {ev.pic_recruiter}", expanded=True):
-                                if hasattr(ev, 'file_data') and ev.file_data:
-                                    try:
-                                        image_data = base64.b64decode(ev.file_data)
-                                        st.image(image_data, caption=ev.file_name, use_container_width=True)
-                                        
-                                        st.download_button(
-                                            label="⬇️ Download File",
-                                            data=image_data,
-                                            file_name=ev.file_name,
-                                            mime="application/octet-stream",
-                                            key=f"download_ev_{ev_id}"
-                                        )
-                                    except Exception as e:
-                                        st.error(f"Error menampilkan gambar: {str(e)}")
-                                elif ev.file_path and os.path.exists(ev.file_path):
-                                    with open(ev.file_path, "rb") as f:
-                                        file_data = f.read()
-                                    
-                                    ext = ev.file_name.split('.')[-1].lower() if ev.file_name else ''
-                                    if ext in ['jpg', 'jpeg', 'png', 'gif']:
-                                        st.image(file_data, caption=ev.file_name, use_container_width=True)
-                                    else:
-                                        st.info(f"📄 File {ext.upper()} - Klik download")
+                for ev_id in ev_data.get('ids', []):
+                    ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
+                    if ev:
+                        with st.expander(f"📄 {ev.file_name} | CV: {ev.total_cv} | PIC: {ev.pic_recruiter}", expanded=True):
+                            if hasattr(ev, 'file_data') and ev.file_data:
+                                try:
+                                    image_data = base64.b64decode(ev.file_data)
+                                    st.image(image_data, caption=ev.file_name, use_container_width=True)
                                     
                                     st.download_button(
                                         label="⬇️ Download File",
-                                        data=file_data,
+                                        data=image_data,
                                         file_name=ev.file_name,
                                         mime="application/octet-stream",
-                                        key=f"download_path_{ev_id}"
+                                        key=f"download_ev_{ev_id}"
                                     )
+                                except Exception as e:
+                                    st.error(f"Error menampilkan gambar: {str(e)}")
+                            elif ev.file_path and os.path.exists(ev.file_path):
+                                with open(ev.file_path, "rb") as f:
+                                    file_data = f.read()
+                                
+                                ext = ev.file_name.split('.')[-1].lower() if ev.file_name else ''
+                                if ext in ['jpg', 'jpeg', 'png', 'gif']:
+                                    st.image(file_data, caption=ev.file_name, use_container_width=True)
                                 else:
-                                    st.info("💡 File tidak ditemukan di server")
-                else:
-                    st.warning("🔒 Evidence ini hanya bisa dilihat oleh PIC yang upload atau Admin")
+                                    st.info(f"📄 File {ext.upper()} - Klik download")
+                                
+                                st.download_button(
+                                    label="⬇️ Download File",
+                                    data=file_data,
+                                    file_name=ev.file_name,
+                                    mime="application/octet-stream",
+                                    key=f"download_path_{ev_id}"
+                                )
+                            else:
+                                st.info("💡 File tidak ditemukan di server")
             else:
-                st.info("Tidak ada evidence untuk tanggal ini")
+                st.warning("🔒 Evidence ini hanya bisa dilihat oleh PIC yang upload atau Admin")
+        elif selected_kode and selected_tanggal:
+            st.info("Tidak ada evidence untuk kombinasi ini")
         
         # ============================================================
         # LEGEND
@@ -528,7 +546,7 @@ def show_monitoring_sourcing():
         st.markdown("### 📌 Legend")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("📎 = Evidence tersedia (klik di bawah untuk lihat)")
+            st.markdown("📎 = Evidence tersedia (pilih dari dropdown di atas)")
         with col2:
             st.markdown("🔒 = Evidence terkunci (hanya PIC/Admin)")
         with col3:
@@ -560,6 +578,5 @@ def show_monitoring_sourcing():
         st.info("Tidak ada data untuk periode yang dipilih.")
 
 
-# Untuk kompatibilitas
 if __name__ == "__main__":
     show()
