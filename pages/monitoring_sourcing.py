@@ -10,7 +10,7 @@ import base64
 import os
 
 # ============================================================
-#  CACHE FUNCTIONS 
+# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
 # ============================================================
 
 @st.cache_resource(ttl=3600)
@@ -426,73 +426,68 @@ def show_monitoring_sourcing():
         )
         
         # ============================================================
-        #  EVIDENCE VIEWER (DENGAN KODE UNIK + POSISI) 
+        # 🔥🔥🔥 EVIDENCE VIEWER - SEARCH BY KODE UNIK ATAU POSISI 🔥🔥🔥
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Evidence Viewer")
-        st.caption("Pilih Kode Unik / Posisi dan Tanggal untuk melihat evidence")
-
-        #  BUAT OPSI DENGAN KODE UNIK + POSISI 
-        kode_posisi_options = []
-        for row in table_data:
-            kode = row.get('kode_unik', '')
-            posisi = row.get('posisi', '')
-            # Cek apakah ada evidence untuk kode ini
-            has_evidence = False
-            for tgl in tanggal_list:
-                tgl_str = tgl.strftime('%Y-%m-%d')
-                ev_key = f'ev_{tgl_str}'
-                if ev_key in row and row[ev_key] and row[ev_key].get('count', 0) > 0:
-                    has_evidence = True
-                    break
-            
-            if has_evidence:
-                display_text = f"{kode} | {posisi[:50]}..." if len(posisi) > 50 else f"{kode} | {posisi}"
-                kode_posisi_options.append({
-                    'display': display_text,
-                    'kode_unik': kode,
-                    'posisi': posisi
-                })
-
-        col1, col2 = st.columns(2)
-
+        st.caption("Cari evidence berdasarkan Kode Unik atau Posisi")
+        
+        # ============================================================
+        # BUAT DAFTAR UNTUK SEARCH
+        # ============================================================
+        # Ambil semua kode_unik dan posisi dari data
+        all_kode = sorted(display_df['Kode Unik'].unique().tolist())
+        
+        # Buat opsi pencarian: Kode Unik | Posisi
+        search_options = {}
+        for _, row in display_df.iterrows():
+            kode = row['Kode Unik']
+            posisi = row['Posisi']
+            display = f"{kode} | {posisi[:50]}..." if len(posisi) > 50 else f"{kode} | {posisi}"
+            search_options[display] = kode
+        
+        # ============================================================
+        # SEARCH DROPDOWN + SEARCH BOX
+        # ============================================================
+        col1, col2 = st.columns([2, 1])
+        
         with col1:
-            if kode_posisi_options:
-                selected_option = st.selectbox(
-                    "Pilih Kode Unik / Posisi",
-                    kode_posisi_options,
-                    format_func=lambda x: x['display'],
-                    key="ev_kode_select"
-                )
-                selected_kode = selected_option['kode_unik'] if selected_option else None
-            else:
-                st.info("Tidak ada evidence untuk periode ini")
-                selected_kode = None
-
-        with col2:
-            tanggal_options = []
-            if selected_kode:
-                # Cari tanggal yang punya evidence untuk kode unik ini
-                for row in table_data:
-                    if row.get('kode_unik') == selected_kode:
-                        for tgl in tanggal_list:
-                            tgl_str = tgl.strftime('%Y-%m-%d')
-                            ev_key = f'ev_{tgl_str}'
-                            if ev_key in row and row[ev_key] and row[ev_key].get('count', 0) > 0:
-                                tanggal_options.append(tgl)
-                        break
+            # 🔥🔥🔥 SEARCH DENGAN AUTOCOMPLETE (selectbox dengan banyak opsi) 🔥🔥🔥
+            selected_display = st.selectbox(
+                "Cari Kode Unik / Posisi",
+                list(search_options.keys()),
+                key="ev_search_select"
+            )
             
-            if tanggal_options:
-                selected_tanggal = st.selectbox(
-                    "Pilih Tanggal", 
-                    tanggal_options,
-                    format_func=lambda x: f"{hari_indonesia[x.weekday()]} {x.strftime('%d/%m/%Y')}",
-                    key="ev_tanggal_select"
-                )
+            if selected_display:
+                selected_kode = search_options[selected_display]
             else:
-                st.info("Tidak ada evidence untuk kode unik ini")
+                selected_kode = None
+        
+        with col2:
+            # Filter tanggal yang punya evidence untuk kode yang dipilih
+            if selected_kode:
+                # Cari tanggal yang punya evidence
+                tanggal_options = []
+                for tgl in tanggal_list:
+                    key = f"{selected_kode}_{tgl.strftime('%Y-%m-%d')}"
+                    if key in evidence_map and evidence_map[key]:
+                        tanggal_options.append(tgl)
+                
+                if tanggal_options:
+                    selected_tanggal = st.selectbox(
+                        "Pilih Tanggal",
+                        tanggal_options,
+                        format_func=lambda x: f"{hari_indonesia[x.weekday()]} {x.strftime('%d/%m/%Y')}",
+                        key="ev_tanggal_search"
+                    )
+                else:
+                    st.info("Tidak ada evidence untuk kode unik ini")
+                    selected_tanggal = None
+            else:
                 selected_tanggal = None
-
+                st.info("Pilih Kode Unik terlebih dahulu")
+        
         # ============================================================
         # TAMPILKAN EVIDENCE
         # ============================================================
@@ -510,16 +505,7 @@ def show_monitoring_sourcing():
                             break
                 
                 if can_view:
-                    # Cari posisi untuk ditampilkan
-                    posisi_text = ""
-                    for row in table_data:
-                        if row.get('kode_unik') == selected_kode:
-                            posisi_text = row.get('posisi', '')
-                            break
-                    
-                    st.markdown(f"### 📎 Evidence untuk **{selected_kode}**")
-                    st.markdown(f"📌 **Posisi:** {posisi_text}")
-                    st.markdown(f"📅 **Tanggal:** {selected_tanggal.strftime('%A, %d %B %Y')}")
+                    st.markdown(f"### 📎 Evidence untuk {selected_kode} - {selected_tanggal.strftime('%d/%m/%Y')}")
                     
                     for ev_id in ev_ids:
                         ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
@@ -570,7 +556,7 @@ def show_monitoring_sourcing():
         st.markdown("### 📌 Legend")
         col1, col2, col3 = st.columns(3)
         with col1:
-            st.markdown("📎 = Evidence tersedia (pilih di atas untuk lihat)")
+            st.markdown("📎 = Evidence tersedia (klik di bawah untuk lihat)")
         with col2:
             st.markdown("🔒 = Evidence terkunci (hanya PIC/Admin)")
         with col3:
