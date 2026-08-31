@@ -182,7 +182,7 @@ def safe_level_number_from_string(value):
 
 
 # ============================================================
-# VALIDATE FPTK FILE (DIPERBAIKI - PAKAI KODE ANGKA DARI EXCEL)
+# VALIDATE FPTK FILE (DIPERBAIKI - TIDAK CEK DUPLIKAT)
 # ============================================================
 def validate_fptk_file(
     df: pd.DataFrame,
@@ -303,12 +303,11 @@ def validate_fptk_file(
                 "error": "Kode Angka (ID) tidak boleh kosong",
                 "expected": "Kode Angka dari kolom Kode Angka (ID)"
             })
-            continue  # Skip generate kode_unik karena kode_angka tidak ada
+            continue
         
         # 2. KODE PIC
         kode_pic = row.get("kode_pic")
         if pd.isna(kode_pic) or str(kode_pic).strip() == "":
-            #  PAKAI "ADM" UNTUK ADMIN ATAU USER TANPA KODE PIC 
             df.at[idx, 'kode_pic'] = "ADM"
             kode_pic = "ADM"
             errors.append({
@@ -323,7 +322,6 @@ def validate_fptk_file(
         # 3. FPTK DATE KODE
         fptk_date_kode = row.get("fptk_date_kode")
         if pd.isna(fptk_date_kode) or str(fptk_date_kode).strip() == "":
-            #  PAKAI FPTK DATE REAL JIKA KODE KOSONG 
             fptk_date_real = row.get("fptk_date_real")
             if fptk_date_real and _is_valid_date(fptk_date_real):
                 df.at[idx, 'fptk_date_kode'] = fptk_date_real
@@ -346,7 +344,7 @@ def validate_fptk_file(
                 })
                 continue
         
-        # 4.  GENERATE KODE UNIK = KODE PIC + KODE ANGKA + FPTK DATE KODE 
+        # 4. GENERATE KODE UNIK = KODE PIC + KODE ANGKA + FPTK DATE KODE
         kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             if kode_pic and kode_angka and fptk_date_kode:
@@ -357,7 +355,7 @@ def validate_fptk_file(
                     "field": "Kode Unik",
                     "value": kode_unik,
                     "warning": True,
-                    "error": f"Kode Unik kosong, auto-generate dari Kode PIC + Kode Angka + FPTK Date Kode menjadi: {kode_unik_baru}",
+                    "error": f"Kode Unik kosong, auto-generate menjadi: {kode_unik_baru}",
                     "expected": "Kode Unik akan digenerate otomatis"
                 })
             else:
@@ -369,7 +367,6 @@ def validate_fptk_file(
                     "expected": "Format: [Kode PIC][Kode Angka][FPTK Date Kode DDMMYY]"
                 })
         else:
-            # Cek apakah kode_unik sesuai format
             kode_unik_clean = str(kode_unik).strip()
             expected_kode_unik = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
             if expected_kode_unik and kode_unik_clean != expected_kode_unik:
@@ -380,6 +377,22 @@ def validate_fptk_file(
                     "warning": True,
                     "error": f"Kode Unik '{kode_unik}' tidak sesuai format. Seharusnya: {expected_kode_unik}",
                     "expected": "Kode Unik akan tetap digunakan, tapi sebaiknya disesuaikan"
+                })
+            
+            # 🔥🔥🔥 CEK DUPLIKAT - HANYA WARNING, TIDAK BLOCK 🔥🔥🔥
+            existing_same_code = db.query(FPTK).filter(
+                FPTK.kode_unik == kode_unik_clean,
+                FPTK.posisi == row.get("posisi")
+            ).first()
+            
+            if existing_same_code:
+                errors.append({
+                    "row": row_num,
+                    "field": "Kode Unik",
+                    "value": kode_unik,
+                    "warning": True,
+                    "error": f"Kode Unik '{kode_unik}' dengan posisi '{row.get('posisi')}' sudah ada di database! Data akan tetap diproses dengan auto-increment.",
+                    "expected": "Kode Unik akan di-auto-increment oleh sistem"
                 })
         
         # 5. POSISI
@@ -574,7 +587,7 @@ def validate_fptk_file(
             df.at[idx, 'level_number'] = level_num
     
     # ============================================================
-    # SUMMARY
+    # SUMMARY - HANYA ERROR KRITIS YANG DI-BLOCK
     # ============================================================
     warnings = [
         e for e in errors
@@ -600,7 +613,7 @@ def validate_fptk_file(
         })
         return False, errors
     
-    # Jika hanya warning, tetap return True
+    # ✅ Jika hanya warning, tetap return True
     return True, warnings
 
 
@@ -612,11 +625,7 @@ def validate_db_sourcing_file(
     db,
     user_id: int
 ) -> Tuple[bool, List[Dict[str, Any]]]:
-    """
-    Validasi file DB Sourcing
-    - Kode Unik BOLEH duplikat
-    - Kode Unik TIDAK HARUS ada di FPTK
-    """
+    """Validasi file DB Sourcing"""
     errors = []
     
     if df.empty:
@@ -629,9 +638,6 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
-    # ============================================================
-    # REQUIRED COLUMNS MAPPING
-    # ============================================================
     required_mappings = {
         "kode_unik": ["Kode Unik", "Kode UNIK", "Unique Code", "Kode Unik (copy value dari FPTK)"],
         "nama": ["Nama", "Nama Kandidat", "Candidate Name"],
@@ -669,13 +675,9 @@ def validate_db_sourcing_file(
         "day1": ["Day 1"],
     }
     
-    # ============================================================
-    # FIND COLUMN MAPPING
-    # ============================================================
     all_mappings = {**required_mappings, **optional_mappings}
     column_mapping = find_column_mapping(df, all_mappings)
     
-    # Cek kolom yang hilang
     missing_columns = []
     for field_key in required_mappings.keys():
         if field_key not in column_mapping:
@@ -692,7 +694,6 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
-    # Rename columns
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
@@ -701,13 +702,9 @@ def validate_db_sourcing_file(
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
     
-    # ============================================================
-    # VALIDATE EACH ROW
-    # ============================================================
     for idx, row in df.iterrows():
         row_num = idx + 2
         
-        # KODE UNIK - boleh kosong, boleh duplikat
         kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             errors.append({
@@ -715,12 +712,9 @@ def validate_db_sourcing_file(
                 "field": "Kode Unik",
                 "value": kode_unik,
                 "error": "Kode Unik tidak boleh kosong",
-                "expected": "Kode Unik yang terdaftar di FPTK (opsional, boleh tidak ada)"
+                "expected": "Kode Unik yang terdaftar di FPTK"
             })
-        # ✅ TIDAK ADA CEK DUPLIKAT
-        # ✅ TIDAK ADA CEK FPTK
         
-        # NAMA harus ada
         nama = row.get("nama")
         if pd.isna(nama) or str(nama).strip() == "":
             errors.append({
@@ -731,7 +725,6 @@ def validate_db_sourcing_file(
                 "expected": "Nama kandidat"
             })
         
-        # SOURCING DATE harus ada
         sourcing_date = row.get("sourcing_date")
         if pd.isna(sourcing_date) or str(sourcing_date).strip() == "":
             errors.append({
@@ -821,7 +814,6 @@ def validate_db_kode_posisi_file(
         })
         return False, errors
     
-    # Rename
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
