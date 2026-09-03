@@ -245,17 +245,21 @@ def show_sourcing_input():
                     db.rollback()
     
     # ============================================================
-    # TAB 2: PASTE TEXT
+    # TAB 2: PASTE TEXT (DIMODIFIKASI)
     # ============================================================
     with tab2:
         st.subheader("Paste Text CV")
         st.caption("Paste hasil copy dari Jobstreet / LinkedIn / Copilot Agent")
         
-        raw_text = st.text_area("Paste teks CV di sini", height=250)
+        raw_text = st.text_area("Paste teks CV di sini", height=150)
         
         col1, col2 = st.columns([1, 4])
         with col1:
             parse_btn = st.button("🔍 Parse Text", use_container_width=True, type="primary")
+        
+        # State untuk menyimpan hasil parse
+        if 'parsed_data' not in st.session_state:
+            st.session_state.parsed_data = {}
         
         if parse_btn and raw_text:
             with st.spinner("Memproses..."):
@@ -289,52 +293,192 @@ def show_sourcing_input():
                             parsed['last_company'] = val
                         elif 'sumber' in key or 'source' in key:
                             parsed['sumber'] = val
+                        elif 'posisi' in key or 'position' in key:
+                            parsed['posisi'] = val
+                        elif 'kode unik' in key or 'kode' in key:
+                            parsed['kode_unik'] = val
+                        elif 'tenure' in key or 'lama kerja' in key:
+                            parsed['total_tenure'] = val
+                        elif 'last tenure' in key:
+                            parsed['last_tenure'] = val
                 
                 if parsed.get('nama'):
                     st.success(f"✅ Data ditemukan: {parsed.get('nama')}")
+                    st.session_state.parsed_data = parsed
                     
+                    # Tampilkan hasil parse
+                    st.markdown("**Hasil Parse:**")
                     col1, col2 = st.columns(2)
                     with col1:
-                        st.json(parsed)
-                    
-                    with col2:
-                        st.markdown("**Hasil Parse:**")
                         for k, v in parsed.items():
                             if v:
                                 st.markdown(f"- **{k}:** {v}")
-                    
-                    if st.button("💾 Simpan dari Parse", type="primary"):
-                        try:
-                            last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
-                            next_no = (last_no.no + 1) if last_no and last_no.no else 1
-                            
-                            new = DBSourcing(
-                                no=next_no,
-                                nama=parsed.get('nama', ''),
-                                email=parsed.get('email', ''),
-                                nomor_hp=parse_phone(parsed.get('hp', '')),
-                                domisili=parsed.get('domisili', ''),
-                                nama_universitas_top10=parsed.get('univ', ''),
-                                jurusan=parsed.get('jurusan', ''),
-                                ipk=safe_int(parsed.get('ipk', '').replace(',', '.')),
-                                tahun_lulus=parsed.get('tahun_lulus') if parsed.get('tahun_lulus') and str(parsed.get('tahun_lulus')).isdigit() else None,
-                                last_position=parsed.get('last_position', ''),
-                                last_company=parsed.get('last_company', ''),
-                                sumber_sourcing=parsed.get('sumber', ''),
-                                rekruter=user.pic_recruiter,
-                                sourcing_date=datetime.now().date(),
-                                source_user_id=user.id,
-                                created_at=datetime.now()
-                            )
-                            db.add(new)
-                            db.commit()
-                            st.success(f"✅ '{parsed.get('nama')}' berhasil disimpan!")
-                            st.balloons()
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                            db.rollback()
+                    with col2:
+                        st.json(parsed)
                 else:
                     st.warning("Tidak ada data terdeteksi. Pastikan formatnya 'Nama: ...'")
+        
+        # ============================================================
+        # 🔥🔥🔥 FORM DENGAN DATA HASIL PARSE 🔥🔥🔥
+        # ============================================================
+        if st.session_state.parsed_data:
+            st.markdown("---")
+            st.subheader("📝 Edit Data Sebelum Simpan")
+            st.caption("Data dari hasil parse sudah diisi otomatis. Silakan edit jika diperlukan.")
+            
+            parsed = st.session_state.parsed_data
+            
+            with st.form("form_parse_edit"):
+                col1, col2 = st.columns(2)
+                with col1:
+                    nama_edit = st.text_input("Nama *", value=parsed.get('nama', ''))
+                    posisi_edit = st.text_input("Posisi", value=parsed.get('posisi', ''))
+                    kode_unik_edit = st.text_input("Kode Unik", value=parsed.get('kode_unik', ''))
+                    pic_recruiter_edit = st.selectbox("PIC Recruiter *", [""] + pic_options)
+                    hp_edit = st.text_input("No HP", value=parsed.get('hp', ''))
+                    email_edit = st.text_input("Email", value=parsed.get('email', ''))
+                    
+                    # Set default sumber jika ada
+                    default_sumber_index = 0
+                    if parsed.get('sumber', '') in sumber_options:
+                        default_sumber_index = [""] + sumber_options.index(parsed.get('sumber', ''))
+                    sumber_edit = st.selectbox("Sumber *", [""] + sumber_options, 
+                                              index=default_sumber_index)
+                    domisili_edit = st.text_input("Domisili", value=parsed.get('domisili', ''))
+                    
+                with col2:
+                    jenjang_edit = st.selectbox("Jenjang", [""] + jenjang_options)
+                    
+                    # Set default univ jika ada
+                    default_univ_index = 0
+                    if parsed.get('univ', '') in univ_options:
+                        default_univ_index = [""] + univ_options.index(parsed.get('univ', ''))
+                    univ_edit = st.selectbox("Universitas", [""] + univ_options, 
+                                            index=default_univ_index)
+                    univ_lain_edit = st.text_input("Univ Lainnya") if univ_edit == "Lainnya" else ""
+                    
+                    # Set default jurusan jika ada
+                    default_jurusan_index = 0
+                    if parsed.get('jurusan', '') in jurusan_options:
+                        default_jurusan_index = [""] + jurusan_options.index(parsed.get('jurusan', ''))
+                    jurusan_edit = st.selectbox("Jurusan", [""] + jurusan_options,
+                                               index=default_jurusan_index)
+                    ipk_edit = st.text_input("IPK", value=parsed.get('ipk', ''), placeholder="Contoh: 3.50")
+                    tahun_lulus_edit = st.number_input("Tahun Lulus", min_value=1990, max_value=2030, step=1, 
+                                                       value=int(parsed.get('tahun_lulus', 0)) if parsed.get('tahun_lulus', '').isdigit() else None)
+                    fmcg_edit = st.selectbox("Pernah di FMCG?", [""] + fmcg_options)
+                
+                st.markdown("---")
+                st.markdown("### Riwayat Pekerjaan")
+                col1, col2 = st.columns(2)
+                with col1:
+                    last_position_edit = st.text_input("Last Position", value=parsed.get('last_position', ''))
+                    last_company_edit = st.text_input("Last Company", value=parsed.get('last_company', ''))
+                with col2:
+                    last_tenure_edit = st.text_input("Last Tenure", value=parsed.get('last_tenure', ''))
+                    total_tenure_edit = st.text_input("Total Tenure", value=parsed.get('total_tenure', ''))
+                
+                st.markdown("---")
+                st.markdown("### Pipeline (Status awal)")
+                
+                st.markdown("#### Sourcing Freelance (Pipeline Awal)")
+                col1, col2 = st.columns(2)
+                with col1:
+                    sourcing_freelance_edit = st.selectbox("Sourcing Freelance", [""] + pipeline_options)
+                with col2:
+                    if sourcing_freelance_edit:
+                        tanggal_sourcing_freelance_edit = st.date_input("Tanggal Sourcing Freelance", datetime.now())
+                    else:
+                        tanggal_sourcing_freelance_edit = None
+                        st.date_input("Tanggal Sourcing Freelance", datetime.now(), disabled=True)
+                
+                st.markdown("#### Sourcing HR")
+                col1, col2 = st.columns(2)
+                with col1:
+                    sourcing_hr_edit = st.selectbox("Sourcing HR", [""] + pipeline_options)
+                with col2:
+                    if sourcing_hr_edit:
+                        tanggal_sourcing_edit = st.date_input("Tanggal Sourcing HR", datetime.now())
+                    else:
+                        tanggal_sourcing_edit = None
+                        st.date_input("Tanggal Sourcing HR", datetime.now(), disabled=True)
+                
+                col1, col2, col3 = st.columns([1, 1, 2])
+                with col1:
+                    submitted_parse = st.form_submit_button("💾 Simpan Kandidat", type="primary")
+                with col2:
+                    reset_parse = st.form_submit_button("🔄 Reset", type="secondary")
+            
+            if reset_parse:
+                st.session_state.parsed_data = {}
+                st.rerun()
+            
+            if submitted_parse:
+                errors = []
+                if not nama_edit:
+                    errors.append("Nama wajib diisi")
+                if not sumber_edit:
+                    errors.append("Sumber wajib diisi")
+                if not pic_recruiter_edit:
+                    errors.append("PIC Recruiter wajib diisi")
+                
+                if errors:
+                    for err in errors:
+                        st.error(f"❌ {err}")
+                else:
+                    try:
+                        # Cek duplikat
+                        existing = db.query(DBSourcing).filter(DBSourcing.nama == nama_edit).first()
+                        if existing:
+                            st.warning(f"⚠️ Nama '{nama_edit}' sudah ada!")
+                            if not st.button("Tetap simpan (force)"):
+                                st.stop()
+                        
+                        last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
+                        next_no = (last_no.no + 1) if last_no and last_no.no else 1
+                        
+                        new = DBSourcing(
+                            no=next_no,
+                            nama=nama_edit,
+                            posisi=posisi_edit,
+                            kode_unik=kode_unik_edit,
+                            rekruter=pic_recruiter_edit,
+                            sumber_sourcing=sumber_edit,
+                            domisili=domisili_edit,
+                            jenjang_pendidikan=jenjang_edit,
+                            nama_universitas_top10=univ_edit if univ_edit != "Lainnya" else "",
+                            nama_universitas_lainnya=univ_lain_edit if univ_edit == "Lainnya" else "",
+                            jurusan=jurusan_edit,
+                            ipk=safe_int(ipk_edit.replace(',', '.')) if ipk_edit else None,
+                            tahun_lulus=tahun_lulus_edit if tahun_lulus_edit and tahun_lulus_edit > 0 else None,
+                            nomor_hp=parse_phone(hp_edit),
+                            email=email_edit if is_valid_email(email_edit) else "",
+                            last_position=last_position_edit,
+                            last_company=last_company_edit,
+                            last_tenure=last_tenure_edit,
+                            total_tenure=total_tenure_edit,
+                            pernah_di_fmcg=fmcg_edit,
+                            sourcing_freelance=sourcing_freelance_edit if sourcing_freelance_edit else None,
+                            tanggal_sourcing_freelance=tanggal_sourcing_freelance_edit if sourcing_freelance_edit else None,
+                            sourcing_hr=sourcing_hr_edit if sourcing_hr_edit else None,
+                            tanggal_sourcing=tanggal_sourcing_edit if sourcing_hr_edit else None,
+                            sourcing_date=datetime.now().date(),
+                            source_user_id=user.id,
+                            created_at=datetime.now(),
+                            last_compile_action="PARSE_INPUT"
+                        )
+                        db.add(new)
+                        db.commit()
+                        st.success(f"✅ '{nama_edit}' berhasil disimpan!")
+                        st.balloons()
+                        
+                        # Reset setelah sukses
+                        st.session_state.parsed_data = {}
+                        time.sleep(1)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
+                        db.rollback()
     
     # ============================================================
     # TAB 3: BATCH CV
@@ -384,7 +528,8 @@ def show_sourcing_input():
                             rekruter=user.pic_recruiter,
                             sourcing_date=datetime.now().date(),
                             source_user_id=user.id,
-                            created_at=datetime.now()
+                            created_at=datetime.now(),
+                            last_compile_action="BATCH_INPUT"
                         )
                         db.add(new)
                         db.commit()
