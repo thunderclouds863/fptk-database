@@ -1,10 +1,10 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime
 from core.database import get_db
 from core.models import DBSourcing, FPTK, MasterDropdown
 from core.auth import get_current_user
-from core.utils import safe_int, parse_phone, is_valid_email, normalize_key
+from core.utils import safe_int, parse_phone, is_valid_email
 import time
 import re
 
@@ -63,26 +63,25 @@ def get_pipeline_stages():
 
 
 def parse_cv_text(raw_text: str) -> dict:
-    """Parse CV text ke dictionary fields - support format Copilot"""
+    """Parse CV text ke dictionary fields - IMPROVED VERSION"""
     parsed = {
-        "nama": "",
-        "email": "",
-        "hp": "",
-        "universitas": "",
-        "jenjang": "",
-        "jurusan": "",
-        "ipk": "",
-        "tahun_lulus": "",
-        "domisili": "",
-        "last_position": "",
-        "last_company": "",
-        "last_tenure": "",
-        "total_tenure": "",
-        "fmcg": "",
-        "sumber": "",
-        "posisi": "",
-        "kode_unik": "",
-        "univ_lain": ""
+        'nama': '',
+        'email': '',
+        'hp': '',
+        'univ': '',
+        'jurusan': '',
+        'ipk': '',
+        'tahun_lulus': '',
+        'domisili': '',
+        'last_position': '',
+        'last_company': '',
+        'last_tenure': '',
+        'total_tenure': '',
+        'sumber': '',
+        'posisi': '',
+        'kode_unik': '',
+        'jenjang': '',
+        'fmcg': ''
     }
     
     if not raw_text:
@@ -90,27 +89,35 @@ def parse_cv_text(raw_text: str) -> dict:
     
     lines = raw_text.split('\n')
     
-    # Map key yang lebih lengkap
-    key_map = {
-        'nama': ['nama', 'name', 'full name', 'candidate name'],
-        'email': ['email', 'email address'],
-        'hp': ['hp', 'no hp', 'nomor hp', 'phone', 'phone number', 'no. hp'],
-        'universitas': ['universitas', 'university', 'univ', 'college'],
-        'jenjang': ['jenjang', 'jenjang pendidikan', 'education level', 'level'],
-        'jurusan': ['jurusan', 'major', 'program studi'],
-        'ipk': ['ipk', 'gpa', 'grade point average'],
-        'tahun_lulus': ['tahun lulus', 'graduation year', 'year of graduation', 'lulus'],
-        'domisili': ['domisili', 'domicile', 'location', 'city', 'kota', 'address'],
-        'last_position': ['last position', 'posisi terakhir', 'previous position', 'last job'],
-        'last_company': ['last company', 'perusahaan terakhir', 'previous company', 'last employer'],
-        'last_tenure': ['last tenure', 'tenure in last position', 'lama di posisi terakhir'],
-        'total_tenure': ['total tenure', 'total pengalaman', 'length of experience', 'total experience'],
-        'fmcg': ['fmcg', 'pernah di fmcg', 'fmcg experience', 'industry', 'pengalaman fmcg'],
-        'sumber': ['sumber', 'source', 'sourcing source'],
-        'posisi': ['posisi', 'position', 'applied position'],
-        'kode_unik': ['kode unik', 'unique code', 'kode']
-    }
+    # Regex patterns
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    phone_pattern = r'(\+62|0)[0-9\s\-\(\)]{9,15}'
+    ipk_pattern = r'([0-4][\.,]\d{1,2})'
     
+    # Normalize text
+    raw_text_lower = raw_text.lower()
+    
+    # 1. EMAIL (regex)
+    email_match = re.search(email_pattern, raw_text)
+    if email_match:
+        parsed['email'] = email_match.group()
+    
+    # 2. PHONE (regex)
+    phone_match = re.search(phone_pattern, raw_text)
+    if phone_match:
+        parsed['hp'] = re.sub(r'[\s\-\(\)]', '', phone_match.group())
+    
+    # 3. IPK (regex)
+    ipk_match = re.search(ipk_pattern, raw_text)
+    if ipk_match:
+        parsed['ipk'] = ipk_match.group().replace(',', '.')
+    
+    # 4. TAHUN LULUS (regex)
+    year_match = re.search(r'(20[0-9]{2})', raw_text)
+    if year_match:
+        parsed['tahun_lulus'] = year_match.group()
+    
+    # 5. Parse line by line for Label:Value format
     for line in lines:
         line = line.strip()
         if ':' in line:
@@ -118,55 +125,138 @@ def parse_cv_text(raw_text: str) -> dict:
             key = key.strip().lower()
             val = val.strip()
             
-            # Cari match di key_map
-            matched_key = None
-            for target, aliases in key_map.items():
-                for alias in aliases:
-                    if alias in key:
-                        matched_key = target
-                        break
-                if matched_key:
-                    break
+            if not val:
+                continue
+                
+            # Nama
+            if any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
+                parsed['nama'] = val
             
-            if matched_key and val:
-                # Handling khusus untuk Jenjang
-                if matched_key == 'jenjang':
-                    jenjang_upper = val.upper()
-                    if jenjang_upper in ['S1', 'S2', 'S3', 'D3', 'D4', 'SMA', 'SMK']:
-                        parsed[matched_key] = jenjang_upper
-                    else:
-                        parsed[matched_key] = val
-                elif matched_key == 'ipk':
-                    # Normalisasi IPK (ganti koma dengan titik)
-                    parsed[matched_key] = val.replace(',', '.')
-                elif matched_key == 'tahun_lulus':
-                    # Ambil angka tahun (4 digit)
-                    tahun_match = re.search(r'\b(19|20)\d{2}\b', val)
-                    if tahun_match:
-                        parsed[matched_key] = tahun_match.group(0)
-                    else:
-                        parsed[matched_key] = val
-                elif matched_key == 'hp':
-                    # Bersihkan HP
-                    parsed[matched_key] = re.sub(r'[^0-9+]', '', val)
+            # Universitas
+            elif any(k in key for k in ['universitas', 'university', 'univ']):
+                # Normalize university name
+                univ_lower = val.lower()
+                if 'universitas indonesia' in univ_lower or 'university of indonesia' in univ_lower:
+                    parsed['univ'] = 'Universitas Indonesia'
+                elif 'universitas gadjah mada' in univ_lower or 'gadjah mada university' in univ_lower or 'ugm' in univ_lower:
+                    parsed['univ'] = 'Universitas Gadjah Mada'
+                elif 'institut teknologi bandung' in univ_lower or 'bandung institute of technology' in univ_lower or 'itb' in univ_lower:
+                    parsed['univ'] = 'Institut Teknologi Bandung'
+                elif 'universitas airlangga' in univ_lower or 'airlangga university' in univ_lower or 'unair' in univ_lower:
+                    parsed['univ'] = 'Universitas Airlangga'
+                elif 'universitas padjadjaran' in univ_lower or 'padjadjaran university' in univ_lower or 'unpad' in univ_lower:
+                    parsed['univ'] = 'Universitas Padjadjaran'
+                elif 'universitas diponegoro' in univ_lower or 'diponegoro university' in univ_lower or 'undip' in univ_lower:
+                    parsed['univ'] = 'Universitas Diponegoro'
+                elif 'universitas brawijaya' in univ_lower or 'brawijaya university' in univ_lower:
+                    parsed['univ'] = 'Universitas Brawijaya'
+                elif 'institut pertanian bogor' in univ_lower or 'bogor agricultural university' in univ_lower or 'ipb' in univ_lower:
+                    parsed['univ'] = 'Institut Pertanian Bogor'
+                elif 'universitas sebelas maret' in univ_lower or 'sebelas maret university' in univ_lower or 'uns' in univ_lower:
+                    parsed['univ'] = 'Universitas Sebelas Maret'
+                elif 'telkom university' in univ_lower or 'universitas telkom' in univ_lower:
+                    parsed['univ'] = 'Telkom University'
                 else:
-                    parsed[matched_key] = val
+                    # Capitalize each word
+                    parsed['univ'] = ' '.join([w.capitalize() for w in val.split()])
+            
+            # Jenjang
+            elif any(k in key for k in ['jenjang', 'education', 'level']):
+                if 's1' in val.lower() or 'bachelor' in val.lower() or 'sarjana' in val.lower():
+                    parsed['jenjang'] = 'S1'
+                elif 's2' in val.lower() or 'master' in val.lower() or 'magister' in val.lower():
+                    parsed['jenjang'] = 'S2'
+                elif 'd3' in val.lower() or 'diploma 3' in val.lower():
+                    parsed['jenjang'] = 'D3'
+                elif 'd4' in val.lower() or 'diploma 4' in val.lower():
+                    parsed['jenjang'] = 'D4'
+                elif 'smk' in val.lower() or 'vocational' in val.lower():
+                    parsed['jenjang'] = 'SMK'
+                elif 'sma' in val.lower() or 'high school' in val.lower():
+                    parsed['jenjang'] = 'SMA/SMK'
+                else:
+                    parsed['jenjang'] = val
+            
+            # Jurusan
+            elif any(k in key for k in ['jurusan', 'major']):
+                parsed['jurusan'] = val
+            
+            # Domisili
+            elif any(k in key for k in ['domisili', 'domicile', 'location', 'kota', 'city']):
+                parsed['domisili'] = val
+            
+            # HP / Phone
+            elif any(k in key for k in ['hp', 'phone', 'nomor', 'no hp', 'no telp']):
+                parsed['hp'] = re.sub(r'[\s\-\(\)]', '', val)
+            
+            # Last Position
+            elif any(k in key for k in ['last position', 'posisi terakhir']):
+                parsed['last_position'] = val
+            
+            # Last Company
+            elif any(k in key for k in ['last company', 'perusahaan terakhir', 'company']):
+                parsed['last_company'] = val
+            
+            # Last Tenure
+            elif any(k in key for k in ['last tenure', 'tenure last']):
+                parsed['last_tenure'] = val
+            
+            # Total Tenure
+            elif any(k in key for k in ['total tenure', 'tenure', 'lama kerja', 'pengalaman']):
+                parsed['total_tenure'] = val
+            
+            # Sumber
+            elif any(k in key for k in ['sumber', 'source']):
+                parsed['sumber'] = val
+            
+            # FMCG
+            elif any(k in key for k in ['fmcg', 'pernah di fmcg']):
+                val_lower = val.lower()
+                if 'ya' in val_lower or 'yes' in val_lower or 'y' in val_lower:
+                    parsed['fmcg'] = 'Ya'
+                elif 'tidak' in val_lower or 'no' in val_lower or 'n' in val_lower:
+                    parsed['fmcg'] = 'Tidak'
+                else:
+                    parsed['fmcg'] = val
+            
+            # Posisi FPTK
+            elif any(k in key for k in ['posisi fptk', 'fptk posisi']):
+                parsed['posisi'] = val
+            
+            # Kode Unik
+            elif any(k in key for k in ['kode unik', 'unique code']):
+                parsed['kode_unik'] = val
     
-    # Fallback: kalau ga ada label 'Nama:', ambil baris pertama yang ada isinya
-    if not parsed.get('nama'):
+    # 6. Fallback: jika Nama kosong, ambil baris pertama yang ada isinya
+    if not parsed['nama']:
         for line in lines:
             line = line.strip()
-            # Skip baris kosong atau yang mengandung kata-kata umum
-            if line and ':' not in line and len(line) > 2 and len(line) < 80:
-                if not any(word in line.lower() for word in ['cv', 'curriculum', 'resume', 'data', 'pendidikan']):
-                    parsed['nama'] = line
-                    break
+            if line and ':' not in line and len(line) > 2 and not line.startswith('http'):
+                parsed['nama'] = line
+                break
     
-    # Cleanup: jika nama masih kosong, coba cari dari baris pertama setelah "Nama:" di text
-    if not parsed.get('nama'):
-        nama_match = re.search(r'Nama\s*[:;]\s*([^\n]+)', raw_text, re.IGNORECASE)
-        if nama_match:
-            parsed['nama'] = nama_match.group(1).strip()
+    # 7. Detect Jenjang from text if not found
+    if not parsed['jenjang']:
+        text_lower = raw_text.lower()
+        if 's1' in text_lower or 'bachelor' in text_lower or 'sarjana' in text_lower:
+            parsed['jenjang'] = 'S1'
+        elif 's2' in text_lower or 'master' in text_lower or 'magister' in text_lower:
+            parsed['jenjang'] = 'S2'
+        elif 'd3' in text_lower or 'diploma 3' in text_lower:
+            parsed['jenjang'] = 'D3'
+        elif 'smk' in text_lower or 'vocational' in text_lower:
+            parsed['jenjang'] = 'SMK'
+        elif 'sma' in text_lower or 'high school' in text_lower:
+            parsed['jenjang'] = 'SMA/SMK'
+    
+    # 8. Detect FMCG from text if not found
+    if not parsed['fmcg']:
+        text_lower = raw_text.lower()
+        if 'fmcg' in text_lower:
+            if 'ya' in text_lower or 'yes' in text_lower:
+                parsed['fmcg'] = 'Ya'
+            elif 'tidak' in text_lower or 'no' in text_lower:
+                parsed['fmcg'] = 'Tidak'
     
     return parsed
 
@@ -181,13 +271,15 @@ def show_sourcing_input():
         st.warning("Silakan login.")
         return
     
-    # ============================================================
-    # LOAD FROM CACHE
-    # ============================================================
+    # Load master data
     with st.spinner("📋 Memuat data..."):
         master_options = get_master_options_sourcing(db)
         sourcing_options = get_sourcing_options()
         pipeline_stages = get_pipeline_stages()
+        
+        # Load FPTK for dropdown
+        fptk_list = db.query(FPTK).filter(FPTK.status == 'OP').order_by(FPTK.kode_unik).all()
+        fptk_options = [(f.kode_unik, f.posisi, f.pic_recruiter) for f in fptk_list]
     
     pic_options = master_options['pic_options']
     sumber_options = sourcing_options['sumber_options']
@@ -221,24 +313,14 @@ def show_sourcing_input():
     tab1, tab2, tab3 = st.tabs(["📝 Manual Input", "📋 Paste Text", "📦 Batch CV"])
     
     # ============================================================
-    # TAB 1: MANUAL INPUT (FORM KOSONG)
+    # TAB 1: MANUAL INPUT
     # ============================================================
     with tab1:
         st.subheader("Manual Input Kandidat")
-        show_sourcing_form(
-            db=db,
-            user=user,
-            pic_options=pic_options,
-            sourcing_options=sourcing_options,
-            pipeline_options=pipeline_options,
-            initial_data=None,
-            form_key="form_manual",
-            is_parse_mode=False,
-            batch_mode=False
-        )
+        show_manual_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options)
     
     # ============================================================
-    # TAB 2: PASTE TEXT → TAMPILKAN DI FORM EDIT
+    # TAB 2: PASTE TEXT
     # ============================================================
     with tab2:
         st.subheader("Paste Text CV")
@@ -261,7 +343,7 @@ def show_sourcing_input():
                     st.warning("Tidak ada data terdeteksi. Pastikan formatnya 'Nama: ...'")
         
         # ============================================================
-        # 🔥🔥🔥 FORM DENGAN DATA HASIL PARSE 🔥🔥🔥
+        # FORM DENGAN DATA HASIL PARSE
         # ============================================================
         if st.session_state.show_parsed_form and st.session_state.parsed_cv_data:
             st.markdown("---")
@@ -272,12 +354,12 @@ def show_sourcing_input():
                 db=db,
                 user=user,
                 pic_options=pic_options,
+                fptk_options=fptk_options,
                 sourcing_options=sourcing_options,
                 pipeline_options=pipeline_options,
                 initial_data=st.session_state.parsed_cv_data,
                 form_key="form_parse_edit",
-                is_parse_mode=True,
-                batch_mode=False
+                is_parse_mode=True
             )
     
     # ============================================================
@@ -294,7 +376,6 @@ def show_sourcing_input():
             candidates = [c.strip() for c in batch_text.split(separator) if c.strip()]
             st.info(f"📋 Ditemukan {len(candidates)} kandidat")
             
-            # Simpan ke session state untuk diproses satu per satu
             st.session_state.batch_candidates = candidates
             st.session_state.batch_index = 0
             st.rerun()
@@ -316,6 +397,7 @@ def show_sourcing_input():
                         db=db,
                         user=user,
                         pic_options=pic_options,
+                        fptk_options=fptk_options,
                         sourcing_options=sourcing_options,
                         pipeline_options=pipeline_options,
                         initial_data=parsed,
@@ -337,7 +419,7 @@ def show_sourcing_input():
 # ============================================================
 # FUNGSI FORM SOURCING (REUSABLE)
 # ============================================================
-def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options, 
+def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options, 
                        initial_data=None, form_key="sourcing_form", is_parse_mode=False, batch_mode=False):
     """Form input sourcing yang reusable untuk manual, parse, dan batch"""
     
@@ -348,79 +430,77 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
     fmcg_options = sourcing_options['fmcg_options']
     pipeline_opts = pipeline_options
     
-    # Default values dari initial_data
+    # ============================================================
+    # AMBIL DATA DARI INITIAL_DATA (HASIL PARSE)
+    # ============================================================
     nama = initial_data.get('nama', '') if initial_data else ''
-    posisi = initial_data.get('posisi', '') if initial_data else ''
-    kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
-    hp = initial_data.get('hp', '') if initial_data else ''
     email = initial_data.get('email', '') if initial_data else ''
-    sumber = initial_data.get('sumber', '') if initial_data else ''
-    domisili = initial_data.get('domisili', '') if initial_data else ''
-    jenjang = initial_data.get('jenjang', '') if initial_data else ''
-    univ = initial_data.get('universitas', '') if initial_data else ''
+    hp = initial_data.get('hp', '') if initial_data else ''
+    univ = initial_data.get('univ', '') if initial_data else ''
     jurusan = initial_data.get('jurusan', '') if initial_data else ''
     ipk = initial_data.get('ipk', '') if initial_data else ''
     tahun_lulus = initial_data.get('tahun_lulus', '') if initial_data else ''
+    domisili = initial_data.get('domisili', '') if initial_data else ''
+    jenjang = initial_data.get('jenjang', '') if initial_data else ''
     last_position = initial_data.get('last_position', '') if initial_data else ''
     last_company = initial_data.get('last_company', '') if initial_data else ''
     last_tenure = initial_data.get('last_tenure', '') if initial_data else ''
     total_tenure = initial_data.get('total_tenure', '') if initial_data else ''
     fmcg = initial_data.get('fmcg', '') if initial_data else ''
+    sumber = initial_data.get('sumber', '') if initial_data else ''
+    posisi = initial_data.get('posisi', '') if initial_data else ''
+    kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
+    
+    # ============================================================
+    # FPTK DROPDOWN
+    # ============================================================
+    fptk_display = []
+    fptk_map = {}
+    fptk_posisi_map = {}
+    for kode, pos, pic in fptk_options:
+        display = f"{kode} - {pos[:50]}"
+        fptk_display.append(display)
+        fptk_map[display] = kode
+        fptk_posisi_map[display] = pos
+    
+    # Cari default index
+    default_fptk_index = 0
+    if kode_unik or posisi:
+        for idx, (kode, pos, pic) in enumerate(fptk_options):
+            if kode_unik and kode == kode_unik:
+                default_fptk_index = idx
+                break
+            if posisi and pos == pos:
+                default_fptk_index = idx
+                break
     
     # Tampilkan info parsing
     if is_parse_mode and initial_data:
-        detected = [k for k, v in initial_data.items() if v and k not in ['nama']]
-        st.success(f"✅ Data hasil parse: **{initial_data.get('nama', '')}**")
-        if detected:
-            st.caption(f"📋 Field terdeteksi: {', '.join(detected)}")
-    
-    # --- SEARCH FPTK ---
-    st.markdown("#### 🔍 Cari FPTK (Kode Unik akan mengisi posisi otomatis)")
-    
-    search_kode = st.text_input("Cari Kode Unik atau Posisi", key=f"search_fptk_{form_key}", placeholder="Ketik Kode Unik atau Posisi...")
-    
-    fptk_list = []
-    fptk_map = {}
-    selected_kode = kode_unik
-    selected_posisi = posisi
-    
-    if search_kode and len(search_kode) >= 2:
-        results = db.query(FPTK).filter(
-            (FPTK.kode_unik.ilike(f"%{search_kode}%")) |
-            (FPTK.posisi.ilike(f"%{search_kode}%"))
-        ).limit(50).all()
-        
-        for r in results:
-            display = f"{r.kode_unik} | {r.posisi} | {r.pic_recruiter}"
-            fptk_list.append(display)
-            fptk_map[display] = {"kode_unik": r.kode_unik, "posisi": r.posisi, "pic": r.pic_recruiter}
-        
-        if fptk_list:
-            selected = st.selectbox("Pilih FPTK", [""] + fptk_list, key=f"select_fptk_{form_key}")
-            if selected:
-                data = fptk_map.get(selected)
-                if data:
-                    selected_kode = data["kode_unik"]
-                    selected_posisi = data["posisi"]
-                    # Update kode_unik & posisi untuk form
-                    kode_unik = selected_kode
-                    posisi = selected_posisi
-                    st.success(f"✅ Terpilih: {selected_kode} - {selected_posisi}")
-            else:
-                # Kembali ke nilai awal
-                kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
-                posisi = initial_data.get('posisi', '') if initial_data else ''
-        else:
-            st.info("Tidak ada FPTK ditemukan. Ketik minimal 2 karakter.")
+        st.info(f"📋 Data dari parse: **{nama}**")
     
     with st.form(form_key):
         col1, col2 = st.columns(2)
         with col1:
-            st.markdown("### Data Kandidat")
             nama_input = st.text_input("Nama *", value=nama)
-            posisi_input = st.text_input("Posisi", value=posisi)
-            kode_unik_input = st.text_input("Kode Unik", value=kode_unik, 
-                                           placeholder="Dari search di atas atau manual")
+            
+            # FPTK DROPDOWN (bukan free text)
+            if fptk_display:
+                selected_fptk = st.selectbox(
+                    "Pilih FPTK (Kode Unik - Posisi)",
+                    fptk_display,
+                    index=min(default_fptk_index, len(fptk_display)-1)
+                )
+                kode_unik_input = fptk_map.get(selected_fptk, '')
+                posisi_input = fptk_posisi_map.get(selected_fptk, '')
+                
+                st.text_input("Kode Unik (auto)", value=kode_unik_input, disabled=True)
+                st.text_input("Posisi (auto)", value=posisi_input, disabled=True)
+            else:
+                st.warning("⚠️ Tidak ada FPTK OP yang tersedia. Buat FPTK dulu.")
+                kode_unik_input = ''
+                posisi_input = ''
+                selected_fptk = None
+            
             pic_recruiter_input = st.selectbox("PIC Recruiter *", [""] + pic_options)
             hp_input = st.text_input("No HP", value=hp)
             email_input = st.text_input("Email", value=email)
@@ -429,16 +509,16 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
             domisili_input = st.text_input("Domisili", value=domisili)
             
         with col2:
-            st.markdown("### Pendidikan")
             jenjang_input = st.selectbox("Jenjang", [""] + jenjang_options,
                                         index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0)
             
             univ_input = st.selectbox("Universitas", [""] + univ_options,
                                      index=([""] + univ_options).index(univ) if univ in univ_options else 0)
             
-            univ_lain = ""
             if univ_input == "Lainnya":
                 univ_lain = st.text_input("Univ Lainnya", value=initial_data.get('univ_lain', '') if initial_data else '')
+            else:
+                univ_lain = ""
             
             jurusan_input = st.selectbox("Jurusan", [""] + jurusan_options,
                                         index=([""] + jurusan_options).index(jurusan) if jurusan in jurusan_options else 0)
@@ -449,8 +529,7 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
             except:
                 default_tahun = None
             tahun_lulus_input = st.number_input("Tahun Lulus", min_value=1990, max_value=2030, step=1, 
-                                               value=default_tahun if default_tahun else None)
-            
+                                               value=default_tahun)
             fmcg_input = st.selectbox("Pernah di FMCG?", [""] + fmcg_options,
                                      index=([""] + fmcg_options).index(fmcg) if fmcg in fmcg_options else 0)
         
@@ -508,6 +587,10 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
             errors.append("Sumber wajib diisi")
         if not pic_recruiter_input:
             errors.append("PIC Recruiter wajib diisi")
+        if not fptk_display:
+            errors.append("Tidak ada FPTK OP yang tersedia")
+        elif not selected_fptk:
+            errors.append("Pilih FPTK")
         
         if errors:
             for err in errors:
@@ -518,7 +601,6 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
                 existing = db.query(DBSourcing).filter(DBSourcing.nama == nama_input).first()
                 if existing:
                     st.warning(f"⚠️ Nama '{nama_input}' sudah ada!")
-                    # Tetap lanjutkan, user bisa force dengan klik tombol
                 
                 last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
                 next_no = (last_no.no + 1) if last_no and last_no.no else 1
@@ -537,8 +619,8 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
                     jurusan=jurusan_input,
                     ipk=safe_int(ipk_input.replace(',', '.')) if ipk_input else None,
                     tahun_lulus=tahun_lulus_input if tahun_lulus_input and tahun_lulus_input > 0 else None,
-                    nomor_hp=parse_phone(hp_input),
-                    email=email_input if is_valid_email(email_input) else "",
+                    nomor_hp=hp_input,
+                    email=email_input,
                     last_position=last_position_input,
                     last_company=last_company_input,
                     last_tenure=last_tenure_input,
@@ -558,7 +640,6 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
                 st.success(f"✅ '{nama_input}' berhasil disimpan!")
                 st.balloons()
                 
-                # Reset jika mode parse atau batch
                 if is_parse_mode:
                     st.session_state.parsed_cv_data = {}
                     st.session_state.show_parsed_form = False
@@ -574,3 +655,22 @@ def show_sourcing_form(db, user, pic_options, sourcing_options, pipeline_options
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 db.rollback()
+
+
+# ============================================================
+# FUNGSI MANUAL FORM (TAB 1)
+# ============================================================
+def show_manual_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options):
+    """Form manual input sourcing (tanpa data awal)"""
+    show_sourcing_form(
+        db=db,
+        user=user,
+        pic_options=pic_options,
+        fptk_options=fptk_options,
+        sourcing_options=sourcing_options,
+        pipeline_options=pipeline_options,
+        initial_data=None,
+        form_key="form_manual",
+        is_parse_mode=False,
+        batch_mode=False
+    )
