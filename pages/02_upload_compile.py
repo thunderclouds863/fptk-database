@@ -1,11 +1,11 @@
 import streamlit as st
 import pandas as pd
 import re
-import hashlib  
+import hashlib
 from datetime import datetime, timedelta
 from core.database import get_db
 from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate
-from core.auth import get_current_user, is_admin,is_it , is_editor, hash_file, sanitize_filename
+from core.auth import get_current_user, is_admin, is_editor, hash_file, sanitize_filename
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_db_kode_posisi_file
 from core.compiler import compile_fptk, compile_db_sourcing, compile_db_kode_posisi
@@ -82,7 +82,7 @@ for num in range(1, 6):
 
 
 # ============================================================
-#  FUNGSI DETAIL SLA OTOMATIS 
+# FUNGSI DETAIL SLA OTOMATIS
 # ============================================================
 
 def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, today=None):
@@ -125,7 +125,7 @@ def sanitize_value(value):
 
 
 # ============================================================
-#  CACHE FUNCTIONS 
+# CACHE FUNCTIONS
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -229,7 +229,7 @@ def get_all_bu_codes():
 
 
 # ============================================================
-#  FUNGSI GENERATE KODE UNIK & KODE ANGKA 
+# FUNGSI GENERATE KODE UNIK & KODE ANGKA
 # ============================================================
 
 def generate_kode_angka(db, posisi, kode_pic):
@@ -427,11 +427,13 @@ def show_upload_compile():
     kode_pic_options = master_options['kode_pic_options']
 
     # ============================================================
-    # ADMIN TEMPLATE MANAGEMENT
+    # ADMIN TEMPLATE MANAGEMENT + USER MANAGEMENT (NONAKTIF & HAPUS)
     # ============================================================
     
     if is_admin(db):
         st.markdown("---")
+        
+        # === ADMIN: TEMPLATE EXCEL ===
         st.subheader("⚙️ Admin - Template Excel")
     
         template_file = st.file_uploader(
@@ -446,6 +448,135 @@ def show_upload_compile():
                 st.cache_data.clear()
                 st.success("✅ Template berhasil diperbarui")
                 st.rerun()
+        
+        # === ADMIN: USER MANAGEMENT (NONAKTIF & HAPUS) ===
+        st.markdown("---")
+        st.subheader("👥 Admin - Manajemen User")
+        st.caption("Nonaktifkan atau hapus user. User yang dinonaktifkan tidak bisa login dan tidak muncul di dropdown.")
+        
+        # Ambil daftar semua user (kecuali admin sendiri)
+        users = db.query(User).filter(User.id != user.id).order_by(User.username).all()
+        
+        if users:
+            # Tampilkan daftar user dengan status
+            user_data = []
+            for u in users:
+                status_text = "🟢 Aktif" if u.is_active else "🔴 Nonaktif"
+                if u.is_active:
+                    status_text = "🟢 Aktif"
+                else:
+                    status_text = "🔴 Nonaktif"
+                
+                # Cek apakah user memiliki data FPTK
+                fptk_count = db.query(FPTK).filter(FPTK.source_user_id == u.id).count()
+                
+                user_data.append({
+                    "ID": u.id,
+                    "Username": u.username,
+                    "PIC Recruiter": u.pic_recruiter or "-",
+                    "Role": u.role,
+                    "Status": status_text,
+                    "Jumlah FPTK": fptk_count,
+                    "Last Login": u.last_login.strftime("%d/%m/%Y %H:%M") if u.last_login else "-"
+                })
+            
+            df_users = pd.DataFrame(user_data)
+            st.dataframe(df_users, use_container_width=True)
+            
+            # Pilih user untuk di-action
+            st.markdown("---")
+            st.subheader("🔧 Action User")
+            
+            user_options = {f"{u.username} ({u.pic_recruiter or 'No PIC'})": u.id for u in users}
+            selected_user_label = st.selectbox("Pilih User", list(user_options.keys()))
+            selected_user_id = user_options[selected_user_label]
+            selected_user = db.query(User).filter(User.id == selected_user_id).first()
+            
+            if selected_user:
+                col1, col2, col3 = st.columns(3)
+                
+                with col1:
+                    if selected_user.is_active:
+                        if st.button(f"🔴 Nonaktifkan {selected_user.username}", key="deactivate_user_btn"):
+                            try:
+                                selected_user.is_active = False
+                                selected_user.updated_at = datetime.now()
+                                db.commit()
+                                st.success(f"✅ User {selected_user.username} berhasil dinonaktifkan!")
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Gagal menonaktifkan user: {str(e)}")
+                                db.rollback()
+                    else:
+                        if st.button(f"🟢 Aktifkan {selected_user.username}", key="activate_user_btn"):
+                            try:
+                                selected_user.is_active = True
+                                selected_user.updated_at = datetime.now()
+                                db.commit()
+                                st.success(f"✅ User {selected_user.username} berhasil diaktifkan!")
+                                st.cache_data.clear()
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Gagal mengaktifkan user: {str(e)}")
+                                db.rollback()
+                
+                with col2:
+                    # Reset password
+                    new_password = st.text_input("Password Baru", type="password", key="admin_reset_pw")
+                    if st.button(f"🔑 Reset Password {selected_user.username}", key="reset_pw_btn"):
+                        if new_password and len(new_password) >= 6:
+                            try:
+                                from core.auth import hash_password
+                                selected_user.password_hash = hash_password(new_password)
+                                selected_user.updated_at = datetime.now()
+                                db.commit()
+                                st.success(f"✅ Password user {selected_user.username} berhasil direset!")
+                                st.cache_data.clear()
+                            except Exception as e:
+                                st.error(f"❌ Gagal reset password: {str(e)}")
+                                db.rollback()
+                        else:
+                            st.warning("⚠️ Password baru minimal 6 karakter!")
+                
+                with col3:
+                    # HAPUS USER (DENGAN KONFIRMASI)
+                    if st.button(f"🗑️ Hapus {selected_user.username}", key="delete_user_btn", type="secondary"):
+                        # Cek apakah user memiliki data
+                        fptk_count = db.query(FPTK).filter(FPTK.source_user_id == selected_user.id).count()
+                        sourcing_count = db.query(DBSourcing).filter(DBSourcing.source_user_id == selected_user.id).count()
+                        
+                        confirm_msg = f"⚠️ **HAPUS USER PERMANEN!**\n\n"
+                        confirm_msg += f"User: **{selected_user.username}**\n"
+                        confirm_msg += f"PIC Recruiter: {selected_user.pic_recruiter or '-'}\n"
+                        confirm_msg += f"Jumlah FPTK: {fptk_count}\n"
+                        confirm_msg += f"Jumlah Sourcing: {sourcing_count}\n\n"
+                        confirm_msg += "Data FPTK dan Sourcing yang dibuat oleh user ini akan **TETAP ADA** di database.\n"
+                        confirm_msg += "Hanya user account yang dihapus.\n\n"
+                        confirm_msg += "**Yakin ingin melanjutkan?**"
+                        
+                        if st.warning(confirm_msg):
+                            # Gunakan checkbox konfirmasi
+                            confirm_check = st.checkbox("✅ Saya yakin ingin menghapus user ini")
+                            if confirm_check:
+                                try:
+                                    # Hapus user
+                                    db.delete(selected_user)
+                                    db.commit()
+                                    st.success(f"✅ User {selected_user.username} berhasil dihapus!")
+                                    st.cache_data.clear()
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Gagal menghapus user: {str(e)}")
+                                    db.rollback()
+        else:
+            st.info("📭 Tidak ada user lain selain admin.")
+        
+        st.markdown("---")
+    
+    # ============================================================
+    # TABS UPLOAD
+    # ============================================================
     
     tab1, tab2, tab3 = st.tabs(["📤 Upload Excel", "📝 Input Manual FPTK", "📧 Paste Email Body"])
     
@@ -628,7 +759,7 @@ def show_upload_compile():
             st.info("📭 Silakan upload file terlebih dahulu")
     
     # ============================================================
-    # TAB 2: INPUT MANUAL FPTK (DIPERBAIKI)
+    # TAB 2: INPUT MANUAL FPTK
     # ============================================================
     
     with tab2:
@@ -658,7 +789,7 @@ def show_upload_compile():
                     user_pic_bu = val["bu"]
                     break
         
-        #  JIKA USER ADALAH ADMIN DAN KODE_PIC KOSONG, PAKAI "ADM" 
+        # JIKA USER ADALAH ADMIN DAN KODE_PIC KOSONG, PAKAI "ADM"
         if is_admin(db) and not user_pic_code:
             user_pic_code = "ADM"
             user_pic_bu = "CORP"
@@ -792,20 +923,20 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            #  GENERATE KODE UNIK 
+            # GENERATE KODE UNIK
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            #  GENERATE KODE ANGKA 
+            # GENERATE KODE ANGKA
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                #  CEK DUPLIKAT 
+                # CEK DUPLIKAT
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
@@ -836,7 +967,6 @@ def show_upload_compile():
                             
                             kode_unik_baru = generate_kode_unik(kode_pic, posisi, new_fptk_date_kode)
                             
-                            # Ambil posisi_code untuk suffix
                             posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
                             
                             suffix_index = 0
@@ -1002,7 +1132,7 @@ def show_upload_compile():
                         db.rollback()
     
     # ============================================================
-    # TAB 3: PASTE EMAIL BODY (DIPERBAIKI)
+    # TAB 3: PASTE EMAIL BODY
     # ============================================================
     
     with tab3:
@@ -1040,7 +1170,7 @@ def show_upload_compile():
         user_pic_code = user.kode_pic or ""
         user_pic_bu = user.business_unit or ""
 
-st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
+        st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
         
         if not parsed_data.get("pic_recruiter"):
             pic_mapping = get_pic_mapping()
@@ -1056,7 +1186,7 @@ st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: 
                         user_pic_code = val["code"]
                         break
             
-            #  JIKA ADMIN, PAKAI "ADM" 
+            # JIKA ADMIN, PAKAI "ADM"
             if is_admin(db) and not user_pic_code:
                 user_pic_code = "ADM"
                 user_pic_name = "Admin"
@@ -1238,20 +1368,20 @@ st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: 
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            #  GENERATE KODE UNIK 
+            # GENERATE KODE UNIK
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            #  GENERATE KODE ANGKA 
+            # GENERATE KODE ANGKA
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                #  CEK DUPLIKAT 
+                # CEK DUPLIKAT
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
