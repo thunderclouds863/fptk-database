@@ -7,7 +7,7 @@ from datetime import datetime
 import time
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+#  CACHE FUNCTIONS 
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -60,7 +60,7 @@ def show_sourcing_detail():
         return
     
     # ============================================================
-    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    #  LOAD FROM CACHE 
     # ============================================================
     with st.spinner("📋 Memuat data..."):
         pipeline_stages = get_pipeline_stages_detail()
@@ -155,7 +155,7 @@ def show_sourcing_detail():
     st.markdown("---")
     
     # ============================================================
-    # 🔥🔥🔥 PIPELINE STATUS LENGKAP (13 STAGE) 🔥🔥🔥
+    #  PIPELINE STATUS LENGKAP (13 STAGE) 
     # ============================================================
     st.markdown("### 📊 Pipeline Status")
     st.caption("V = Lolos | X = Tidak Lolos | Kosong = Belum diproses")
@@ -242,7 +242,7 @@ def show_sourcing_detail():
     st.markdown("---")
     
     # ============================================================
-    # 🔥🔥🔥 ACTION BUTTONS 🔥🔥🔥
+    #  ACTION BUTTONS 
     # ============================================================
     col1, col2, col3 = st.columns([1, 1, 2])
     
