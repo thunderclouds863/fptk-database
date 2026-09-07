@@ -142,6 +142,22 @@ def show_user_management():
     st.markdown("Kelola akun user (Edit, Reset Password, Nonaktifkan/Aktifkan).")
     
     db = next(get_db())
+    if is_it(db):
+        st.info("🔍 Mode View-Only (IT)")
+        users = db.query(User).all()
+        data = [{
+            "ID": u.id,
+            "Username": u.username,
+            "Role": u.role,
+            "PIC Recruiter": u.pic_recruiter or "-",
+            "Display Name": u.display_name or u.username
+        } for u in users]
+        st.dataframe(pd.DataFrame(data), use_container_width=True)
+        return
+    
+    if not is_admin(db):
+        st.error("Hanya Admin yang bisa mengelola User.")
+        return
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login terlebih dahulu.")
