@@ -1,6 +1,10 @@
 import streamlit as st
+import importlib
 import time
 import base64
+from core.session_manager import get_session_manager
+import os
+import pandas as pd
 from datetime import datetime
 
 from core.database import SessionLocal, init_db
@@ -10,10 +14,10 @@ from core.auth import (
     init_default_users,
     verify_password,
     hash_password,
-    init_master_dropdown,
-    get_current_user
+    init_master_dropdown
 )
 from core.models import User
+
 
 # ============================================================
 # PAGE CONFIG
@@ -26,35 +30,92 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+
 # ============================================================
-# DATABASE INIT
+# DATABASE
 # ============================================================
 
 init_db()
+session_mgr = get_session_manager()
+
 
 # ============================================================
-# SESSION STATE INIT
+# SESSION STATE - SYNC DENGAN SESSION MANAGER
 # ============================================================
 
-defaults = {
-    "user_id": None,
-    "username": None,
-    "role": None,
-    "user_display": None,
-    "page": "Dashboard",
-    "filter_stack": [],
-    "detail_id": None,
-    "edit_id": None,
-    "last_activity": datetime.now(),
-    "need_refresh": False
-}
+# Inisialisasi session_state dari session_manager
+if "user_id" not in st.session_state:
+    st.session_state.user_id = session_mgr.user_id
 
-for key, val in defaults.items():
-    if key not in st.session_state:
-        st.session_state[key] = val
+if "username" not in st.session_state:
+    st.session_state.username = session_mgr.username
+
+if "role" not in st.session_state:
+    st.session_state.role = session_mgr.role
+
+if "user_display" not in st.session_state:
+    st.session_state.user_display = session_mgr.user_display
+
+if "page" not in st.session_state:
+    st.session_state.page = "Dashboard"
+
+if "filter_stack" not in st.session_state:
+    st.session_state.filter_stack = []
+
+if "detail_id" not in st.session_state:
+    st.session_state.detail_id = None
+
+if "edit_id" not in st.session_state:
+    st.session_state.edit_id = None
+
+if "need_refresh" not in st.session_state:
+    st.session_state.need_refresh = False
+
+if "last_activity" not in st.session_state:
+    st.session_state.last_activity = datetime.now()
+
+# Inisialisasi timestamp untuk cache
+if "last_fptk_load" not in st.session_state:
+    st.session_state.last_fptk_load = datetime.now()
+
+if "last_sourcing_load" not in st.session_state:
+    st.session_state.last_sourcing_load = datetime.now()
+
 
 # ============================================================
-# INIT DEFAULT USERS & MASTER DATA
+# SESSION TIMEOUT (30 MENIT)
+# ============================================================
+
+if st.session_state.user_id:
+    time_diff = (datetime.now() - st.session_state.last_activity).seconds
+    if time_diff > 1800:  # 30 menit
+        session_mgr.logout()
+        st.session_state.clear()
+        st.rerun()
+    else:
+        st.session_state.last_activity = datetime.now()
+
+
+# ============================================================
+# SESSION PERSISTENCE
+# ============================================================
+
+if st.session_state.user_id and not session_mgr.is_logged_in:
+    session_mgr.login(
+        st.session_state.user_id,
+        st.session_state.username,
+        st.session_state.role,
+        st.session_state.user_display
+    )
+elif not st.session_state.user_id and session_mgr.is_logged_in:
+    st.session_state.user_id = session_mgr.user_id
+    st.session_state.username = session_mgr.username
+    st.session_state.role = session_mgr.role
+    st.session_state.user_display = session_mgr.user_display
+
+
+# ============================================================
+# DEFAULT USER & MASTER DROPDOWN
 # ============================================================
 
 db = SessionLocal()
@@ -64,22 +125,25 @@ try:
 finally:
     db.close()
 
+
 # ============================================================
-# LOADING HELPER
+# HANDLE REFRESH FLAG
 # ============================================================
 
-def show_loading(message="⏳ Memuat..."):
-    with st.spinner(message):
-        time.sleep(0.2)
+if st.session_state.get("need_refresh", False):
+    st.session_state.need_refresh = False
+    st.rerun()
+
 
 # ============================================================
 # LOGIN PAGE
 # ============================================================
 
 if not st.session_state.user_id:
+
     try:
-        with open("asset/cimory_logo.png", "rb") as f:
-            logo_base64 = base64.b64encode(f.read()).decode("utf-8")
+        with open("asset/cimory_logo.png", "rb") as logo_file:
+            logo_base64 = base64.b64encode(logo_file.read()).decode("utf-8")
     except FileNotFoundError:
         logo_base64 = ""
 
@@ -102,7 +166,7 @@ if not st.session_state.user_id:
     div[data-testid="stFormSubmitButton"] { margin-top: 8px !important; }
     div[data-testid="stFormSubmitButton"] button { width: 100% !important; height: 62px !important; border: none !important; border-radius: 13px !important; background: linear-gradient(90deg, #ff3d48, #ff4d54) !important; color: white !important; font-size: 18px !important; font-weight: 700 !important; transition: transform 0.15s ease, box-shadow 0.15s ease; }
     div[data-testid="stFormSubmitButton"] button:hover { background: linear-gradient(90deg, #ff4751, #ff5960) !important; transform: translateY(-1px); box-shadow: 0 10px 25px rgba(255,60,70,0.25); }
-    @media (max-width: 768px) { .block-container { padding-left: 15px !important; padding-right: 15px !important; padding-top: 20px !important; } .cimory-logo-container { width: 100vw !important; max-width: 100vw !important; left: 50% !important; transform: translateX(-50%) !important; margin-top: 10px !important; margin-bottom: 35px !important; } .cimory-logo { width: 220px !important; max-width: 220px !important; } div[data-testid="stForm"] { width: auto !important; max-width: calc(100vw - 30px) !important; padding: 30px 22px 28px 22px !important; border-radius: 17px !important; } .login-title { font-size: 32px; gap: 10px; } .login-icon { font-size: 26px !important; width: 34px; height: 34px; } div[data-baseweb="input"] { height: 56px !important; } div[data-baseweb="input"] input { height: 54px !important; font-size: 15px !important; } div[data-testid="stFormSubmitButton"] button { height: 56px !important; } }
+    @media (max-width: 768px) { .block-container { padding-left: 15px !important; padding-right: 15px !important; padding-top: 20px !important; } .cimory-logo-container { width: 100vw !important; max-width: 100vw !important; left: 50% !important; transform: translateX(-50%) !important; margin-top: 10px !important; margin-bottom: 35px !important; } .cimory-logo { width: 220px !important; max-width: 220px !important; } div[data-testid="stForm"] { width: auto !important; max-width: calc(100vw - 30px) !important; padding: 30px 22px 28px 22px !important; border-radius: 17px !important; } .login-title { font-size: 32px; gap: 10px; } div[data-baseweb="input"] { height: 56px !important; } div[data-testid="stFormSubmitButton"] button { height: 56px !important; } }
     </style>
     """, unsafe_allow_html=True)
 
@@ -127,6 +191,7 @@ if not st.session_state.user_id:
                 try:
                     user = login_user(db, username, password)
                     if user:
+                        session_mgr.login(user.id, user.username, user.role, user.display_name or user.username)
                         st.session_state.user_id = user.id
                         st.session_state.username = user.username
                         st.session_state.role = user.role
@@ -142,6 +207,7 @@ if not st.session_state.user_id:
 
     st.stop()
 
+
 # ============================================================
 # SIDEBAR
 # ============================================================
@@ -151,7 +217,10 @@ with st.sidebar:
     st.caption(f"Role: {st.session_state.role}")
     st.markdown("---")
 
+    # ========================================================
     # NAVIGATION
+    # ========================================================
+
     pages = {
         "📊 Dashboard": "dashboard",
         "📤 Upload & Compile FPTK": "upload_compile",
@@ -177,13 +246,20 @@ with st.sidebar:
     st.session_state.page = pages[selected]
     st.markdown("---")
 
-    # CACHE CONTROL
-    st.markdown("### ⚡ Quick Actions")
+    # ========================================================
+    # CACHE CONTROL (SEDERHANA & CEPAT)
+    # ========================================================
+
+    st.markdown("### ⚡ Cache Control")
+    st.caption(f"🕐 Update: {datetime.now().strftime('%H:%M:%S')}")
+
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🔄 Refresh", use_container_width=True):
+        if st.button("🔄 Refresh", use_container_width=True, type="primary"):
             st.cache_data.clear()
-            st.session_state.need_refresh = True
+            st.session_state.last_fptk_load = datetime.now()
+            st.session_state.last_sourcing_load = datetime.now()
+            st.success("✅ Refreshing...")
             time.sleep(0.3)
             st.rerun()
     with col2:
@@ -196,7 +272,10 @@ with st.sidebar:
 
     st.markdown("---")
 
+    # ========================================================
     # CHANGE PASSWORD
+    # ========================================================
+
     with st.expander("🔑 Ganti Password"):
         with st.form("change_password"):
             db = SessionLocal()
@@ -219,121 +298,173 @@ with st.sidebar:
                 db.close()
 
     st.markdown("---")
+
     if st.button("🚪 Logout", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
+        session_mgr.logout()
+        st.session_state.clear()
         st.rerun()
 
-# ============================================================
-# HANDLE REFRESH FLAG
-# ============================================================
-
-if st.session_state.get("need_refresh", False):
-    st.session_state.need_refresh = False
-    st.rerun()
 
 # ============================================================
-# PAGE LOADING & RENDER
+# PAGE RENDERING DENGAN LOADING SPINNER
 # ============================================================
 
 page = st.session_state.page
 
-# Dictionary untuk mapping page ke fungsi
-page_map = {
-    "dashboard": ("pages.dashboard", "show_dashboard"),
-    "upload_compile": ("pages.02_upload_compile", "show_upload_compile"),
-    "fptk_view": ("pages.03_fptk_view", "show_fptk_view"),
-    "sourcing_view": ("pages.04_sourcing_view", "show_sourcing_view"),
-    "db_kode_posisi": ("pages.05_db_kode_posisi", "show_db_kode_posisi"),
-    "upload_cycle": ("pages.06_upload_cycle", "show_upload_cycle"),
-    "user_management": ("pages.07_user_management", "show_user_management"),
-    "sourcing_input": ("pages.09_sourcing_input", "show_sourcing_input"),
-    "funnel_report": ("pages.funnel_report", "show_funnel_report"),
-    "monitoring_sourcing": ("pages.monitoring_sourcing", "show_monitoring_sourcing"),
-    "upload_evidence": ("pages.upload_evidence", "show_upload_evidence"),
-    "transfer_fptk": ("pages.transfer_fptk", "show_transfer_fptk"),
-}
-
-# Tampilkan loading spinner dulu
+# Tampilkan spinner loading dengan durasi singkat
 with st.spinner(f"⏳ Memuat {page.replace('_', ' ').title()}..."):
-    time.sleep(0.1)
+    time.sleep(0.2)
 
 # Render page
-if page in page_map:
-    module_name, func_name = page_map[page]
+if page == "dashboard":
+    from pages.dashboard import show_dashboard
+    show_dashboard()
+elif page == "upload_compile":
+    from pages.02_upload_compile import show_upload_compile
+    show_upload_compile()
+elif page == "fptk_view":
+    from pages.03_fptk_view import show_fptk_view
+    show_fptk_view()
+elif page == "sourcing_view":
+    from pages.04_sourcing_view import show_sourcing_view
+    show_sourcing_view()
+elif page == "db_kode_posisi":
+    from pages.05_db_kode_posisi import show_db_kode_posisi
+    show_db_kode_posisi()
+elif page == "upload_cycle":
+    from pages.06_upload_cycle import show_upload_cycle
+    show_upload_cycle()
+elif page == "user_management":
+    from pages.07_user_management import show_user_management
+    show_user_management()
+elif page == "sourcing_input":
     try:
-        module = __import__(module_name, fromlist=[func_name])
-        func = getattr(module, func_name)
-        func()
+        from pages.09_sourcing_input import show_sourcing_input
+        show_sourcing_input()
     except ModuleNotFoundError:
-        st.error(f"❌ File {module_name}.py tidak ditemukan!")
-    except AttributeError:
-        st.error(f"❌ Fungsi {func_name} tidak ditemukan di {module_name}.py!")
-else:
-    st.error(f"❌ Page '{page}' tidak dikenal!")
+        st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
+elif page == "funnel_report":
+    try:
+        from pages.funnel_report import show_funnel_report
+        show_funnel_report()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/funnel_report.py tidak ditemukan!")
+elif page == "monitoring_sourcing":
+    try:
+        from pages.monitoring_sourcing import show_monitoring_sourcing
+        show_monitoring_sourcing()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/monitoring_sourcing.py tidak ditemukan!")
+elif page == "upload_evidence":
+    try:
+        from pages.upload_evidence import show_upload_evidence
+        show_upload_evidence()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/upload_evidence.py tidak ditemukan!")
+elif page == "transfer_fptk":
+    try:
+        from pages.transfer_fptk import show_transfer_fptk
+        show_transfer_fptk()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/transfer_fptk.py tidak ditemukan!")
+
 
 # ============================================================
-# EXPORT MENU (Di Bawah Konten Utama)
+# EXPORT DATA (DI BAWAH KONTEN)
 # ============================================================
 
 st.markdown("---")
 st.markdown("### 📥 Export Data")
 
-if st.button("📊 Export All Data", use_container_width=True):
-    with st.spinner("Mengekspor data..."):
-        db = SessionLocal()
-        try:
-            from core.export_excel import export_database_to_excel
-            import os
-            filepath = export_database_to_excel(db)
+col1, col2 = st.columns(2)
 
-            with open(filepath, "rb") as f:
-                file_data = f.read()
-
-            st.download_button(
-                label="📥 Download Excel",
-                data=file_data,
-                file_name=os.path.basename(filepath),
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-            st.success(f"✅ Export berhasil! File: {os.path.basename(filepath)}")
-        except Exception as e:
-            st.error(f"❌ Export gagal: {str(e)}")
-        finally:
-            db.close()
-
-# ============================================================
-# SINGLE SHEET EXPORT
-# ============================================================
-
-with st.expander("📋 Export Sheet Spesifik"):
-    sheet_options = ["Blacklist Candidate", "DB Kode Posisi", "FPTK", "DB Sourcing", "Master Dropdown", "Evidence"]
-    selected_sheet = st.selectbox("Pilih Sheet", sheet_options)
-
-    if st.button(f"Export {selected_sheet}"):
-        with st.spinner(f"Mengekspor {selected_sheet}..."):
+with col1:
+    if st.button("📊 Export All Data", use_container_width=True):
+        with st.spinner("⏳ Mengekspor data..."):
             db = SessionLocal()
             try:
-                from core.export_excel import export_single_sheet
-                import pandas as pd
-                from io import BytesIO
-
-                df = export_single_sheet(db, selected_sheet)
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, sheet_name=selected_sheet, index=False)
-                output.seek(0)
-
-                st.download_button(
-                    label=f"📥 Download {selected_sheet}.xlsx",
-                    data=output.getvalue(),
-                    file_name=f"{selected_sheet}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                st.success(f"✅ Export {selected_sheet} berhasil!")
+                # Coba export via core.export_excel
+                try:
+                    from core.export_excel import export_database_to_excel
+                    filepath = export_database_to_excel(db)
+                    with open(filepath, "rb") as f:
+                        file_data = f.read()
+                    st.download_button(
+                        label="📥 Download Excel",
+                        data=file_data,
+                        file_name=os.path.basename(filepath),
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="export_all_download"
+                    )
+                    st.success(f"✅ Export berhasil!")
+                except ImportError:
+                    # Fallback: export manual
+                    from io import BytesIO
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        # Export FPTK
+                        fptk_df = pd.read_sql(db.query(FPTK).statement, db.bind)
+                        fptk_df.to_excel(writer, sheet_name="FPTK", index=False)
+                        # Export Sourcing
+                        sourcing_df = pd.read_sql(db.query(DBSourcing).statement, db.bind)
+                        sourcing_df.to_excel(writer, sheet_name="DB Sourcing", index=False)
+                        # Export DB Kode Posisi
+                        dbk_df = pd.read_sql(db.query(DBKodePosisi).statement, db.bind)
+                        dbk_df.to_excel(writer, sheet_name="DB Kode Posisi", index=False)
+                        # Export Master Dropdown
+                        master_df = pd.read_sql(db.query(MasterDropdown).statement, db.bind)
+                        master_df.to_excel(writer, sheet_name="Master Dropdown", index=False)
+                    output.seek(0)
+                    st.download_button(
+                        label="📥 Download Excel",
+                        data=output.getvalue(),
+                        file_name=f"FPTK_Export_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="export_all_fallback"
+                    )
+                    st.success("✅ Export berhasil!")
             except Exception as e:
                 st.error(f"❌ Export gagal: {str(e)}")
             finally:
                 db.close()
+
+with col2:
+    # Single sheet export
+    with st.expander("📋 Export Sheet Spesifik"):
+        from core.models import FPTK, DBSourcing, DBKodePosisi, MasterDropdown
+        sheet_options = {
+            "FPTK": FPTK,
+            "DB Sourcing": DBSourcing,
+            "DB Kode Posisi": DBKodePosisi,
+            "Master Dropdown": MasterDropdown
+        }
+        selected_sheet = st.selectbox("Pilih Sheet", list(sheet_options.keys()))
+
+        if st.button(f"📥 Download {selected_sheet}"):
+            with st.spinner(f"⏳ Mengekspor {selected_sheet}..."):
+                db = SessionLocal()
+                try:
+                    model = sheet_options[selected_sheet]
+                    df = pd.read_sql(db.query(model).statement, db.bind)
+
+                    from io import BytesIO
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df.to_excel(writer, sheet_name=selected_sheet, index=False)
+                    output.seek(0)
+
+                    st.download_button(
+                        label=f"📥 Download {selected_sheet}.xlsx",
+                        data=output.getvalue(),
+                        file_name=f"{selected_sheet}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key=f"export_{selected_sheet}"
+                    )
+                    st.success(f"✅ Export {selected_sheet} berhasil!")
+                except Exception as e:
+                    st.error(f"❌ Export {selected_sheet} gagal: {str(e)}")
+                finally:
+                    db.close()
