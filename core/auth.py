@@ -151,12 +151,17 @@ def hash_file(file_data: bytes) -> str:
 def sanitize_filename(filename: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
 
-def is_viewer(db: Session) -> bool:
-    """Cek apakah user yang login adalah viewer (read-only)"""
+def is_it(db: Session) -> bool:
+    """Cek apakah user adalah IT (view-only admin)"""
     user = get_current_user(db)
-    return user and user.role == "viewer"
+    return user and user.role == "it"
 
 def is_editor(db: Session) -> bool:
-    """Cek apakah user yang login bisa edit (admin atau user biasa)"""
+    """Cek apakah user bisa melakukan aksi edit/upload"""
     user = get_current_user(db)
-    return user and user.role in ["admin", "user"]
+    return user and user.role in ["admin", "user"]  # IT tidak termasuk
+
+def can_edit_data(db: Session) -> bool:
+    """Cek apakah user bisa edit data (hanya admin)"""
+    user = get_current_user(db)
+    return user and user.role == "admin"
