@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 from core.database import get_db
 from core.models import DBSourcing, FPTK, MasterDropdown
-from core.auth import get_current_user
+from core.auth import get_current_user, is_it, is_editor
 from core.utils import safe_int, parse_phone, is_valid_email
 import time
 import re
