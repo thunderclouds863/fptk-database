@@ -262,6 +262,9 @@ def parse_cv_text(raw_text: str) -> dict:
 
 
 def show_sourcing_input():
+    if not is_editor(db):
+        st.error("❌ Anda tidak memiliki akses untuk input sourcing. Hubungi Admin.")
+        return
     st.title("👤 Input Sourcing / CV")
     st.markdown("Input kandidat baru ke DB Sourcing")
     
