@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+#  CACHE FUNCTIONS 
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -61,7 +61,7 @@ def show_sourcing_list():
     admin = is_admin(db)
     
     # ============================================================
-    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    #  LOAD FROM CACHE 
     # ============================================================
     with st.spinner("📋 Memuat data..."):
         options = get_sourcing_list_options(db)
@@ -155,7 +155,7 @@ def show_sourcing_list():
         
         df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
         
-        # 🔥🔥🔥 TAMBAHKAN KOLOM UNTUK DISPLAY 🔥🔥🔥
+        #  TAMBAHKAN KOLOM UNTUK DISPLAY 
         display_cols = ['id', 'kode_unik', 'nama', 'posisi', 'rekruter', 'sumber_sourcing', 
                        'sourcing_hr', 'shortlist_cv', 'psikotes', 'hr_interview', 
                        'offering', 'day1', 'sourcing_date']
@@ -183,7 +183,7 @@ def show_sourcing_list():
         )
         
         # ============================================================
-        # 🔥🔥🔥 SEARCH BY KODE UNIK / NAMA / POSISI 🔥🔥🔥
+        #  SEARCH BY KODE UNIK / NAMA / POSISI 
         # ============================================================
         st.markdown("---")
         st.subheader("✏️ Edit / Hapus Kandidat")
