@@ -92,6 +92,9 @@ def init_default_users(db: Session):
     
     if not db.query(User).filter(User.username == "admin").first():
         create_user(db, "admin", "admin123", "admin", None, "Administrator")
+        
+    if not db.query(User).filter(User.username == "it").first():
+        create_user(db, "it", "it123", "it", None, "IT Support")
 def init_master_dropdown(db: Session):
     """Seed default master data jika kosong"""
     from core.models import MasterDropdown
