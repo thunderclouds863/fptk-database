@@ -1,4 +1,3 @@
-# core/models.py
 from sqlalchemy import (
     Column, Integer, String, Date, Numeric, Text, Boolean, TIMESTAMP, 
     ForeignKey, CheckConstraint, UniqueConstraint, JSON, DateTime
@@ -308,3 +307,20 @@ class UploadTemplate(Base):
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
+class TransferHistory(Base):
+    __tablename__ = "transfer_history"
+    id = Column(Integer, primary_key=True, index=True)
+    fptk_id = Column(Integer, ForeignKey("fptk.id", ondelete="CASCADE"))
+    kode_unik = Column(String(50), nullable=False, index=True)
+    posisi = Column(String(255))
+    from_pic = Column(String(100), nullable=False)
+    to_pic = Column(String(100), nullable=False)
+    reason = Column(Text)
+    transferred_by = Column(Integer, ForeignKey("users.id"))
+    transferred_by_name = Column(String(100))
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    
+    # Relasi ke FPTK
+    fptk = relationship("FPTK", backref="transfers")
+    user = relationship("User", backref="transfers")
