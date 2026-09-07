@@ -2,7 +2,7 @@ import streamlit as st
 from sqlalchemy.orm import Session
 from core.database import get_db
 from core.models import User, FPTK, DBSourcing, UploadLog, UploadStatus, AuditLog, Evidence
-from core.auth import get_current_user, is_admin, create_user, reset_password, hash_password, is_it, is_editor
+from core.auth import get_current_user, is_admin, create_user, reset_password, hash_password, is_editor, is_it
 import pandas as pd
 from datetime import datetime
 
