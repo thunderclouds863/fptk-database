@@ -1040,7 +1040,7 @@ def show_upload_compile():
         user_pic_code = user.kode_pic or ""
         user_pic_bu = user.business_unit or ""
 
-st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
+        st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
         
         if not parsed_data.get("pic_recruiter"):
             pic_mapping = get_pic_mapping()
