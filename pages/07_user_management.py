@@ -119,7 +119,7 @@ def confirm_delete_user(user_id: int, username: str):
 @st.dialog("⚠️ Konfirmasi Nonaktifkan User")
 def confirm_deactivate_user(user_id: int, username: str):
     st.warning(f"Yakin ingin **nonaktifkan** user **{username}**?")
-    st.caption("User akan kehilangan akses login. **Semua data (FPTK, Sourcing, Evidence, Upload Logs) TETAP TERSIMPAN**.")
+    st.caption("User akan kehilangan akses login. **Semua data TETAP TERSIMPAN**.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -131,6 +131,7 @@ def confirm_deactivate_user(user_id: int, username: str):
                     user.username = f"inactive_{user.username}_{datetime.now().strftime('%Y%m%d')}"
                     user.password_hash = "DISABLED"
                     db.commit()
+                    st.cache_data.clear()
                     st.success(f"✅ User '{username}' berhasil dinonaktifkan!")
                     st.rerun()
                 else:
@@ -143,8 +144,8 @@ def confirm_deactivate_user(user_id: int, username: str):
 
     with col2:
         if st.button("❌ Batal", use_container_width=True):
+            st.cache_data.clear()
             st.rerun()
-
 
 # ============================================================
 # DIALOG AKTIFKAN USER
@@ -173,6 +174,7 @@ def confirm_activate_user(user_id: int, username: str):
                         user.username = original
                     user.password_hash = hash_password("password123")
                     db.commit()
+                    st.cache_data.clear()
                     st.success(f"✅ User '{username}' berhasil diaktifkan! Password: **password123**")
                     st.rerun()
                 else:
@@ -185,6 +187,7 @@ def confirm_activate_user(user_id: int, username: str):
 
     with col2:
         if st.button("❌ Batal", use_container_width=True):
+            st.cache_data.clear()
             st.rerun()
 
 
@@ -308,7 +311,8 @@ def edit_user_dialog(user_id: int):
                     user.password_hash = hash_password(new_password)
 
                 db.commit()
-                st.success(f"✅ User '{new_username}' berhasil diupdate! Kode PIC: {final_kode}")
+                st.cache_data.clear()
+                st.success(f"✅ User '{new_username}' berhasil diupdate!")
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
