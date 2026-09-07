@@ -1,17 +1,31 @@
 import bcrypt
 import streamlit as st
 from sqlalchemy.orm import Session
-from core.models import User, AuditLog
+from core.models import User, AuditLog, MasterDropdown
 import datetime
 import hashlib
 import re
+
+# ============================================================
+# BU CODE MAPPING
+# ============================================================
+BU_CODE_MAPPING = {
+    "CMD": {"nama": "PT Cisarua Mountain Dairy, Tbk", "kode": "CMD"},
+    "JESS": {"nama": "PT Java Egg Specialities", "kode": "JESS"},
+    "MS": {"nama": "PT Macrosentra Niagaboga", "kode": "MS"},
+    "MP": {"nama": "PT Macroprima Panganutama", "kode": "MP"},
+    "CORP": {"nama": "Corporate", "kode": "CORP"},
+}
+
 
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
+
 def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
+
 
 def authenticate_user(db: Session, username: str, password: str):
     user = db.query(User).filter(User.username == username).first()
@@ -20,6 +34,7 @@ def authenticate_user(db: Session, username: str, password: str):
     if verify_password(password, user.password_hash):
         return user
     return None
+
 
 def login_user(db: Session, username: str, password: str):
     user = authenticate_user(db, username, password)
@@ -37,22 +52,49 @@ def login_user(db: Session, username: str, password: str):
         return user
     return None
 
-def create_user(db: Session, username: str, password: str, role: str = "user", pic_recruiter: str = None, display_name: str = None):
+
+def generate_kode_pic(business_unit: str, pic_name: str) -> str:
+    """
+    Generate Kode PIC dari BU dan Nama PIC
+    Format: {BU}{3 huruf pertama nama}
+    Contoh: CMD + Elsi → CMDEls
+    """
+    if not business_unit or not pic_name:
+        return ""
+    # Ambil 3 huruf pertama dari nama (hanya huruf)
+    name_code = re.sub(r'[^A-Za-z]', '', pic_name)[:3].capitalize()
+    return f"{business_unit}{name_code}"
+
+
+def create_user(db: Session, username: str, password: str, role: str = "user",
+                pic_recruiter: str = None, display_name: str = None,
+                business_unit: str = None, kode_pic: str = None):
+    """
+    Create new user with BU and Kode PIC support
+    """
     if db.query(User).filter(User.username == username).first():
         return None
     if len(password) < 6:
         return None
+    
+    # Auto-generate kode_pic jika tidak diisi
+    if not kode_pic and business_unit and pic_recruiter:
+        kode_pic = generate_kode_pic(business_unit, pic_recruiter)
+    
     user = User(
         username=username,
         password_hash=hash_password(password),
         role=role,
         pic_recruiter=pic_recruiter,
-        display_name=display_name or username
+        display_name=display_name or username,
+        business_unit=business_unit,
+        kode_pic=kode_pic
     )
     db.add(user)
     db.commit()
     db.refresh(user)
     return user
+
 
 def reset_password(db: Session, user_id: int, new_password: str):
     user = db.query(User).filter(User.id == user_id).first()
@@ -64,46 +106,93 @@ def reset_password(db: Session, user_id: int, new_password: str):
     db.commit()
     return True
 
+
 def init_default_users(db: Session):
-    """Create 17 PIC users + 1 Admin if not exist"""
+    """Create 25+ PIC users + 1 Admin + 1 IT if not exist"""
+    # Format: (username, display_name, pic_recruiter, business_unit, kode_pic)
     pic_users = [
-        ("CMD", "CMD"),
-        ("Brittney", "Brittney"),
-        ("Eli", "Eli"),
-        ("Fiqra", "Fiqra"),
-        ("Karin", "Karin"),
-        ("Kenthansen", "Kenthansen"),
-        ("Kevin", "Kevin"),
-        ("Marta", "Marta"),
-        ("Omega", "Omega"),
-        ("Pauline", "Pauline"),
-        ("Salsa", "Salsa"),
-        ("Valendra", "Valendra"),
-        ("Victor", "Victor"),
-        ("Zwei", "Zwei"),
-        ("JESS", "JESS"),
-        ("MP", "MP"),
-        ("MS", "MS"),
+        # ===== CORPORATE (CORP) =====
+        ("adista", "Adista", "Adista", "CORP", "CORPAdi"),
+        ("brittney", "Brittney", "Brittney", "CORP", "CORPBrit"),
+        ("eli", "Eli", "Eli", "CORP", "CORPEli"),
+        ("fiqra", "Fiqra", "Fiqra", "CORP", "CORPFiq"),
+        ("karin", "Karin", "Karin", "CORP", "CORPKar"),
+        ("kenthansen", "Kenthansen", "Kenthansen", "CORP", "CORPKen"),
+        ("kevin", "Kevin", "Kevin", "CORP", "CORPKev"),
+        ("marta", "Marta", "Marta", "CORP", "CORPMar"),
+        ("omega", "Omega", "Omega", "CORP", "CORPOme"),
+        ("salsa", "Salsa", "Salsa", "CORP", "CORPSal"),
+        ("valen", "Valendra", "Valendra", "CORP", "CORPVal"),
+        ("victor", "Victor", "Victor", "CORP", "CORPVic"),
+        ("yeremia", "Yeremia", "Yeremia", "CORP", "CORPYer"),
+        ("zwei", "Zwei", "Zwei", "CORP", "CORPZwei"),
+        ("desi", "Desi", "Desi", "CORP", "CORPDesi"),
+        
+        # ===== MP (Macroprima Panganutama) =====
+        ("pauline", "Pauline", "Pauline", "MP", "MPPau"),
+        ("ratih", "Ratih", "Ratih", "MP", "MPRat"),
+        ("achmad", "Achmad", "Achmad", "MP", "MPAch"),
+        ("kasanah", "Kasanah", "Kasanah", "MP", "MPKas"),
+        ("alma", "Alma", "Alma", "MP", "MPAlm"),
+        
+        # ===== CMD (Cisarua Mountain Dairy) =====
+        ("salwa", "Salwa", "Salwa", "CMD", "CMDSal"),
+        ("elsi", "Elsi", "Elsi", "CMD", "CMDEls"),
+        ("wahyu", "Wahyu", "Wahyu", "CMD", "CMDWah"),
+        
+        # ===== JESS (Java Egg Specialities) =====
+        ("riska", "Riska", "Riska", "JESS", "JESSRis"),
+        ("fiscall", "Fiscall", "Fiscall", "JESS", "JESSFis"),
+        
+        # ===== MS (Macrosentra Niagaboga) =====
+        ("leo", "Leo", "Leo", "MS", "MSLeo"),
+        
+        # ===== DUMMY/ALIAS UNTUK COMPATIBILITY =====
+        ("CMD", "CMD", "CMD", "CMD", "CMD"),
+        ("JESS", "JESS", "JESS", "JESS", "JESS"),
+        ("MS", "MS", "MS", "MS", "MS"),
+        ("MP", "MP", "MP", "MP", "MP"),
     ]
     
-    for username, pic_name in pic_users:
+    for username, display_name, pic_name, bu, kode in pic_users:
         if not db.query(User).filter(User.username == username).first():
-            create_user(db, username, "password123", "user", pic_name)
+            create_user(db, username, "password123", "user", pic_name, display_name, bu, kode)
     
+    # ===== ADMIN =====
     if not db.query(User).filter(User.username == "admin").first():
-        create_user(db, "admin", "admin123", "admin", None, "Administrator")
-        
+        admin = User(
+            username="admin",
+            password_hash=hash_password("admin123"),
+            role="admin",
+            display_name="Administrator",
+            pic_recruiter="Admin",
+            business_unit="CORP",
+            kode_pic="ADMIN"
+        )
+        db.add(admin)
+        db.commit()
+    
+    # ===== IT SUPPORT (VIEW-ONLY) =====
     if not db.query(User).filter(User.username == "it").first():
-        create_user(db, "it", "it123", "it", None, "IT Support")
+        it_user = User(
+            username="it",
+            password_hash=hash_password("it123"),
+            role="it",
+            display_name="IT Support",
+            pic_recruiter="IT",
+            business_unit="CORP",
+            kode_pic="IT"
+        )
+        db.add(it_user)
+        db.commit()
+
+
 def init_master_dropdown(db: Session):
     """Seed default master data jika kosong"""
-    from core.models import MasterDropdown
-    
     if db.query(MasterDropdown).count() > 0:
         return  # sudah ada data
     
     default_data = [
-        # Kode PIC | BU | Alasan | Category | PIC Recruiter | Filter | Status | Lokasi Onboarding | Detail SLA | Keterangan 0 | Keterangan 1 | Keterangan Cancel | Nama Direktorat | Model | Sumber Sourcing | Jenjang Pendidikan | Nama Universitas (Top 10) | Jurusan | University Tier | IPK Tier
         {"kode_pic": "CORPPau", "bu": "PT CISARUA MOUNTAIN DAIRY, TBK", "alasan": "Karyawan Lama Keluar", "category_fptk": "NEW", "pic_recruiter": "Pauline", "filter_fptk": "CLAP FGDP", "status": "OP", "lokasi_onboarding": "HO Meruya", "detail_sla": "OP belum lewat SLA", "keterangan_0": "Area minim sumber daya", "keterangan_1": "Kandidat hasil referensi User", "keterangan_cancel": "Keterangan FPTK tidak sesuai kebutuhan", "nama_direktorat": "CEO Office", "model": "Model 1", "sumber_sourcing": "Jobstreet", "jenjang_pendidikan": "SMA/SMK", "nama_universitas_top10": "Universitas Indonesia", "jurusan": "IPA", "university_tier": "Top 3 PTN", "ipk_tier": "Lebih dari 3,5"},
         {"kode_pic": "CORPKar", "bu": "PT MACROSENTRA NIAGABOGA", "alasan": "Penambahan Personil", "category_fptk": "REPLACEMENT", "pic_recruiter": "Karin", "filter_fptk": "Level 1-2", "status": "Closed", "lokasi_onboarding": "Semarang", "detail_sla": "OP tidak lulus SLA", "keterangan_0": "User tidak responsif", "keterangan_1": "Talent pool besar", "keterangan_cancel": "FPTK diisi dengan karyawan mutasi/promosi", "nama_direktorat": "CEO, Corsec, & Investor Relation", "model": "Model 2", "sumber_sourcing": "LinkedIn", "jenjang_pendidikan": "D3", "nama_universitas_top10": "Universitas Gadjah Mada", "jurusan": "IPS", "university_tier": "Top 10 PTN", "ipk_tier": "Lebih dari 3,2"},
         {"kode_pic": "CORPTih", "bu": "PT JAVA EGG SPECIALITIES", "alasan": "Jabatan Baru", "category_fptk": "", "pic_recruiter": "Ratih", "filter_fptk": "STO", "status": "Cancel", "lokasi_onboarding": "Cikupa", "detail_sla": "Closed lulus SLA", "keterangan_0": "Kandidat mengundurkan diri", "keterangan_1": "User responsif dalam proses seleksi", "keterangan_cancel": "Karyawan existing batal resign", "nama_direktorat": "Commercial CMD", "model": "Model 3", "sumber_sourcing": "Google Form", "jenjang_pendidikan": "D4", "nama_universitas_top10": "Institut Teknologi Bandung", "jurusan": "Administrasi Bisnis", "university_tier": "Top 20 PTN", "ipk_tier": "Kurang dari 3,5"},
@@ -130,7 +219,7 @@ def init_master_dropdown(db: Session):
         db.add(master)
     
     db.commit()
-    print(f"✅ {len(default_data)} master dropdown records seeded")
+
 
 def get_current_user(db: Session):
     """Ambil user yang sedang login dari session state"""
@@ -138,33 +227,40 @@ def get_current_user(db: Session):
         return None
     return db.query(User).filter(User.id == st.session_state.user_id).first()
 
+
 def is_admin(db: Session):
     """Cek apakah user yang login adalah admin"""
     user = get_current_user(db)
     return user and user.role == "admin"
+
+
+def is_it(db: Session) -> bool:
+    """Cek apakah user adalah IT (view-only)"""
+    user = get_current_user(db)
+    return user and user.role == "it"
+
+
+def is_editor(db: Session) -> bool:
+    """Cek apakah user bisa melakukan aksi edit/upload"""
+    user = get_current_user(db)
+    return user and user.role in ["admin", "user"]
+
+
+def can_edit_data(db: Session) -> bool:
+    """Cek apakah user bisa edit data (hanya admin)"""
+    user = get_current_user(db)
+    return user and user.role == "admin"
+
 
 def login_required():
     if "user_id" not in st.session_state or st.session_state.user_id is None:
         st.warning("⚠️ Silakan login terlebih dahulu.")
         st.stop()
 
+
 def hash_file(file_data: bytes) -> str:
     return hashlib.sha256(file_data).hexdigest()
 
+
 def sanitize_filename(filename: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
-
-def is_it(db: Session) -> bool:
-    """Cek apakah user adalah IT (view-only admin)"""
-    user = get_current_user(db)
-    return user and user.role == "it"
-
-def is_editor(db: Session) -> bool:
-    """Cek apakah user bisa melakukan aksi edit/upload"""
-    user = get_current_user(db)
-    return user and user.role in ["admin", "user"]  # IT tidak termasuk
-
-def can_edit_data(db: Session) -> bool:
-    """Cek apakah user bisa edit data (hanya admin)"""
-    user = get_current_user(db)
-    return user and user.role == "admin"
