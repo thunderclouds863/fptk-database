@@ -21,6 +21,7 @@ def confirm_deactivate_user(user_id: int, username: str):
             try:
                 user = db.query(User).filter(User.id == user_id).first()
                 if user:
+                    # Ubah username agar tidak bisa login
                     user.username = f"inactive_{user.username}_{datetime.now().strftime('%Y%m%d')}"
                     user.password_hash = "DISABLED"
                     db.commit()
@@ -54,13 +55,15 @@ def confirm_activate_user(user_id: int, username: str):
             try:
                 user = db.query(User).filter(User.id == user_id).first()
                 if user:
+                    # Hapus prefix inactive_
                     clean_username = user.username
                     if clean_username.startswith("inactive_"):
                         parts = clean_username.split("_")
                         original = parts[1] if len(parts) >= 2 else clean_username.replace("inactive_", "")
+                        # Cek apakah username original sudah dipakai user lain
                         existing = db.query(User).filter(User.username == original).first()
                         if existing and existing.id != user_id:
-                            st.error(f"Username '{original}' sudah digunakan!")
+                            st.error(f"Username '{original}' sudah digunakan oleh user lain!")
                             db.close()
                             st.stop()
                         user.username = original
@@ -142,6 +145,10 @@ def show_user_management():
     st.markdown("Kelola akun user (Edit, Reset Password, Nonaktifkan/Aktifkan).")
     
     db = next(get_db())
+    
+    # ============================================================
+    # CEK AKSES - IT (View-Only)
+    # ============================================================
     if is_it(db):
         st.info("🔍 Mode View-Only (IT)")
         users = db.query(User).all()
@@ -150,21 +157,22 @@ def show_user_management():
             "Username": u.username,
             "Role": u.role,
             "PIC Recruiter": u.pic_recruiter or "-",
-            "Display Name": u.display_name or u.username
+            "Display Name": u.display_name or u.username,
+            "Status": "✅ Aktif" if not u.username.startswith("inactive_") else "⛔ Nonaktif"
         } for u in users]
         st.dataframe(pd.DataFrame(data), use_container_width=True)
         return
     
+    # ============================================================
+    # CEK AKSES - ADMIN ONLY
+    # ============================================================
     if not is_admin(db):
-        st.error("Hanya Admin yang bisa mengelola User.")
+        st.error("❌ Hanya Admin yang bisa mengelola User.")
         return
+    
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login terlebih dahulu.")
-        return
-    
-    if not is_admin(db):
-        st.error("Halaman ini hanya untuk Admin.")
         return
     
     # ============================================================
