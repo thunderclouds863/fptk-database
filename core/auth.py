@@ -66,21 +66,13 @@ def generate_kode_pic(business_unit: str, pic_name: str) -> str:
     return f"{business_unit}{name_code}"
 
 
-def create_user(db: Session, username: str, password: str, role: str = "user",
+def create_user(db: Session, username: str, password: str, role: str = "user", 
                 pic_recruiter: str = None, display_name: str = None,
                 business_unit: str = None, kode_pic: str = None):
-    """
-    Create new user with BU and Kode PIC support
-    """
     if db.query(User).filter(User.username == username).first():
         return None
     if len(password) < 6:
         return None
-    
-    # Auto-generate kode_pic jika tidak diisi
-    if not kode_pic and business_unit and pic_recruiter:
-        kode_pic = generate_kode_pic(business_unit, pic_recruiter)
-    
     user = User(
         username=username,
         password_hash=hash_password(password),
