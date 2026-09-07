@@ -37,6 +37,103 @@ def generate_kode_pic(business_unit: str, pic_name: str) -> str:
 
 
 # ============================================================
+# DIALOG HAPUS USER (PERMANEN)
+# ============================================================
+@st.dialog("⚠️ HAPUS USER PERMANEN")
+def confirm_delete_user(user_id: int, username: str):
+    st.error(f"⚠️ **PERINGATAN!** Anda akan menghapus user **{username}** secara **PERMANEN**!")
+    
+    st.markdown("""
+    ### Data yang akan ikut terhapus:
+    - ✅ Semua FPTK milik user ini
+    - ✅ Semua Sourcing milik user ini
+    - ✅ Semua Evidence milik user ini
+    - ✅ Semua Upload Logs milik user ini
+    - ✅ Semua Audit Logs milik user ini
+    """)
+    
+    st.warning("⚠️ **TINDAKAN INI TIDAK DAPAT DIBATALKAN!**")
+    
+    # Input konfirmasi username
+    confirm_username = st.text_input(
+        f"Ketik username **{username}** untuk konfirmasi:",
+        placeholder=f"Ketik {username} di sini"
+    )
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🗑️ Ya, Hapus Permanen", type="primary", use_container_width=True):
+            if confirm_username.strip() == username:
+                db = next(get_db())
+                try:
+                    # Cek apakah user ini adalah admin terakhir
+                    admin_count = db.query(User).filter(User.role == "admin").count()
+                    user_check = db.query(User).filter(User.id == user_id).first()
+                    
+                    if user_check.role == "admin" and admin_count <= 1:
+                        st.error("❌ Tidak bisa menghapus admin terakhir! Pastikan ada admin lain terlebih dahulu.")
+                        db.close()
+                        st.stop()
+                    
+                    # Hapus data terkait
+                    # 1. FPTK
+                    fptk_count = db.query(FPTK).filter(FPTK.source_user_id == user_id).count()
+                    db.query(FPTK).filter(FPTK.source_user_id == user_id).delete(synchronize_session=False)
+                    
+                    # 2. Sourcing
+                    sourcing_count = db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).count()
+                    db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).delete(synchronize_session=False)
+                    
+                    # 3. Evidence
+                    evidence_count = 0
+                    if hasattr(Evidence, 'user_id'):
+                        evidence_count = db.query(Evidence).filter(Evidence.user_id == user_id).count()
+                        if evidence_count > 0:
+                            db.query(Evidence).filter(Evidence.user_id == user_id).delete(synchronize_session=False)
+                    
+                    # 4. Upload Logs
+                    log_count = db.query(UploadLog).filter(UploadLog.user_id == user_id).count()
+                    db.query(UploadLog).filter(UploadLog.user_id == user_id).delete(synchronize_session=False)
+                    
+                    # 5. Upload Status
+                    status_count = db.query(UploadStatus).filter(UploadStatus.user_id == user_id).count()
+                    db.query(UploadStatus).filter(UploadStatus.user_id == user_id).delete(synchronize_session=False)
+                    
+                    # 6. Audit Logs
+                    audit_count = db.query(AuditLog).filter(AuditLog.user_id == user_id).count()
+                    db.query(AuditLog).filter(AuditLog.user_id == user_id).delete(synchronize_session=False)
+                    
+                    # 7. Hapus user
+                    db.delete(user_check)
+                    db.commit()
+                    
+                    st.success(f"""
+                    ✅ User **{username}** berhasil dihapus permanen!
+                    
+                    Data yang terhapus:
+                    - FPTK: {fptk_count} row
+                    - Sourcing: {sourcing_count} row
+                    - Evidence: {evidence_count} row
+                    - Upload Logs: {log_count} row
+                    - Upload Status: {status_count} row
+                    - Audit Logs: {audit_count} row
+                    """)
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    db.rollback()
+                finally:
+                    db.close()
+            else:
+                st.error(f"❌ Username tidak cocok! Ketik **{username}** dengan benar.")
+    
+    with col2:
+        if st.button("❌ Batal", use_container_width=True):
+            st.rerun()
+
+
+# ============================================================
 # DIALOG KONFIRMASI NONAKTIFKAN USER
 # ============================================================
 @st.dialog("⚠️ Konfirmasi Nonaktifkan User")
@@ -339,7 +436,7 @@ def show_user_management():
         if selected_data:
             is_active = not selected_data.username.startswith("inactive_")
 
-            col1, col2, col3, col4 = st.columns(4)
+            col1, col2, col3, col4, col5 = st.columns(5)
 
             with col1:
                 if st.button("✏️ Edit User", use_container_width=True):
@@ -362,6 +459,11 @@ def show_user_management():
                         confirm_activate_user(selected_id, selected_data.username)
 
             with col4:
+                # Tombol HAPUS - tersedia untuk semua user (aktif maupun nonaktif)
+                if st.button("🗑️ Hapus", use_container_width=True, type="secondary"):
+                    confirm_delete_user(selected_id, selected_data.username)
+
+            with col5:
                 if is_active:
                     st.success("✅ Aktif")
                 else:
@@ -464,6 +566,7 @@ def show_user_management():
     st.markdown("---")
     st.subheader("📊 Statistik User")
 
+    users = db.query(User).all()
     if users:
         total_users = len(users)
         admin_count = len([u for u in users if u.role == "admin"])
