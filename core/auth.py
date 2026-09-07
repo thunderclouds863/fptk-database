@@ -213,9 +213,11 @@ def is_it(db: Session) -> bool:
 
 
 def is_editor(db: Session) -> bool:
-    """Cek apakah user bisa melakukan aksi edit/upload"""
+    """Cek apakah user adalah editor (bisa transfer FPTK)"""
     user = get_current_user(db)
-    return user and user.role in ["admin", "user"]
+    if not user:
+        return False
+    return user.role in ["admin", "user"] 
 
 
 def can_edit_data(db: Session) -> bool:
