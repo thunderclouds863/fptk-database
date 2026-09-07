@@ -9,7 +9,7 @@ import os
 import base64
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS (GANTI ke st.cache_resource) 🔥🔥🔥
+#  CACHE FUNCTIONS
 # ============================================================
 
 @st.cache_resource(ttl=3600)
