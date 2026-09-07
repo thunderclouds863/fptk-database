@@ -11,6 +11,24 @@ def show_upload_cycle():
     st.markdown("Kelola siklus upload untuk setiap periode.")
     
     db = next(get_db())
+    if is_it(db):
+        st.info("🔍 Mode View-Only (IT)")
+        cycles = db.query(UploadCycle).order_by(UploadCycle.created_at.desc()).all()
+        if cycles:
+            data = [{
+                "ID": c.id,
+                "Nama Cycle": c.cycle_name,
+                "Dibuat": c.created_at.strftime("%d/%m/%Y %H:%M") if c.created_at else "-",
+                "Status": "Aktif" if not c.ended_at else "Selesai"
+            } for c in cycles]
+            st.dataframe(pd.DataFrame(data), use_container_width=True)
+        else:
+            st.info("Belum ada upload cycle.")
+        return
+    
+    if not is_admin(db):
+        st.error("Hanya Admin yang bisa mengelola Upload Cycle.")
+        return
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login terlebih dahulu.")
