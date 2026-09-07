@@ -114,7 +114,28 @@ def get_cache_functions():
         st.sidebar.caption(f"⚠️ Cache functions not available: {str(e)}")
         return None
 
+# ============================================================
+# SESSION PERSISTENCE - CEK SETIAP LOAD
+# ============================================================
 
+# Jika user_id ada di session_state tapi session_manager kosong,
+# restore session_manager dari session_state
+if st.session_state.user_id and not session_mgr.is_logged_in:
+    session_mgr.login(
+        st.session_state.user_id,
+        st.session_state.username,
+        st.session_state.role,
+        st.session_state.user_display
+    )
+
+# Jika session_manager ada tapi session_state kosong,
+# restore session_state dari session_manager
+elif not st.session_state.user_id and session_mgr.is_logged_in:
+    st.session_state.user_id = session_mgr.user_id
+    st.session_state.username = session_mgr.username
+    st.session_state.role = session_mgr.role
+    st.session_state.user_display = session_mgr.user_display
+    
 # ============================================================
 # LOGIN PAGE - HANYA TAMPIL JIKA BELUM LOGIN
 # ============================================================
