@@ -46,13 +46,13 @@ def check_column_exists(table, column_name, db):
 
 
 def show_upload_evidence():
-    if not is_editor(db):
-        st.error("❌ Anda tidak memiliki akses untuk upload evidence. Hubungi Admin.")
-        return
     st.title("📎 Upload Evidence Sourcing")
     st.markdown("Upload bukti evidence sourcing dan lihat histori upload.")
     
     db = next(get_db())
+    if not is_editor(db):
+        st.error("❌ Anda tidak memiliki akses untuk upload evidence. Hubungi Admin.")
+        return
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login terlebih dahulu.")
