@@ -391,6 +391,9 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
 # ============================================================
 
 def show_upload_compile():
+    if not is_editor(db):
+        st.error("❌ Anda tidak memiliki akses untuk upload/compile data. Hubungi Admin.")
+        return
     st.title("📤 Upload & Compile FPTK")
     st.markdown("Upload file Excel recruiter ATAU input FPTK secara manual ATAU paste email body.")
     
