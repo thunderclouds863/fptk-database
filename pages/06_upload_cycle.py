@@ -2,7 +2,6 @@ import streamlit as st
 from sqlalchemy.orm import Session
 from core.database import get_db
 from core.models import UploadCycle, UploadStatus, User
-from core.auth import get_current_user, is_admin
 from core.upload_cycle import create_upload_cycle, get_cycle_progress, close_cycle
 from core.auth import get_current_user, is_admin, is_it, is_editor
 import pandas as pd
