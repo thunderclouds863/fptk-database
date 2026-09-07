@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+#  CACHE FUNCTIONS 
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -80,7 +80,7 @@ def show_sourcing_view():
         return
     
     # ============================================================
-    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    #  LOAD FROM CACHE 
     # ============================================================
     with st.spinner("📋 Memuat data..."):
         master_options = get_master_options_sourcing_view(db)
@@ -281,7 +281,7 @@ def show_sourcing_view():
         )
         
         # ============================================================
-        # 🔥🔥🔥 SEARCH/EDIT BY KODE UNIK / NAMA / POSISI 🔥🔥🔥
+        #  SEARCH/EDIT BY KODE UNIK / NAMA / POSISI 
         # ============================================================
         st.markdown("---")
         st.subheader("✏️ Detail & Edit Kandidat")
@@ -359,7 +359,7 @@ def show_sourcing_view():
             for stage in pipeline_stages:
                 field = getattr(detail, stage["field"])
                 
-                # 🔥🔥🔥 CEK FIELD SEBELUM DIAKSES 🔥🔥🔥
+                #  CEK FIELD SEBELUM DIAKSES 
                 date_field_name = f"tanggal_{stage['field']}"
                 detail_field_name = f"detail_keterangan_{stage['field']}"
                 
@@ -459,7 +459,7 @@ def show_sourcing_view():
                 st.markdown("---")
                 st.markdown("### 📊 Pipeline Stages (V = Lolos, X = Tidak Lolos)")
                 
-                # 🔥🔥🔥 PIPELINE DENGAN DROPDOWN V/X 🔥🔥🔥
+                #  PIPELINE DENGAN DROPDOWN V/X 
                 for i, stage in enumerate(pipeline_stages):
                     if i % 3 == 0:
                         cols = st.columns(3)
@@ -476,7 +476,7 @@ def show_sourcing_view():
                     with cols[i % 3]:
                         st.markdown(f"**{label}**")
                         
-                        # 🔥🔥🔥 DROPDOWN V/X, BUKAN FREE TEXT 🔥🔥🔥
+                        #  DROPDOWN V/X, BUKAN FREE TEXT 
                         new_status = st.selectbox(
                             f"Status {label}",
                             [""] + pipeline_status_options,
