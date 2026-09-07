@@ -26,7 +26,7 @@ def get_filter_options():
         return ["Semua"], ["Semua"], ["Semua"]
 
 # 2. CACHE UNTUK DATA FPTK (5 menit auto refresh)
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_fptk_data(
     pic_filter=None, 
     status_filter=None, 
@@ -69,7 +69,7 @@ def load_fptk_data(
         return pd.DataFrame()
 
 # 3. CACHE UNTUK DATA SOURCING (5 menit auto refresh)
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=300, show_spinner=False)
 def load_sourcing_data(
     pic_filter=None,
     date_from=None,
