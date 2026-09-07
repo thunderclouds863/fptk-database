@@ -8,7 +8,7 @@ from datetime import datetime
 import time
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+#  CACHE FUNCTIONS 
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -52,7 +52,7 @@ def show_funnel_report():
         return
     
     # ============================================================
-    # 🔥🔥🔥 LOAD FROM CACHE 🔥🔥🔥
+    #  LOAD FROM CACHE 
     # ============================================================
     with st.spinner("📋 Memuat data..."):
         pipeline_stages = get_funnel_pipeline_stages()
@@ -99,7 +99,7 @@ def show_funnel_report():
         return
     
     # ============================================================
-    # 🔥🔥🔥 JOIN DENGAN FPTK 🔥🔥🔥
+    #  JOIN DENGAN FPTK 
     # ============================================================
     fptk_df = pd.DataFrame()
     if 'kode_unik' in df.columns:
@@ -109,7 +109,7 @@ def show_funnel_report():
             fptk_df = pd.read_sql(fptk_query.statement, db.bind)
     
     # ============================================================
-    # 🔥🔥🔥 AGREGASI PER KODE UNIK 🔥🔥🔥
+    #  AGREGASI PER KODE UNIK 
     # ============================================================
     
     # Group by kode_unik
@@ -155,7 +155,7 @@ def show_funnel_report():
                        'level_fptk', 'level_number', 'category_fptk', 'filter_kategorisasi_fptk']:
                 row_data[col] = '-'
         
-        # 🔥🔥🔥 HITUNG JUMLAH PER TAHAP (V) 🔥🔥🔥
+        #  HITUNG JUMLAH PER TAHAP (V) 
         for stage in pipeline_stages:
             field = stage["field"]
             if field in group.columns:
@@ -203,7 +203,7 @@ def show_funnel_report():
     st.markdown("---")
     
     # ============================================================
-    # 🔥🔥🔥 FUNNEL CHART 🔥🔥🔥
+    #  FUNNEL CHART 
     # ============================================================
     st.markdown("### 📈 Funnel Chart")
     
@@ -236,7 +236,7 @@ def show_funnel_report():
     st.markdown("---")
     
     # ============================================================
-    # 🔥🔥🔥 DETAIL TABLE PER KODE UNIK 🔥🔥🔥
+    #  DETAIL TABLE PER KODE UNIK 
     # ============================================================
     st.markdown("### 📋 Detail Data per Kode Unik")
     st.caption(f"Total: {len(agg_df)} Kode Unik unik")
@@ -319,7 +319,7 @@ def show_funnel_report():
     )
     
     # ============================================================
-    # 🔥🔥🔥 EXPORT BUTTON 🔥🔥🔥
+    #  EXPORT BUTTON 
     # ============================================================
     st.markdown("---")
     col1, col2, col3 = st.columns([1, 1, 3])
