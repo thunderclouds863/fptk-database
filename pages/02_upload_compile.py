@@ -5,7 +5,7 @@ import hashlib
 from datetime import datetime, timedelta
 from core.database import get_db
 from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate
-from core.auth import get_current_user, is_admin, hash_file, sanitize_filename, is_it, is_editor
+from core.auth import get_current_user, is_admin,is_it , is_editor, hash_file, sanitize_filename
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_db_kode_posisi_file
 from core.compiler import compile_fptk, compile_db_sourcing, compile_db_kode_posisi
