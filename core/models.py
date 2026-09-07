@@ -17,7 +17,9 @@ class User(Base):
     __table_args__ = (
         CheckConstraint("role IN ('admin', 'user', 'it')", name="ck_user_role"),
     )
-    pic_recruiter = Column(String(100))
+    business_unit = Column(String(20)) 
+    kode_pic = Column(String(50))  
+    pic_recruiter = Column(String(100)) 
     display_name = Column(String(100))
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_login = Column(TIMESTAMP)
