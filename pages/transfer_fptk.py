@@ -6,6 +6,9 @@ from core.auth import get_current_user, is_admin
 from datetime import datetime
 
 def show_transfer_fptk():
+    if not is_editor(db):
+        st.error("❌ Anda tidak memiliki akses untuk transfer FPTK. Hubungi Admin.")
+        return
     st.title("🔄 Transfer FPTK")
     st.markdown("Transfer FPTK dari satu PIC ke PIC lain.")
     
