@@ -138,12 +138,6 @@ def init_default_users(db: Session):
         
         # ===== MS (Macrosentra Niagaboga) =====
         ("leo", "Leo", "Leo", "MS", "MSLeo"),
-        
-        # ===== DUMMY/ALIAS UNTUK COMPATIBILITY =====
-        ("CMD", "CMD", "CMD", "CMD", "CMD"),
-        ("JESS", "JESS", "JESS", "JESS", "JESS"),
-        ("MS", "MS", "MS", "MS", "MS"),
-        ("MP", "MP", "MP", "MP", "MP"),
     ]
     
     for username, display_name, pic_name, bu, kode in pic_users:
@@ -162,20 +156,6 @@ def init_default_users(db: Session):
             kode_pic="ADMIN"
         )
         db.add(admin)
-        db.commit()
-    
-    # ===== IT SUPPORT (VIEW-ONLY) =====
-    if not db.query(User).filter(User.username == "it").first():
-        it_user = User(
-            username="it",
-            password_hash=hash_password("it123"),
-            role="it",
-            display_name="IT Support",
-            pic_recruiter="IT",
-            business_unit="CORP",
-            kode_pic="IT"
-        )
-        db.add(it_user)
         db.commit()
 
 
