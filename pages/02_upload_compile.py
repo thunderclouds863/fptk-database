@@ -82,7 +82,7 @@ for num in range(1, 6):
 
 
 # ============================================================
-# 🔥🔥🔥 FUNGSI DETAIL SLA OTOMATIS 🔥🔥🔥
+#  FUNGSI DETAIL SLA OTOMATIS 
 # ============================================================
 
 def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, today=None):
@@ -125,7 +125,7 @@ def sanitize_value(value):
 
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+#  CACHE FUNCTIONS 
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -229,7 +229,7 @@ def get_all_bu_codes():
 
 
 # ============================================================
-# 🔥🔥🔥 FUNGSI GENERATE KODE UNIK & KODE ANGKA 🔥🔥🔥
+#  FUNGSI GENERATE KODE UNIK & KODE ANGKA 
 # ============================================================
 
 def generate_kode_angka(db, posisi, kode_pic):
@@ -637,10 +637,12 @@ def show_upload_compile():
         
         pic_mapping = get_pic_mapping()
         level_options = get_level_options()
+                
+        user_pic_name = user.pic_recruiter or user.display_name or user.username
+        user_pic_code = user.kode_pic or ""
+        user_pic_bu = user.business_unit or ""
         
-        user_pic_name = user.pic_recruiter or ""
-        user_pic_code = ""
-        user_pic_bu = ""
+        st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
         
         for key, val in pic_mapping.items():
             if val["name"].lower() == user_pic_name.lower():
@@ -656,7 +658,7 @@ def show_upload_compile():
                     user_pic_bu = val["bu"]
                     break
         
-        # 🔥🔥🔥 JIKA USER ADALAH ADMIN DAN KODE_PIC KOSONG, PAKAI "ADM" 🔥🔥🔥
+        #  JIKA USER ADALAH ADMIN DAN KODE_PIC KOSONG, PAKAI "ADM" 
         if is_admin(db) and not user_pic_code:
             user_pic_code = "ADM"
             user_pic_bu = "CORP"
@@ -790,20 +792,20 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            # 🔥🔥🔥 GENERATE KODE UNIK 🔥🔥🔥
+            #  GENERATE KODE UNIK 
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            # 🔥🔥🔥 GENERATE KODE ANGKA 🔥🔥🔥
+            #  GENERATE KODE ANGKA 
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # 🔥🔥🔥 CEK DUPLIKAT 🔥🔥🔥
+                #  CEK DUPLIKAT 
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
@@ -1034,9 +1036,11 @@ def show_upload_compile():
                 else:
                     st.warning("⚠️ Tidak ada data yang terdeteksi dari email.")
         
-        # Default PIC untuk admin
-        user_pic_name = user.pic_recruiter or ""
-        user_pic_code = ""
+        user_pic_name = user.pic_recruiter or user.display_name or user.username
+        user_pic_code = user.kode_pic or ""
+        user_pic_bu = user.business_unit or ""
+
+st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
         
         if not parsed_data.get("pic_recruiter"):
             pic_mapping = get_pic_mapping()
@@ -1052,7 +1056,7 @@ def show_upload_compile():
                         user_pic_code = val["code"]
                         break
             
-            # 🔥🔥🔥 JIKA ADMIN, PAKAI "ADM" 🔥🔥🔥
+            #  JIKA ADMIN, PAKAI "ADM" 
             if is_admin(db) and not user_pic_code:
                 user_pic_code = "ADM"
                 user_pic_name = "Admin"
@@ -1234,20 +1238,20 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            # 🔥🔥🔥 GENERATE KODE UNIK 🔥🔥🔥
+            #  GENERATE KODE UNIK 
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            # 🔥🔥🔥 GENERATE KODE ANGKA 🔥🔥🔥
+            #  GENERATE KODE ANGKA 
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # 🔥🔥🔥 CEK DUPLIKAT 🔥🔥🔥
+                #  CEK DUPLIKAT 
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
