@@ -10,7 +10,7 @@ import re
 import time
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS (FIX: PAKAI _db) 🔥🔥🔥
+#  CACHE FUNCTIONS (FIX: PAKAI _db) 
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -77,7 +77,7 @@ def get_detail_sla_options():
 
 
 # ============================================================
-# 🔥🔥🔥 FUNGSI UPDATE SLA OTOMATIS 🔥🔥🔥
+#  FUNGSI UPDATE SLA OTOMATIS 
 # ============================================================
 
 def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, fptk_cancel_date, today=None):
@@ -184,7 +184,7 @@ def show_fptk_view():
     admin = is_admin(db)
     
     # ============================================================
-    # 🔥🔥🔥 AUTO UPDATE SLA (SETIAP LOAD HALAMAN) 🔥🔥🔥
+    #  AUTO UPDATE SLA (SETIAP LOAD HALAMAN) 
     # ============================================================
     with st.spinner("🔄 Memeriksa dan memperbarui SLA..."):
         updated = update_all_sla_bulk(db)
@@ -231,7 +231,7 @@ def show_fptk_view():
         
         st.markdown("---")
         
-        # 🔥🔥🔥 TOMBOL REFRESH SLA MANUAL 🔥🔥🔥
+        #  TOMBOL REFRESH SLA MANUAL 
         if st.button("🔄 Refresh SLA Now", use_container_width=True, type="primary"):
             with st.spinner("Memperbarui SLA..."):
                 updated = update_all_sla_bulk(db)
@@ -515,7 +515,7 @@ def show_fptk_view():
                 new_deadline_sla = st.date_input("Deadline SLA", 
                                                   value=detail.deadline_sla if detail.deadline_sla else None)
             with col3:
-                # 🔥🔥🔥 DETAIL SLA AUTO DARI FUNGSI 🔥🔥🔥
+                #  DETAIL SLA AUTO DARI FUNGSI 
                 auto_detail_sla = calculate_detail_sla_auto(
                     status=new_status,
                     fptk_date_real=detail.fptk_date_real,
@@ -580,7 +580,7 @@ def show_fptk_view():
         # ============================================================
         if submitted:
             try:
-                # 🔥🔥🔥 HITUNG ULANG SLA OTOMATIS 🔥🔥🔥
+                #  HITUNG ULANG SLA OTOMATIS 
                 if new_level_number <= 3:
                     sla_days = 30
                 elif new_level_number == 4:
@@ -594,7 +594,7 @@ def show_fptk_view():
                 else:
                     new_deadline_sla_calc = new_deadline_sla
                 
-                # 🔥🔥🔥 DETAIL SLA OTOMATIS 🔥🔥🔥
+                #  DETAIL SLA OTOMATIS 
                 new_detail_sla_auto = calculate_detail_sla_auto(
                     status=new_status,
                     fptk_date_real=new_fptk_date_real,
@@ -636,7 +636,7 @@ def show_fptk_view():
                 detail.fptk_availability = new_fptk_availability
                 detail.remark = new_remark
                 
-                # 🔥🔥🔥 UPDATE SLA OTOMATIS 🔥🔥🔥
+                #  UPDATE SLA OTOMATIS 
                 detail.jumlah_sla = sla_days
                 detail.deadline_sla = new_deadline_sla_calc
                 detail.detail_sla = new_detail_sla_auto
