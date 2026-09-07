@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from core.database import get_db
 from core.models import FPTK, User
-from core.auth import get_current_user, is_admin
+from core.auth import get_current_user, is_admin, is_it, is_editor
 from datetime import datetime
 
 def show_transfer_fptk():
