@@ -117,8 +117,6 @@ def edit_user_dialog(user_id: int):
             st.info("🔍 Role **IT** = View-Only Admin (bisa lihat semua menu admin tapi TIDAK bisa upload/edit/aksi apa pun)")
         elif new_role == "admin":
             st.info("🛠️ Role **Admin** = Akses penuh (upload, edit, manage user, manage cycle)")
-        else:
-            st.info("👤 Role **User** = Bisa upload data sendiri, tidak bisa edit data orang lain")
 
         if not is_active:
             st.warning("⚠️ User ini sudah nonaktif. Ubah username (hapus 'inactive_') untuk mengaktifkan.")
