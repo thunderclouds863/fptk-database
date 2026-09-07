@@ -54,7 +54,6 @@ def confirm_delete_user(user_id: int, username: str):
     
     st.warning("⚠️ **TINDAKAN INI TIDAK DAPAT DIBATALKAN!**")
     
-    # Input konfirmasi username
     confirm_username = st.text_input(
         f"Ketik username **{username}** untuk konfirmasi:",
         placeholder=f"Ketik {username} di sini"
@@ -66,58 +65,38 @@ def confirm_delete_user(user_id: int, username: str):
             if confirm_username.strip() == username:
                 db = next(get_db())
                 try:
-                    # Cek apakah user ini adalah admin terakhir
                     admin_count = db.query(User).filter(User.role == "admin").count()
                     user_check = db.query(User).filter(User.id == user_id).first()
                     
                     if user_check.role == "admin" and admin_count <= 1:
-                        st.error("❌ Tidak bisa menghapus admin terakhir! Pastikan ada admin lain terlebih dahulu.")
+                        st.error("❌ Tidak bisa menghapus admin terakhir!")
                         db.close()
                         st.stop()
                     
-                    # Hapus data terkait
-                    # 1. FPTK
+                    # Hapus semua data terkait
                     fptk_count = db.query(FPTK).filter(FPTK.source_user_id == user_id).count()
                     db.query(FPTK).filter(FPTK.source_user_id == user_id).delete(synchronize_session=False)
                     
-                    # 2. Sourcing
                     sourcing_count = db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).count()
                     db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).delete(synchronize_session=False)
                     
-                    # 3. Evidence
-                    evidence_count = 0
-                    if hasattr(Evidence, 'user_id'):
-                        evidence_count = db.query(Evidence).filter(Evidence.user_id == user_id).count()
-                        if evidence_count > 0:
-                            db.query(Evidence).filter(Evidence.user_id == user_id).delete(synchronize_session=False)
-                    
-                    # 4. Upload Logs
                     log_count = db.query(UploadLog).filter(UploadLog.user_id == user_id).count()
                     db.query(UploadLog).filter(UploadLog.user_id == user_id).delete(synchronize_session=False)
                     
-                    # 5. Upload Status
                     status_count = db.query(UploadStatus).filter(UploadStatus.user_id == user_id).count()
                     db.query(UploadStatus).filter(UploadStatus.user_id == user_id).delete(synchronize_session=False)
                     
-                    # 6. Audit Logs
                     audit_count = db.query(AuditLog).filter(AuditLog.user_id == user_id).count()
                     db.query(AuditLog).filter(AuditLog.user_id == user_id).delete(synchronize_session=False)
                     
-                    # 7. Hapus user
                     db.delete(user_check)
                     db.commit()
                     
-                    st.success(f"""
-                    ✅ User **{username}** berhasil dihapus permanen!
-                    
-                    Data yang terhapus:
-                    - FPTK: {fptk_count} row
-                    - Sourcing: {sourcing_count} row
-                    - Evidence: {evidence_count} row
-                    - Upload Logs: {log_count} row
-                    - Upload Status: {status_count} row
-                    - Audit Logs: {audit_count} row
-                    """)
+                    # ============================================================
+                    # CLEAR CACHE + RERUN UNTUK REFRESH INSTAN
+                    # ============================================================
+                    st.cache_data.clear()
+                    st.success(f"✅ User **{username}** berhasil dihapus permanen!")
                     st.rerun()
                     
                 except Exception as e:
@@ -130,6 +109,7 @@ def confirm_delete_user(user_id: int, username: str):
     
     with col2:
         if st.button("❌ Batal", use_container_width=True):
+            st.cache_data.clear()
             st.rerun()
 
 
