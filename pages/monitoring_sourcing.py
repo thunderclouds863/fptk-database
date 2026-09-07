@@ -10,7 +10,7 @@ import base64
 import os
 
 # ============================================================
-# 🔥🔥🔥 CACHE FUNCTIONS 🔥🔥🔥
+#  CACHE FUNCTIONS 
 # ============================================================
 
 @st.cache_resource(ttl=3600)
@@ -426,7 +426,7 @@ def show_monitoring_sourcing():
         )
         
         # ============================================================
-        # 🔥🔥🔥 EVIDENCE VIEWER - SEARCH BY KODE UNIK ATAU POSISI 🔥🔥🔥
+        #  EVIDENCE VIEWER - SEARCH BY KODE UNIK ATAU POSISI 
         # ============================================================
         st.markdown("---")
         st.markdown("### 📎 Evidence Viewer")
@@ -452,7 +452,7 @@ def show_monitoring_sourcing():
         col1, col2 = st.columns([2, 1])
         
         with col1:
-            # 🔥🔥🔥 SEARCH DENGAN AUTOCOMPLETE (selectbox dengan banyak opsi) 🔥🔥🔥
+            #  SEARCH DENGAN AUTOCOMPLETE (selectbox dengan banyak opsi) 
             selected_display = st.selectbox(
                 "Cari Kode Unik / Posisi",
                 list(search_options.keys()),
