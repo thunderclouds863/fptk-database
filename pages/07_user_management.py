@@ -429,6 +429,7 @@ def show_user_management():
             with col2:
                 if st.button("🔑 Reset Password", use_container_width=True):
                     if reset_password(db, selected_id, "password123"):
+                        st.cache_data.clear()
                         st.success(f"✅ Password user '{selected_data.username}' direset ke: **password123**")
                         st.rerun()
                     else:
