@@ -334,3 +334,13 @@ def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit
     db.commit()
     db.refresh(new_entry)
     return new_entry
+
+def get_single_value(value):
+    """
+    Helper untuk mendapatkan nilai tunggal dari pandas Series
+    """
+    if value is None:
+        return None
+    if isinstance(value, pd.Series):
+        return value.iloc[0] if len(value) > 0 else None
+    return value
