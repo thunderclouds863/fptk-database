@@ -141,6 +141,13 @@ def _is_valid_date(value) -> bool:
     if pd.isna(value):
         return False
     
+    # PERBAIKAN: Handle jika value adalah pandas Series
+    if isinstance(value, pd.Series):
+        if len(value) > 0:
+            value = value.iloc[0]
+        else:
+            return False
+    
     if isinstance(value, (datetime, pd.Timestamp, date)):
         return True
     
@@ -174,6 +181,13 @@ def parse_excel_date(value):
     if pd.isna(value):
         return None
     
+    # PERBAIKAN: Handle jika value adalah pandas Series
+    if isinstance(value, pd.Series):
+        if len(value) > 0:
+            value = value.iloc[0]
+        else:
+            return None
+    
     if isinstance(value, (datetime, pd.Timestamp, date)):
         return value.date() if hasattr(value, 'date') else value
     
@@ -197,6 +211,13 @@ def safe_level_fptk_from_string(value):
     """Ambil level_fptk dari string. VALID: 1A-5C"""
     if value is None or pd.isna(value):
         return None
+    
+    # PERBAIKAN: Handle jika value adalah pandas Series
+    if isinstance(value, pd.Series):
+        if len(value) > 0:
+            value = value.iloc[0]
+        else:
+            return None
     
     value_str = str(value).strip().upper()
     
@@ -226,6 +247,13 @@ def safe_level_number_from_string(value):
     if value is None or pd.isna(value):
         return None
     
+    # PERBAIKAN: Handle jika value adalah pandas Series
+    if isinstance(value, pd.Series):
+        if len(value) > 0:
+            value = value.iloc[0]
+        else:
+            return None
+    
     if isinstance(value, (int, float)):
         try:
             int_val = int(value)
@@ -244,6 +272,15 @@ def safe_level_number_from_string(value):
         return None
     
     return None
+
+
+def get_single_value(value):
+    """Helper untuk mendapatkan nilai tunggal dari pandas Series"""
+    if value is None:
+        return None
+    if isinstance(value, pd.Series):
+        return value.iloc[0] if len(value) > 0 else None
+    return value
 
 
 # ============================================================
@@ -347,7 +384,22 @@ def validate_fptk_file(
     for idx, row in df.iterrows():
         row_num = idx + 2
 
-        kode_angka = row.get("kode_angka")
+        # PERBAIKAN: Ambil nilai tunggal dari setiap kolom
+        kode_angka = get_single_value(row.get("kode_angka"))
+        kode_pic = get_single_value(row.get("kode_pic"))
+        fptk_date = get_single_value(row.get("fptk_date_real"))
+        fptk_date_kode = get_single_value(row.get("fptk_date_kode"))
+        kode_unik = get_single_value(row.get("kode_unik"))
+        posisi = get_single_value(row.get("posisi"))
+        bu = get_single_value(row.get("business_unit"))
+        direktorat = get_single_value(row.get("direktorat"))
+        level = get_single_value(row.get("level_fptk"))
+        vacancy = get_single_value(row.get("vacancy"))
+        status = get_single_value(row.get("status"))
+        offering_date = get_single_value(row.get("offering_date"))
+        cancel_date = get_single_value(row.get("fptk_cancel_date"))
+        raw_level_number = get_single_value(row.get("level_number"))
+
         if pd.isna(kode_angka) or str(kode_angka).strip() == "":
             errors.append({
                 "row": row_num,
@@ -358,7 +410,6 @@ def validate_fptk_file(
             })
             continue
         
-        kode_pic = row.get("kode_pic")
         if pd.isna(kode_pic) or str(kode_pic).strip() == "":
             df.at[idx, 'kode_pic'] = "ADM"
             kode_pic = "ADM"
@@ -371,7 +422,6 @@ def validate_fptk_file(
                 "expected": "Kode PIC (contoh: CORPOme, MPPau)"
             })
         
-        fptk_date = row.get("fptk_date_real")
         if pd.isna(fptk_date) or str(fptk_date).strip() == "":
             errors.append({
                 "row": row_num,
@@ -396,7 +446,6 @@ def validate_fptk_file(
                 })
                 continue
         
-        fptk_date_kode = row.get("fptk_date_kode")
         if pd.isna(fptk_date_kode) or str(fptk_date_kode).strip() == "":
             if fptk_date:
                 df.at[idx, 'fptk_date_kode'] = fptk_date
@@ -425,7 +474,6 @@ def validate_fptk_file(
                 fptk_date_kode = parsed_kode
         
         # KODE UNIK - TIDAK VALIDASI FORMAT, HANYA CEK DUPLIKAT
-        kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             if kode_pic and kode_angka and fptk_date_kode:
                 kode_unik_baru = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
@@ -450,7 +498,7 @@ def validate_fptk_file(
             kode_unik_clean = str(kode_unik).strip()
             existing_same_code = db.query(FPTK).filter(
                 FPTK.kode_unik == kode_unik_clean,
-                FPTK.posisi == row.get("posisi")
+                FPTK.posisi == posisi
             ).first()
             
             if existing_same_code:
@@ -459,11 +507,10 @@ def validate_fptk_file(
                     "field": "Kode Unik",
                     "value": kode_unik,
                     "warning": True,
-                    "error": f"Kode Unik '{kode_unik}' dengan posisi '{row.get('posisi')}' sudah ada di database! Data akan tetap diproses dengan auto-increment.",
+                    "error": f"Kode Unik '{kode_unik}' dengan posisi '{posisi}' sudah ada di database! Data akan tetap diproses dengan auto-increment.",
                     "expected": "Kode Unik akan di-auto-increment oleh sistem"
                 })
         
-        posisi = row.get("posisi")
         if pd.isna(posisi) or str(posisi).strip() == "":
             errors.append({
                 "row": row_num,
@@ -473,7 +520,6 @@ def validate_fptk_file(
                 "expected": "Nama posisi minimal 3 karakter"
             })
         
-        bu = row.get("business_unit")
         if pd.isna(bu) or str(bu).strip() == "":
             errors.append({
                 "row": row_num,
@@ -483,7 +529,6 @@ def validate_fptk_file(
                 "expected": "Business Unit yang valid"
             })
         
-        direktorat = row.get("direktorat")
         if pd.isna(direktorat) or str(direktorat).strip() == "":
             errors.append({
                 "row": row_num,
@@ -494,7 +539,6 @@ def validate_fptk_file(
             })
         
         # LEVEL FPTK - SUPPORT A/B/C
-        level = row.get("level_fptk")
         if pd.isna(level) or str(level).strip() == "":
             errors.append({
                 "row": row_num,
@@ -544,7 +588,6 @@ def validate_fptk_file(
                         "expected": "Level FPTK harus format [1-5][A-C]"
                     })
         
-        vacancy = row.get("vacancy")
         if pd.isna(vacancy) or safe_int(vacancy) <= 0:
             errors.append({
                 "row": row_num,
@@ -554,7 +597,6 @@ def validate_fptk_file(
                 "expected": "Angka positif (minimal 1)"
             })
         
-        status = row.get("status")
         if pd.isna(status) or str(status).strip() == "":
             errors.append({
                 "row": row_num,
@@ -575,7 +617,6 @@ def validate_fptk_file(
                 })
         
         if str(status).strip() == "Closed":
-            offering_date = row.get("offering_date")
             if pd.isna(offering_date) or str(offering_date).strip() == "":
                 errors.append({
                     "row": row_num,
@@ -594,7 +635,6 @@ def validate_fptk_file(
                 })
         
         if str(status).strip() == "Cancel":
-            cancel_date = row.get("fptk_cancel_date")
             if pd.isna(cancel_date) or str(cancel_date).strip() == "":
                 errors.append({
                     "row": row_num,
@@ -612,11 +652,10 @@ def validate_fptk_file(
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
                 })
         
-        raw_level_number = row.get("level_number")
         level_num = safe_level_number_from_string(raw_level_number)
         
         if level_num is None:
-            level_fptk_val = row.get("level_fptk")
+            level_fptk_val = get_single_value(row.get("level_fptk"))
             level_num = safe_level_number_from_string(level_fptk_val)
             
             if level_num is not None:
@@ -773,8 +812,16 @@ def validate_db_sourcing_file(
         row_num = idx + 2
         row_errors = []
         
+        # PERBAIKAN: Ambil nilai tunggal
+        kode_unik = get_single_value(row.get("kode_unik"))
+        nama = get_single_value(row.get("nama"))
+        sourcing_date = get_single_value(row.get("sourcing_date"))
+        model = get_single_value(row.get("model_rekrutmen"))
+        sumber = get_single_value(row.get("sumber_sourcing"))
+        email = get_single_value(row.get("email"))
+        ipk = get_single_value(row.get("ipk"))
+        
         # KODE UNIK - ERROR (WAJIB)
-        kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             row_errors.append({
                 "row": row_num,
@@ -796,7 +843,6 @@ def validate_db_sourcing_file(
                 })
         
         # NAMA - ERROR (WAJIB)
-        nama = row.get("nama")
         if pd.isna(nama) or str(nama).strip() == "":
             row_errors.append({
                 "row": row_num,
@@ -807,8 +853,7 @@ def validate_db_sourcing_file(
             })
         
         # SOURCING DATE - ERROR (WAJIB)
-        sourcing_date = row.get("sourcing_date")
-        if pd.isna(sourcing_date) or str(sourcing_date).strip() == "":
+        if sourcing_date is None or pd.isna(sourcing_date) or str(sourcing_date).strip() == "":
             row_errors.append({
                 "row": row_num,
                 "field": "Sourcing Date",
@@ -826,7 +871,6 @@ def validate_db_sourcing_file(
             })
         
         # MODEL REKRUTMEN - WARNING (TIDAK WAJIB)
-        model = row.get("model_rekrutmen")
         if model and not pd.isna(model) and str(model).strip():
             model_val = str(model).strip()
             is_valid = False
@@ -849,7 +893,6 @@ def validate_db_sourcing_file(
                 })
         
         # SUMBER SOURCING - WARNING (TIDAK WAJIB)
-        sumber = row.get("sumber_sourcing")
         if sumber and not pd.isna(sumber) and str(sumber).strip():
             sumber_val = str(sumber).strip()
             is_valid_sumber = False
@@ -870,7 +913,6 @@ def validate_db_sourcing_file(
                 })
         
         # EMAIL - WARNING (TIDAK WAJIB)
-        email = row.get("email")
         if email and not pd.isna(email) and str(email).strip():
             if not is_valid_email(str(email).strip()):
                 row_errors.append({
@@ -883,7 +925,6 @@ def validate_db_sourcing_file(
                 })
         
         # IPK - WARNING (TIDAK WAJIB)
-        ipk = row.get("ipk")
         if ipk and not pd.isna(ipk):
             try:
                 ipk_val = float(str(ipk).replace(',', '.'))
@@ -998,7 +1039,9 @@ def validate_db_kode_posisi_file(
     for idx, row in df.iterrows():
         row_num = idx + 2
         
-        position = row.get("position")
+        position = get_single_value(row.get("position"))
+        kode = get_single_value(row.get("kode"))
+        
         if pd.isna(position) or str(position).strip() == "":
             errors.append({
                 "row": row_num,
@@ -1008,7 +1051,6 @@ def validate_db_kode_posisi_file(
                 "expected": "Nama posisi"
             })
         
-        kode = row.get("kode")
         if pd.isna(kode) or str(kode).strip() == "":
             errors.append({
                 "row": row_num,
