@@ -20,7 +20,7 @@ from core.models import User
 
 
 # ============================================================
-# PAGE CONFIG
+# PAGE CONFIG - HARUS PALING ATAS
 # ============================================================
 
 st.set_page_config(
@@ -32,15 +32,41 @@ st.set_page_config(
 
 
 # ============================================================
-# DATABASE
+# OPTIMASI: CACHE RESOURCE UNTUK DATABASE
 # ============================================================
 
-init_db()
+@st.cache_resource
+def get_cached_db():
+    """Cache database session untuk performa lebih baik"""
+    return SessionLocal()
+
+@st.cache_resource
+def initialize_system():
+    """Inisialisasi sistem sekali saja"""
+    init_db()
+    db = get_cached_db()
+    try:
+        init_default_users(db)
+        init_master_dropdown(db)
+    finally:
+        db.close()
+    return True
+
+# Initialize system
+if 'system_initialized' not in st.session_state:
+    initialize_system()
+    st.session_state.system_initialized = True
+
+
+# ============================================================
+# SESSION MANAGER
+# ============================================================
+
 session_mgr = get_session_manager()
 
 
 # ============================================================
-# SESSION STATE - SYNC DENGAN SESSION MANAGER
+# SESSION STATE - FULL INISIALISASI
 # ============================================================
 
 # Inisialisasi session_state dari session_manager
@@ -75,44 +101,28 @@ if "last_fptk_load" not in st.session_state:
 if "last_sourcing_load" not in st.session_state:
     st.session_state.last_sourcing_load = datetime.now()
 
+# Tambahan untuk sort dan filter
+if "sort_column" not in st.session_state:
+    st.session_state.sort_column = None
 
-# ============================================================
-# DEFAULT USER
-# ============================================================
+if "sort_ascending" not in st.session_state:
+    st.session_state.sort_ascending = True
 
-db = SessionLocal()
+if "date_filter_start" not in st.session_state:
+    st.session_state.date_filter_start = None
 
-try:
-    init_default_users(db)
-    init_master_dropdown(db)
-finally:
-    db.close()
+if "date_filter_end" not in st.session_state:
+    st.session_state.date_filter_end = None
 
+if "status_filter" not in st.session_state:
+    st.session_state.status_filter = []
 
-# ============================================================
-# IMPORT CACHE FUNCTIONS (untuk digunakan di sidebar)
-# ============================================================
+if "search_keyword" not in st.session_state:
+    st.session_state.search_keyword = ""
 
-def get_cache_functions():
-    """Import cache functions dari dashboard dengan error handling"""
-    try:
-        from pages.dashboard import (
-            load_fptk_data,
-            load_sourcing_data,
-            calculate_metrics,
-            get_upload_cycle_progress,
-            get_filter_options
-        )
-        return {
-            'load_fptk_data': load_fptk_data,
-            'load_sourcing_data': load_sourcing_data,
-            'calculate_metrics': calculate_metrics,
-            'get_upload_cycle_progress': get_upload_cycle_progress,
-            'get_filter_options': get_filter_options
-        }
-    except ImportError as e:
-        st.sidebar.caption(f"⚠️ Cache functions not available: {str(e)}")
-        return None
+if "filter_applied" not in st.session_state:
+    st.session_state.filter_applied = False
+
 
 # ============================================================
 # SESSION PERSISTENCE - CEK SETIAP LOAD
@@ -135,7 +145,8 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.username = session_mgr.username
     st.session_state.role = session_mgr.role
     st.session_state.user_display = session_mgr.user_display
-    
+
+
 # ============================================================
 # LOGIN PAGE - HANYA TAMPIL JIKA BELUM LOGIN
 # ============================================================
@@ -146,14 +157,15 @@ if not st.session_state.user_id:
     # LOAD CIMORY LOGO
     # ========================================================
 
-    try:
-        with open("asset/cimory_logo.png", "rb") as logo_file:
-            logo_base64 = base64.b64encode(
-                logo_file.read()
-            ).decode("utf-8")
-    except FileNotFoundError:
-        logo_base64 = ""
+    @st.cache_data(ttl=3600)
+    def load_logo():
+        try:
+            with open("asset/cimory_logo.png", "rb") as logo_file:
+                return base64.b64encode(logo_file.read()).decode("utf-8")
+        except FileNotFoundError:
+            return ""
 
+    logo_base64 = load_logo()
 
     # ========================================================
     # LOGIN CSS
@@ -409,7 +421,6 @@ if not st.session_state.user_id:
         unsafe_allow_html=True
     )
 
-
     # ========================================================
     # CIMORY LOGO
     # ========================================================
@@ -427,7 +438,6 @@ if not st.session_state.user_id:
             """,
             unsafe_allow_html=True
         )
-
 
     # ========================================================
     # LOGIN FORM
@@ -471,7 +481,7 @@ if not st.session_state.user_id:
 
             else:
 
-                db = SessionLocal()
+                db = get_cached_db()
 
                 try:
 
@@ -539,7 +549,6 @@ with st.sidebar:
 
     st.markdown("---")
 
-
     # ========================================================
     # NAVIGATION
     # ========================================================
@@ -561,13 +570,17 @@ with st.sidebar:
     # ADMIN MENU
     # ========================================================
 
-    db = SessionLocal()
-    try:
-        if is_admin(db):
-            pages["🔄 Update Cycle"] = "upload_cycle"
-            pages["👥 User Management"] = "user_management"
-    finally:
-        db.close()
+    @st.cache_data(ttl=60)
+    def check_is_admin():
+        db = get_cached_db()
+        try:
+            return is_admin(db)
+        finally:
+            db.close()
+
+    if check_is_admin():
+        pages["🔄 Update Cycle"] = "upload_cycle"
+        pages["👥 User Management"] = "user_management"
 
     # ========================================================
     # NAVIGATION RADIO
@@ -584,14 +597,145 @@ with st.sidebar:
     st.markdown("---")
 
     # ========================================================
-    # 🔥🔥🔥 CACHE CONTROL SECTION 🔥🔥🔥
+    # FILTER & SORT CONTROL - FITUR DI PERTAHANKAN
     # ========================================================
-    
+
+    st.markdown("### 🔍 Filter & Sort")
+
+    # Show filter controls based on current page
+    current_page = st.session_state.page
+
+    if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
+        with st.expander("📅 Filter Tanggal", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input(
+                    "Dari",
+                    value=st.session_state.date_filter_start,
+                    key="date_filter_start_input"
+                )
+                if start_date != st.session_state.date_filter_start:
+                    st.session_state.date_filter_start = start_date
+                    st.session_state.filter_applied = True
+
+            with col2:
+                end_date = st.date_input(
+                    "Sampai",
+                    value=st.session_state.date_filter_end,
+                    key="date_filter_end_input"
+                )
+                if end_date != st.session_state.date_filter_end:
+                    st.session_state.date_filter_end = end_date
+                    st.session_state.filter_applied = True
+
+        with st.expander("🏷️ Filter Status", expanded=False):
+            # Ambil status options dari database
+            db = get_cached_db()
+            try:
+                from core.models import FPTK, Sourcing
+                if current_page == "fptk_view":
+                    status_options = db.query(FPTK.status).distinct().all()
+                elif current_page == "sourcing_view":
+                    status_options = db.query(Sourcing.status).distinct().all()
+                else:
+                    status_options = []
+
+                status_list = [s[0] for s in status_options if s[0]]
+
+                selected_status = st.multiselect(
+                    "Pilih Status",
+                    options=status_list,
+                    default=st.session_state.status_filter,
+                    key="status_filter_select"
+                )
+
+                if selected_status != st.session_state.status_filter:
+                    st.session_state.status_filter = selected_status
+                    st.session_state.filter_applied = True
+            finally:
+                db.close()
+
+        with st.expander("🔎 Search", expanded=False):
+            search = st.text_input(
+                "Cari keyword",
+                value=st.session_state.search_keyword,
+                key="search_input"
+            )
+            if search != st.session_state.search_keyword:
+                st.session_state.search_keyword = search
+                st.session_state.filter_applied = True
+
+        # Sort controls
+        with st.expander("📊 Sort", expanded=False):
+            sort_cols = ["Tanggal", "Status", "Nama", "Kode Posisi"]
+            col1, col2 = st.columns([3, 1])
+
+            with col1:
+                sort_by = st.selectbox(
+                    "Sort by",
+                    options=sort_cols,
+                    key="sort_select"
+                )
+
+            with col2:
+                sort_order = st.selectbox(
+                    "Order",
+                    options=["Ascending", "Descending"],
+                    key="sort_order_select"
+                )
+
+            # Apply sort
+            if st.button("Apply Sort", use_container_width=True):
+                st.session_state.sort_column = sort_by
+                st.session_state.sort_ascending = (sort_order == "Ascending")
+                st.session_state.filter_applied = True
+                st.success("✅ Sort applied!")
+
+        # Reset filters
+        if st.button("🔄 Reset All Filters", use_container_width=True):
+            st.session_state.date_filter_start = None
+            st.session_state.date_filter_end = None
+            st.session_state.status_filter = []
+            st.session_state.search_keyword = ""
+            st.session_state.sort_column = None
+            st.session_state.sort_ascending = True
+            st.session_state.filter_applied = False
+            st.success("✅ Filters reset!")
+            time.sleep(0.3)
+            st.rerun()
+
+        st.markdown("---")
+
+    # ========================================================
+    # CACHE CONTROL SECTION
+    # ========================================================
+
     st.markdown("### ⚡ Cache Control")
-    
+
     # Import cache functions
+    def get_cache_functions():
+        """Import cache functions dari dashboard dengan error handling"""
+        try:
+            from pages.dashboard import (
+                load_fptk_data,
+                load_sourcing_data,
+                calculate_metrics,
+                get_upload_cycle_progress,
+                get_filter_options
+            )
+            return {
+                'load_fptk_data': load_fptk_data,
+                'load_sourcing_data': load_sourcing_data,
+                'calculate_metrics': calculate_metrics,
+                'get_upload_cycle_progress': get_upload_cycle_progress,
+                'get_filter_options': get_filter_options
+            }
+        except ImportError as e:
+            st.sidebar.caption(f"⚠️ Cache functions not available: {str(e)}")
+            return None
+
     cache_funcs = get_cache_functions()
-    
+
     if cache_funcs:
         # Ambil fungsi-fungsi cache
         load_fptk_data = cache_funcs['load_fptk_data']
@@ -599,14 +743,14 @@ with st.sidebar:
         calculate_metrics = cache_funcs['calculate_metrics']
         get_upload_cycle_progress = cache_funcs['get_upload_cycle_progress']
         get_filter_options = cache_funcs['get_filter_options']
-        
+
         # Tampilkan info last update
         last_fptk = st.session_state.get('last_fptk_load', datetime.now())
         last_sourcing = st.session_state.get('last_sourcing_load', datetime.now())
-        
+
         st.caption(f"🕐 FPTK: {last_fptk.strftime('%H:%M:%S')}")
         st.caption(f"🕐 Sourcing: {last_sourcing.strftime('%H:%M:%S')}")
-        
+
         # Hitung auto refresh countdown (5 menit = 300 detik)
         time_diff = (datetime.now() - last_fptk).seconds
         remaining = max(0, 300 - time_diff)
@@ -614,10 +758,10 @@ with st.sidebar:
             st.caption(f"⏳ Auto refresh in {remaining//60}m {remaining%60}s")
         else:
             st.caption("🔄 Auto refreshing...")
-        
+
         st.markdown("---")
-        
-        # Tombol Refresh
+
+        # Tombol Refresh - OPTIMASI
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
@@ -629,7 +773,7 @@ with st.sidebar:
                 st.success("✅ All cache cleared! Reloading...")
                 time.sleep(0.5)
                 st.rerun()
-        
+
         with col2:
             if st.button("🗑️ Clear Cache", use_container_width=True):
                 load_fptk_data.clear()
@@ -639,7 +783,7 @@ with st.sidebar:
                 st.success("✅ Data cache cleared! Reloading...")
                 time.sleep(0.5)
                 st.rerun()
-        
+
         # Advanced Cache Control
         with st.expander("🔧 Advanced Cache Control", expanded=False):
             if st.button("🧹 Clear FPTK Cache", use_container_width=True):
@@ -648,18 +792,18 @@ with st.sidebar:
                 st.session_state.last_fptk_load = datetime.now()
                 st.success("✅ FPTK cache cleared!")
                 st.rerun()
-            
+
             if st.button("🧹 Clear Sourcing Cache", use_container_width=True):
                 load_sourcing_data.clear()
                 st.session_state.last_sourcing_load = datetime.now()
                 st.success("✅ Sourcing cache cleared!")
                 st.rerun()
-            
+
             if st.button("🧹 Clear Filter Options", use_container_width=True):
                 get_filter_options.clear()
                 st.success("✅ Filter options cache cleared!")
                 st.rerun()
-            
+
             if st.button("🧹 Clear All Cache", use_container_width=True):
                 st.cache_data.clear()
                 st.cache_resource.clear()
@@ -667,7 +811,7 @@ with st.sidebar:
                 st.session_state.last_sourcing_load = datetime.now()
                 st.success("✅ All cache cleared!")
                 st.rerun()
-        
+
         st.markdown("---")
     else:
         st.caption("⚠️ Cache functions not available")
@@ -681,7 +825,7 @@ with st.sidebar:
 
         with st.form("change_password"):
 
-            db = SessionLocal()
+            db = get_cached_db()
 
             try:
 
@@ -758,7 +902,6 @@ with st.sidebar:
 
                 db.close()
 
-
     # ========================================================
     # LOGOUT
     # ========================================================
@@ -795,7 +938,7 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
 
 
 # ============================================================
-# PAGE RENDERING
+# PAGE RENDERING - DENGAN LAZY LOADING
 # ============================================================
 
 page = st.session_state.page
@@ -976,15 +1119,15 @@ st.markdown("### 📥 Export Data")
 
 if st.button("📊 Export All Data", use_container_width=True):
     with st.spinner("Mengekspor data..."):
-        db = SessionLocal()
+        db = get_cached_db()
         try:
             from core.export_excel import export_database_to_excel
             filepath = export_database_to_excel(db)
-            
+
             # Baca file untuk download
             with open(filepath, "rb") as f:
                 file_data = f.read()
-            
+
             st.download_button(
                 label="📥 Download Excel",
                 data=file_data,
@@ -1003,28 +1146,28 @@ if st.button("📊 Export All Data", use_container_width=True):
 with st.expander("📋 Export Sheet Spesifik"):
     sheet_options = [
         "Blacklist Candidate",
-        "DB Kode Posisi", 
+        "DB Kode Posisi",
         "FPTK",
         "DB Sourcing",
         "Master Dropdown",
         "Evidence"
     ]
     selected_sheet = st.selectbox("Pilih Sheet", sheet_options)
-    
+
     if st.button(f"Export {selected_sheet}"):
         with st.spinner(f"Mengekspor {selected_sheet}..."):
-            db = SessionLocal()
+            db = get_cached_db()
             try:
                 from core.export_excel import export_single_sheet
                 df = export_single_sheet(db, selected_sheet)
-                
+
                 # Convert ke Excel
                 from io import BytesIO
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
                     df.to_excel(writer, sheet_name=selected_sheet, index=False)
                 output.seek(0)
-                
+
                 st.download_button(
                     label=f"📥 Download {selected_sheet}.xlsx",
                     data=output.getvalue(),
@@ -1035,4 +1178,3 @@ with st.expander("📋 Export Sheet Spesifik"):
                 st.success(f"✅ Export {selected_sheet} berhasil!")
             finally:
                 db.close()
-                
