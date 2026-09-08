@@ -271,20 +271,8 @@ def get_all_bu_codes():
     return ALL_BU_CODES.copy()
 
 # ============================================================
-# FUNGSI HELPERS UNTUK FIND HEADER ROW
+# FUNGSI HELPERS UNTUK CLEAN DATAFRAME
 # ============================================================
-
-def find_header_row(df_raw, keywords_list):
-    """
-    Cari header row dalam dataframe dengan keywords tertentu.
-    keywords_list: list of list keywords, misal [["Kode Unik", "Posisi"], ["Kode", "Posisi"]]
-    """
-    for i, row in df_raw.iterrows():
-        row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
-        for keywords in keywords_list:
-            if all(kw.lower() in row_text.lower() for kw in keywords):
-                return i
-    return None
 
 def clean_dataframe(df):
     """Hapus kolom Unnamed dan baris kosong dari dataframe"""
@@ -298,43 +286,6 @@ def clean_dataframe(df):
     df = df.dropna(how='all')
     
     return df
-
-def read_sheet_with_header(file, sheet_name, header_keywords_list):
-    """
-    Baca sheet Excel dengan mencari header row otomatis.
-    header_keywords_list: list of list keywords untuk mencari header
-    """
-    try:
-        # Baca tanpa header dulu
-        df_raw = pd.read_excel(file, sheet_name=sheet_name, header=None)
-        
-        # Cari header row
-        header_row = find_header_row(df_raw, header_keywords_list)
-        
-        if header_row is None:
-            # Coba cari di 10 baris pertama
-            for i in range(min(10, len(df_raw))):
-                row_text = " ".join([str(x) for x in df_raw.iloc[i].values if pd.notna(x)])
-                # Cari kata kunci umum
-                keywords = ["kode", "nama", "tanggal", "posisi", "model", "sumber"]
-                found = sum(1 for kw in keywords if kw in row_text.lower())
-                if found >= 2:
-                    header_row = i
-                    break
-        
-        if header_row is None:
-            header_row = 0
-        
-        # Baca dengan header yang ditemukan
-        df = pd.read_excel(file, sheet_name=sheet_name, header=header_row)
-        
-        # Bersihkan dataframe
-        df = clean_dataframe(df)
-        
-        return df, header_row
-    
-    except Exception as e:
-        raise Exception(f"Gagal membaca sheet {sheet_name}: {str(e)}")
 
 # ============================================================
 # COMPILE WITH PROGRESS
@@ -370,32 +321,92 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     time.sleep(0.3)
     
     # ============================================================
-    # COMPILE DB SOURCING - DENGAN FIND HEADER ROW
+    # COMPILE DB SOURCING - HEADER DI ROW 1 (INDEX 1)
     # ============================================================
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Sourcing" in xls.sheet_names:
-                # BACA DENGAN FIND HEADER
-                sourcing_df, header_row = read_sheet_with_header(
-                    file,
-                    "DB Sourcing",
-                    [
-                        ["Kode Unik", "Nama"],
-                        ["Kode", "Nama", "Sourcing"],
-                        ["Model", "Sumber"],
-                        ["Kode Unik", "Tanggal"],
-                        ["Kode", "Nama", "Tanggal"],
-                        ["Kode Unik", "Sourcing Date"],
-                        ["Kode Unik", "Nama Kandidat"],
-                    ]
-                )
+                # Baca dengan header di baris ke-2 (index 1) karena row 0 biasanya judul atau kosong
+                sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=1)
                 
-                # DEBUG: TAMPILKAN INFORMASI (opsional, hapus setelah testing)
-                # st.write(f"**DB Sourcing - Header row: {header_row + 1}**")
-                # st.write(f"**Kolom yang ditemukan:** {sourcing_df.columns.tolist()}")
-                # st.dataframe(sourcing_df.head(3))
+                # Bersihkan kolom Unnamed
+                sourcing_df = sourcing_df.loc[:, ~sourcing_df.columns.str.contains('^Unnamed')]
                 
-                if sourcing_df is not None and not sourcing_df.empty:
+                # Hapus baris kosong
+                sourcing_df = sourcing_df.dropna(how='all')
+                
+                # RENAME KOLOM MANUAL - SESUAIKAN DENGAN HEADER ANDA
+                column_mapping = {}
+                for col in sourcing_df.columns:
+                    col_str = str(col).strip()
+                    
+                    # Cari kolom Sourcing Date (yang bukan Freelance)
+                    if "Sourcing Date" in col_str and "Freelance" not in col_str:
+                        column_mapping[col] = "sourcing_date"
+                    # Cari kolom Kode Unik
+                    elif "Kode Unik" in col_str:
+                        column_mapping[col] = "kode_unik"
+                    # Cari kolom Posisi
+                    elif col_str == "Posisi":
+                        column_mapping[col] = "posisi"
+                    # Cari kolom Model Rekrutmen
+                    elif "Model Rekrutmen" in col_str:
+                        column_mapping[col] = "model_rekrutmen"
+                    # Cari kolom Rekruter
+                    elif col_str == "Rekruter":
+                        column_mapping[col] = "rekruter"
+                    # Cari kolom Sumber Sourcing
+                    elif col_str == "Sumber Sourcing":
+                        column_mapping[col] = "sumber_sourcing"
+                    # Cari kolom Nama
+                    elif col_str == "Nama":
+                        column_mapping[col] = "nama"
+                    # Cari kolom lainnya untuk optional mapping
+                    elif col_str == "Jenjang Pendidikan":
+                        column_mapping[col] = "jenjang_pendidikan"
+                    elif col_str == "Jurusan":
+                        column_mapping[col] = "jurusan"
+                    elif col_str == "Tahun Lulus":
+                        column_mapping[col] = "tahun_lulus"
+                    elif col_str == "IPK":
+                        column_mapping[col] = "ipk"
+                    elif col_str == "Nomor HP":
+                        column_mapping[col] = "nomor_hp"
+                    elif col_str == "Email":
+                        column_mapping[col] = "email"
+                    elif col_str == "Domisili":
+                        column_mapping[col] = "domisili"
+                    elif "University Tier" in col_str:
+                        column_mapping[col] = "university_tier"
+                    elif "IPK Tier" in col_str:
+                        column_mapping[col] = "ipk_tier"
+                    elif "Nama Universitas" in col_str and "TOP 10" in col_str:
+                        column_mapping[col] = "nama_universitas_top10"
+                    elif "Nama Universitas/Sekolah Lainnya" in col_str:
+                        column_mapping[col] = "nama_universitas_lainnya"
+                    elif "Last Position" in col_str:
+                        column_mapping[col] = "last_position"
+                    elif "Last Tenure" in col_str:
+                        column_mapping[col] = "last_tenure"
+                    elif "Last Company" in col_str:
+                        column_mapping[col] = "last_company"
+                    elif "Total Tenure" in col_str:
+                        column_mapping[col] = "total_tenure"
+                    elif "FMCG" in col_str:
+                        column_mapping[col] = "pernah_di_fmcg"
+                
+                if column_mapping:
+                    sourcing_df = sourcing_df.rename(columns=column_mapping)
+                
+                # CEK APAKAH KOLOM YANG DIPERLUKAN ADA
+                required_cols = ["kode_unik", "nama", "sourcing_date"]
+                missing_cols = [col for col in required_cols if col not in sourcing_df.columns]
+                
+                if missing_cols:
+                    st.error(f"❌ Kolom wajib hilang: {missing_cols}")
+                    st.write(f"**Kolom yang tersedia:** {sourcing_df.columns.tolist()}")
+                    st.write(f"**Mapping yang digunakan:** {column_mapping}")
+                elif sourcing_df is not None and not sourcing_df.empty:
                     progress_placeholder.progress(60, text="Compile DB Sourcing...")
                     
                     # VALIDASI
@@ -461,21 +472,16 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     time.sleep(0.3)
     
     # ============================================================
-    # COMPILE DB KODE POSISI - DENGAN FIND HEADER ROW
+    # COMPILE DB KODE POSISI
     # ============================================================
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Kode Posisi" in xls.sheet_names:
-                # BACA DENGAN FIND HEADER
-                dbk_df, header_row = read_sheet_with_header(
-                    file,
-                    "DB Kode Posisi",
-                    [
-                        ["POSITION", "KODE"],
-                        ["Position", "Kode"],
-                        ["Posisi", "Kode"],
-                    ]
-                )
+                # Baca dengan header di baris pertama
+                dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
+                
+                # Bersihkan dataframe
+                dbk_df = clean_dataframe(dbk_df)
                 
                 if dbk_df is not None and not dbk_df.empty:
                     progress_placeholder.progress(85, text="Compile DB Kode Posisi...")
@@ -747,22 +753,30 @@ def show_upload_compile():
                     
                     try:
                         # ============================================================
-                        # BACA FPTK - DENGAN FIND HEADER ROW
+                        # BACA FPTK
                         # ============================================================
-                        df, header_row = read_sheet_with_header(
-                            file,
-                            "FPTK",
-                            [
-                                ["Kode Unik", "Posisi"],
-                                ["Kode", "Posisi", "Business"],
-                                ["Kode Unik", "Business Unit"],
-                                ["Kode Unik", "FPTK Date"],
-                            ]
-                        )
+                        df = pd.read_excel(file, sheet_name="FPTK", header=None)
                         
-                        # DEBUG (opsional, hapus setelah testing)
-                        # st.write(f"**FPTK - Header row: {header_row + 1}**")
-                        # st.write(f"**Kolom:** {df.columns.tolist()}")
+                        # CARI HEADER ROW
+                        header_row = None
+                        for i, row in df.iterrows():
+                            row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
+                            if "Kode Unik" in row_text and "Posisi" in row_text:
+                                header_row = i
+                                break
+                        
+                        if header_row is None:
+                            st.error(f"❌ {file.name}: Header FPTK tidak ditemukan")
+                            error_count += 1
+                            continue
+                        
+                        # SET HEADER
+                        df_columns = df.iloc[header_row].astype(str).str.strip()
+                        df = df.iloc[header_row+1:].reset_index(drop=True)
+                        df.columns = df_columns
+                        
+                        # Bersihkan
+                        df = clean_dataframe(df)
                         
                         if df.empty:
                             st.warning(f"⚠️ {file.name}: Tidak ada data FPTK setelah cleaning")
