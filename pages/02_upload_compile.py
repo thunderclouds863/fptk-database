@@ -80,17 +80,17 @@ ALL_BU_CODES = sorted(BU_CODE_MAPPING.keys())
 
 LEVEL_OPTIONS = []
 for num in range(1, 6):
-    for letter in ['A', 'B', 'C', 'D', 'E']:
+    for letter in ['A', 'B', 'C']:
         LEVEL_OPTIONS.append(f"{num}{letter}")
 
 # ============================================================
-# FUNGSI GENERATE KODE UNIK & KODE ANGKA (DIPERBAIKI)
+# FUNGSI GENERATE KODE UNIK & KODE ANGKA
 # ============================================================
 
 def generate_kode_unik(kode_pic, posisi, fptk_date):
     """
     Generate Kode Unik dari Kode PIC + Posisi (4 huruf pertama) + Tanggal (DDMMYY)
-    Format: CORPLex156090326
+    Format: CORPLex090326
     """
     if not kode_pic or not posisi or not fptk_date:
         if kode_pic and fptk_date:
@@ -99,7 +99,7 @@ def generate_kode_unik(kode_pic, posisi, fptk_date):
         return ""
     
     # Format tanggal: DDMMYY (contoh: 090326 untuk 9 Maret 2026)
-    date_code = fptk_date.strftime("%d%m%y")  # 09/03/2026 → 090326
+    date_code = fptk_date.strftime("%d%m%y")
     
     # Ambil 4 huruf pertama dari posisi (tanpa spasi)
     posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
@@ -312,18 +312,47 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
                 sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
                 if sourcing_df is not None and not sourcing_df.empty:
                     progress_placeholder.progress(60, text="Compile DB Sourcing...")
-                    sourcing_result = compile_db_sourcing(
-                        db=_db,
+                    
+                    # VALIDASI DULU SEBELUM COMPILE
+                    sourcing_valid, sourcing_errors = validate_db_sourcing_file(
                         df=sourcing_df,
-                        user_id=user.id,
-                        cycle_id=cycle.id,
-                        file_name=sanitize_filename(file.name),
-                        file_hash=file_hash
+                        db=_db,
+                        user_id=user.id
                     )
-                    if sourcing_result["success"]:
-                        st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
+                    
+                    if not sourcing_valid:
+                        # TAMPILKAN ERROR DETAIL
+                        st.warning(f"⚠️ DB Sourcing: {len(sourcing_errors)} issues ditemukan")
+                        with st.expander(f"📋 Detail DB Sourcing Issues ({len(sourcing_errors)})", expanded=False):
+                            for err in sourcing_errors:
+                                if err.get("field") == "SUMMARY":
+                                    st.info(f"📌 {err.get('error', '')}")
+                                else:
+                                    row = err.get("row", "?")
+                                    field = err.get("field", "Unknown")
+                                    value = err.get("value", "")
+                                    error_msg = err.get("error", "")
+                                    expected = err.get("expected", "")
+                                    is_warning = err.get("warning", False)
+                                    
+                                    if is_warning:
+                                        st.warning(f"- **Row {row}** - {field}: `{value}` → ⚠️ {error_msg}")
+                                    else:
+                                        st.error(f"- **Row {row}** - {field}: `{value}` → ❌ {error_msg} (Expected: {expected})")
                     else:
-                        st.warning(f"⚠️ DB Sourcing: {len(sourcing_result.get('errors', []))} errors")
+                        # COMPILE JIKA VALID
+                        sourcing_result = compile_db_sourcing(
+                            db=_db,
+                            df=sourcing_df,
+                            user_id=user.id,
+                            cycle_id=cycle.id,
+                            file_name=sanitize_filename(file.name),
+                            file_hash=file_hash
+                        )
+                        if sourcing_result["success"]:
+                            st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
+                        else:
+                            st.error(f"❌ DB Sourcing compile failed: {sourcing_result.get('errors', ['Unknown error'])}")
     except Exception as e:
         st.warning(f"⚠️ DB Sourcing error: {str(e)}")
     
