@@ -28,7 +28,20 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
     if not angka_part:
         angka_part = "001"
     
-    date_code = fptk_date_kode.strftime("%d%m%y") if hasattr(fptk_date_kode, 'strftime') else str(fptk_date_kode)
+    # Handle date - bisa Excel serial number atau datetime
+    if hasattr(fptk_date_kode, 'strftime'):
+        date_code = fptk_date_kode.strftime("%d%m%y")
+    elif isinstance(fptk_date_kode, (int, float)):
+        # Excel serial number → convert ke date
+        try:
+            base = datetime(1899, 12, 30)
+            date_obj = base + timedelta(days=float(fptk_date_kode))
+            date_code = date_obj.strftime("%d%m%y")
+        except:
+            date_code = str(fptk_date_kode)
+    else:
+        date_code = str(fptk_date_kode)
+    
     return f"{kode_pic}{angka_part}{date_code}"
 
 
@@ -115,38 +128,100 @@ def get_similarity_ratio(a: str, b: str) -> float:
 
 
 def _is_valid_date(value) -> bool:
-    """Cek apakah value adalah tanggal yang valid"""
+    """
+    Cek apakah value adalah tanggal yang valid.
+    Support:
+    - datetime/date/pd.Timestamp
+    - Excel serial number (angka seperti 45678)
+    - String DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY
+    """
     if pd.isna(value):
         return False
     
+    # Sudah datetime/date
     if isinstance(value, (datetime, pd.Timestamp, date)):
         return True
     
+    # Excel serial number (float/int)
     if isinstance(value, (int, float)):
         try:
-            from datetime import datetime as dt
-            base = dt(1899, 12, 30)
-            result = (base + timedelta(days=float(value))).date()
-            return result is not None
+            # Excel serial number dimulai dari 1 Jan 1900 (atau 1899-12-30)
+            if value > 0:
+                # Coba convert
+                base = datetime(1899, 12, 30)
+                result = base + timedelta(days=float(value))
+                # Cek range reasonable (1900-2100)
+                if 1900 <= result.year <= 2100:
+                    return True
+                # Coba cara lain untuk bilangan yang lebih kecil
+                if value > 40000 and value < 50000:  # 2009-2036
+                    return True
         except:
             pass
+        return False
     
+    # String
     if isinstance(value, str):
-        return parse_date_dmy(value) is not None
+        # Coba parse dengan parse_date_dmy
+        result = parse_date_dmy(value)
+        if result:
+            return True
+        # Coba regex langsung untuk format DD/MM/YYYY atau DD-MM-YYYY
+        clean = re.sub(r'[^0-9/.-]', '', value)
+        if re.match(r'^[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}$', clean):
+            return True
+        return False
     
     return False
 
 
+def parse_excel_date(value):
+    """Parse Excel serial number menjadi date, atau parse string date"""
+    if pd.isna(value):
+        return None
+    
+    if isinstance(value, (datetime, pd.Timestamp, date)):
+        return value.date() if hasattr(value, 'date') else value
+    
+    if isinstance(value, (int, float)):
+        try:
+            base = datetime(1899, 12, 30)
+            result = base + timedelta(days=float(value))
+            if 1900 <= result.year <= 2100:
+                return result.date()
+        except:
+            pass
+        return None
+    
+    if isinstance(value, str):
+        return parse_date_dmy(value)
+    
+    return None
+
+
 def safe_level_fptk_from_string(value):
-    """Ambil level_fptk dari string, return None jika tidak valid"""
+    """
+    Ambil level_fptk dari string.
+    VALID: 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C
+    """
     if value is None or pd.isna(value):
         return None
     
     value_str = str(value).strip().upper()
     
-    if re.match(r'^[1-5][A-B]$', value_str):
+    # Check exact match: [1-5][A-C]
+    if re.match(r'^[1-5][A-C]$', value_str):
         return value_str
     
+    # Try to extract number and letter
+    match = re.search(r'(\d+)([A-Z])?', value_str)
+    if match:
+        num = int(match.group(1))
+        letter = match.group(2) if match.group(2) else 'A'
+        if 1 <= num <= 5 and letter in ['A', 'B', 'C']:
+            return f"{num}{letter}"
+    
+    # Last resort: just number
     match = re.search(r'(\d+)', value_str)
     if match:
         num = int(match.group(1))
@@ -182,7 +257,7 @@ def safe_level_number_from_string(value):
 
 
 # ============================================================
-# VALIDATE FPTK FILE (DIPERBAIKI - TIDAK CEK DUPLIKAT)
+# VALIDATE FPTK FILE
 # ============================================================
 def validate_fptk_file(
     df: pd.DataFrame,
@@ -319,20 +394,47 @@ def validate_fptk_file(
                 "expected": "Kode PIC (contoh: CORPOme, MPPau)"
             })
         
-        # 3. FPTK DATE KODE
+        # 3. FPTK DATE REAL - PARSE EXCEL SERIAL
+        fptk_date = row.get("fptk_date_real")
+        if pd.isna(fptk_date) or str(fptk_date).strip() == "":
+            errors.append({
+                "row": row_num,
+                "field": "FPTK Date (Real)",
+                "value": fptk_date,
+                "error": "FPTK Date (Real) tidak boleh kosong",
+                "expected": "Format tanggal yang valid"
+            })
+            continue
+        else:
+            # Parse Excel serial number or string date
+            parsed_date = parse_excel_date(fptk_date)
+            if parsed_date:
+                df.at[idx, 'fptk_date_real'] = parsed_date
+                fptk_date = parsed_date
+            else:
+                errors.append({
+                    "row": row_num,
+                    "field": "FPTK Date (Real)",
+                    "value": fptk_date,
+                    "error": f"Format tanggal '{fptk_date}' tidak valid",
+                    "expected": "Format DD/MM/YYYY, DD-MM-YYYY, atau serial Excel"
+                })
+                continue
+        
+        # 4. FPTK DATE KODE - HARUS DARI EXCEL ATAU COPY DARI DATE REAL
         fptk_date_kode = row.get("fptk_date_kode")
         if pd.isna(fptk_date_kode) or str(fptk_date_kode).strip() == "":
-            fptk_date_real = row.get("fptk_date_real")
-            if fptk_date_real and _is_valid_date(fptk_date_real):
-                df.at[idx, 'fptk_date_kode'] = fptk_date_real
-                fptk_date_kode = fptk_date_real
+            # Copy dari FPTK Date Real
+            if fptk_date:
+                df.at[idx, 'fptk_date_kode'] = fptk_date
+                fptk_date_kode = fptk_date
                 errors.append({
                     "row": row_num,
                     "field": "FPTK Date (Kode)",
                     "value": fptk_date_kode,
                     "warning": True,
                     "error": "FPTK Date (Kode) kosong, auto-set dari FPTK Date (Real)",
-                    "expected": "FPTK Date (Kode) akan diisi otomatis"
+                    "expected": "FPTK Date (Kode) diisi otomatis"
                 })
             else:
                 errors.append({
@@ -343,8 +445,14 @@ def validate_fptk_file(
                     "expected": "Format tanggal yang valid"
                 })
                 continue
+        else:
+            # Parse Excel serial number
+            parsed_kode = parse_excel_date(fptk_date_kode)
+            if parsed_kode:
+                df.at[idx, 'fptk_date_kode'] = parsed_kode
+                fptk_date_kode = parsed_kode
         
-        # 4. GENERATE KODE UNIK = KODE PIC + KODE ANGKA + FPTK DATE KODE
+        # 5. GENERATE KODE UNIK
         kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             if kode_pic and kode_angka and fptk_date_kode:
@@ -379,7 +487,7 @@ def validate_fptk_file(
                     "expected": "Kode Unik akan tetap digunakan, tapi sebaiknya disesuaikan"
                 })
             
-            # 🔥🔥🔥 CEK DUPLIKAT - HANYA WARNING, TIDAK BLOCK 🔥🔥🔥
+            # CEK DUPLIKAT - HANYA WARNING
             existing_same_code = db.query(FPTK).filter(
                 FPTK.kode_unik == kode_unik_clean,
                 FPTK.posisi == row.get("posisi")
@@ -395,7 +503,7 @@ def validate_fptk_file(
                     "expected": "Kode Unik akan di-auto-increment oleh sistem"
                 })
         
-        # 5. POSISI
+        # 6. POSISI
         posisi = row.get("posisi")
         if pd.isna(posisi) or str(posisi).strip() == "":
             errors.append({
@@ -404,25 +512,6 @@ def validate_fptk_file(
                 "value": posisi,
                 "error": "Posisi tidak boleh kosong",
                 "expected": "Nama posisi minimal 3 karakter"
-            })
-        
-        # 6. FPTK DATE REAL
-        fptk_date = row.get("fptk_date_real")
-        if pd.isna(fptk_date) or str(fptk_date).strip() == "":
-            errors.append({
-                "row": row_num,
-                "field": "FPTK Date (Real)",
-                "value": fptk_date,
-                "error": "FPTK Date (Real) tidak boleh kosong",
-                "expected": "Format tanggal yang valid"
-            })
-        elif not _is_valid_date(fptk_date):
-            errors.append({
-                "row": row_num,
-                "field": "FPTK Date (Real)",
-                "value": fptk_date,
-                "error": f"Format tanggal '{fptk_date}' tidak valid",
-                "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
             })
         
         # 7. BUSINESS UNIT
@@ -447,7 +536,7 @@ def validate_fptk_file(
                 "expected": "Nama Direktorat yang valid"
             })
         
-        # 9. LEVEL FPTK
+        # 9. LEVEL FPTK - DENGAN HURUF A/B/C
         level = row.get("level_fptk")
         if pd.isna(level) or str(level).strip() == "":
             errors.append({
@@ -455,16 +544,23 @@ def validate_fptk_file(
                 "field": "Level FPTK",
                 "value": level,
                 "error": "Level FPTK tidak boleh kosong",
-                "expected": "Level FPTK (1A sampai 5B)"
+                "expected": "Level FPTK (1A sampai 5C)"
             })
         else:
             level_str = str(level).strip().upper()
-            if not re.match(r'^[1-5][A-B]$', level_str):
+            # VALID: 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C
+            if not re.match(r'^[1-5][A-C]$', level_str):
                 match = re.search(r'(\d+)', level_str)
                 if match:
                     num = int(match.group(1))
                     if 1 <= num <= 5:
-                        suggested = f"{num}A"
+                        # Coba ambil huruf dari string
+                        letter_match = re.search(r'[A-Z]', level_str)
+                        letter = letter_match.group() if letter_match else 'A'
+                        # Validasi huruf A/B/C
+                        if letter not in ['A', 'B', 'C']:
+                            letter = 'A'
+                        suggested = f"{num}{letter}"
                         df.at[idx, 'level_fptk'] = suggested
                         errors.append({
                             "row": row_num,
@@ -472,7 +568,7 @@ def validate_fptk_file(
                             "value": level,
                             "warning": True,
                             "error": f"Level FPTK '{level}' diformat ulang menjadi '{suggested}'",
-                            "expected": f"Level FPTK harus: 1A, 1B, 2A, 2B, 3A, 3B, 4A, 4B, 5A, 5B"
+                            "expected": f"Level FPTK harus: 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C"
                         })
                     else:
                         errors.append({
@@ -488,7 +584,7 @@ def validate_fptk_file(
                         "field": "Level FPTK",
                         "value": level,
                         "error": f"Level FPTK '{level}' tidak valid",
-                        "expected": "Level FPTK harus format [1-5][A-B]"
+                        "expected": "Level FPTK harus format [1-5][A-C]"
                     })
         
         # 10. VACANCY
@@ -587,7 +683,7 @@ def validate_fptk_file(
             df.at[idx, 'level_number'] = level_num
     
     # ============================================================
-    # SUMMARY - HANYA ERROR KRITIS YANG DI-BLOCK
+    # SUMMARY
     # ============================================================
     warnings = [
         e for e in errors
@@ -613,7 +709,6 @@ def validate_fptk_file(
         })
         return False, errors
     
-    # ✅ Jika hanya warning, tetap return True
     return True, warnings
 
 
