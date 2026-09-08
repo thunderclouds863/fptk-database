@@ -10,6 +10,7 @@ from core.auth import get_current_user, is_admin, is_editor, hash_file, sanitize
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_db_kode_posisi_file
 from core.compiler import compile_fptk, compile_db_sourcing, compile_db_kode_posisi
+from core.compile_helper import compile_with_progress
 from core.utils import (
     normalize_key, safe_int, safe_float, safe_string, safe_boolean_char, safe_date, parse_date_dmy,
     calculate_sla_days,
