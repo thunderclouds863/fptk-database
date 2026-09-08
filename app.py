@@ -596,116 +596,158 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ========================================================
-    # FILTER & SORT CONTROL - FITUR DI PERTAHANKAN
-    # ========================================================
+# ========================================================
+# FILTER & SORT CONTROL - FITUR DI PERTAHANKAN
+# ========================================================
 
-    st.markdown("### 🔍 Filter & Sort")
+st.markdown("### 🔍 Filter & Sort")
 
-    # Show filter controls based on current page
-    current_page = st.session_state.page
+# Show filter controls based on current page
+current_page = st.session_state.page
 
-    if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
-        with st.expander("📅 Filter Tanggal", expanded=False):
-            col1, col2 = st.columns(2)
-            with col1:
-                start_date = st.date_input(
-                    "Dari",
-                    value=st.session_state.date_filter_start,
-                    key="date_filter_start_input"
-                )
-                if start_date != st.session_state.date_filter_start:
-                    st.session_state.date_filter_start = start_date
-                    st.session_state.filter_applied = True
-
-            with col2:
-                end_date = st.date_input(
-                    "Sampai",
-                    value=st.session_state.date_filter_end,
-                    key="date_filter_end_input"
-                )
-                if end_date != st.session_state.date_filter_end:
-                    st.session_state.date_filter_end = end_date
-                    st.session_state.filter_applied = True
-
-        with st.expander("🏷️ Filter Status", expanded=False):
-            # Ambil status options dari database
-            db = get_cached_db()
-            try:
-                from core.models import FPTK, Sourcing
-                if current_page == "fptk_view":
-                    status_options = db.query(FPTK.status).distinct().all()
-                elif current_page == "sourcing_view":
-                    status_options = db.query(Sourcing.status).distinct().all()
-                else:
-                    status_options = []
-
-                status_list = [s[0] for s in status_options if s[0]]
-
-                selected_status = st.multiselect(
-                    "Pilih Status",
-                    options=status_list,
-                    default=st.session_state.status_filter,
-                    key="status_filter_select"
-                )
-
-                if selected_status != st.session_state.status_filter:
-                    st.session_state.status_filter = selected_status
-                    st.session_state.filter_applied = True
-            finally:
-                db.close()
-
-        with st.expander("🔎 Search", expanded=False):
-            search = st.text_input(
-                "Cari keyword",
-                value=st.session_state.search_keyword,
-                key="search_input"
+if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
+    with st.expander("📅 Filter Tanggal", expanded=False):
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input(
+                "Dari",
+                value=st.session_state.date_filter_start,
+                key="date_filter_start_input"
             )
-            if search != st.session_state.search_keyword:
-                st.session_state.search_keyword = search
+            if start_date != st.session_state.date_filter_start:
+                st.session_state.date_filter_start = start_date
                 st.session_state.filter_applied = True
 
-        # Sort controls
-        with st.expander("📊 Sort", expanded=False):
-            sort_cols = ["Tanggal", "Status", "Nama", "Kode Posisi"]
-            col1, col2 = st.columns([3, 1])
-
-            with col1:
-                sort_by = st.selectbox(
-                    "Sort by",
-                    options=sort_cols,
-                    key="sort_select"
-                )
-
-            with col2:
-                sort_order = st.selectbox(
-                    "Order",
-                    options=["Ascending", "Descending"],
-                    key="sort_order_select"
-                )
-
-            # Apply sort
-            if st.button("Apply Sort", use_container_width=True):
-                st.session_state.sort_column = sort_by
-                st.session_state.sort_ascending = (sort_order == "Ascending")
+        with col2:
+            end_date = st.date_input(
+                "Sampai",
+                value=st.session_state.date_filter_end,
+                key="date_filter_end_input"
+            )
+            if end_date != st.session_state.date_filter_end:
+                st.session_state.date_filter_end = end_date
                 st.session_state.filter_applied = True
-                st.success("✅ Sort applied!")
 
-        # Reset filters
-        if st.button("🔄 Reset All Filters", use_container_width=True):
-            st.session_state.date_filter_start = None
-            st.session_state.date_filter_end = None
-            st.session_state.status_filter = []
-            st.session_state.search_keyword = ""
-            st.session_state.sort_column = None
-            st.session_state.sort_ascending = True
-            st.session_state.filter_applied = False
-            st.success("✅ Filters reset!")
-            time.sleep(0.3)
-            st.rerun()
+    with st.expander("🏷️ Filter Status", expanded=False):
+        # Ambil status options dari database
+        db = get_cached_db()
+        try:
+            # Import models yang tersedia
+            from core.models import FPTK
+            
+            # Cek apakah model Sourcing ada
+            try:
+                from core.models import Sourcing
+                has_sourcing = True
+            except ImportError:
+                has_sourcing = False
+                Sourcing = None
+            
+            status_list = []
+            
+            if current_page == "fptk_view":
+                # Untuk FPTK View
+                status_results = db.query(FPTK.status).distinct().all()
+                status_list = [s[0] for s in status_results if s[0]]
+                
+            elif current_page == "sourcing_view" and has_sourcing:
+                # Untuk Sourcing View
+                status_results = db.query(Sourcing.status).distinct().all()
+                status_list = [s[0] for s in status_results if s[0]]
+                
+            elif current_page == "dashboard":
+                # Untuk Dashboard, ambil dari kedua tabel
+                fptk_status = db.query(FPTK.status).distinct().all()
+                fptk_list = [s[0] for s in fptk_status if s[0]]
+                
+                if has_sourcing:
+                    sourcing_status = db.query(Sourcing.status).distinct().all()
+                    sourcing_list = [s[0] for s in sourcing_status if s[0]]
+                    status_list = list(set(fptk_list + sourcing_list))
+                else:
+                    status_list = fptk_list
 
-        st.markdown("---")
+            # Jika tidak ada status, berikan opsi default
+            if not status_list:
+                status_list = ["Open", "In Progress", "Completed", "Cancelled"]
 
+            selected_status = st.multiselect(
+                "Pilih Status",
+                options=status_list,
+                default=st.session_state.status_filter,
+                key="status_filter_select"
+            )
+
+            if selected_status != st.session_state.status_filter:
+                st.session_state.status_filter = selected_status
+                st.session_state.filter_applied = True
+                
+        except Exception as e:
+            st.warning(f"⚠️ Error loading status options: {str(e)}")
+            # Fallback ke opsi default
+            default_status = ["Open", "In Progress", "Completed", "Cancelled"]
+            selected_status = st.multiselect(
+                "Pilih Status",
+                options=default_status,
+                default=st.session_state.status_filter,
+                key="status_filter_select_fallback"
+            )
+            if selected_status != st.session_state.status_filter:
+                st.session_state.status_filter = selected_status
+                st.session_state.filter_applied = True
+        finally:
+            db.close()
+
+    with st.expander("🔎 Search", expanded=False):
+        search = st.text_input(
+            "Cari keyword",
+            value=st.session_state.search_keyword,
+            key="search_input"
+        )
+        if search != st.session_state.search_keyword:
+            st.session_state.search_keyword = search
+            st.session_state.filter_applied = True
+
+    # Sort controls
+    with st.expander("📊 Sort", expanded=False):
+        sort_cols = ["Tanggal", "Status", "Nama", "Kode Posisi"]
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            sort_by = st.selectbox(
+                "Sort by",
+                options=sort_cols,
+                key="sort_select"
+            )
+
+        with col2:
+            sort_order = st.selectbox(
+                "Order",
+                options=["Ascending", "Descending"],
+                key="sort_order_select"
+            )
+
+        # Apply sort
+        if st.button("Apply Sort", use_container_width=True):
+            st.session_state.sort_column = sort_by
+            st.session_state.sort_ascending = (sort_order == "Ascending")
+            st.session_state.filter_applied = True
+            st.success("✅ Sort applied!")
+
+    # Reset filters
+    if st.button("🔄 Reset All Filters", use_container_width=True):
+        st.session_state.date_filter_start = None
+        st.session_state.date_filter_end = None
+        st.session_state.status_filter = []
+        st.session_state.search_keyword = ""
+        st.session_state.sort_column = None
+        st.session_state.sort_ascending = True
+        st.session_state.filter_applied = False
+        st.success("✅ Filters reset!")
+        time.sleep(0.3)
+        st.rerun()
+
+    st.markdown("---")
     # ========================================================
     # CACHE CONTROL SECTION
     # ========================================================
