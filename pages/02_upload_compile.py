@@ -1,11 +1,12 @@
 import streamlit as st
 import pandas as pd
 import re
-import hashlib  
+import hashlib
 from datetime import datetime, timedelta
+from sqlalchemy import func
 from core.database import get_db
-from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate
-from core.auth import get_current_user, is_admin,is_it , is_editor, hash_file, sanitize_filename
+from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate, DBKodePosisi
+from core.auth import get_current_user, is_admin, is_editor, hash_file, sanitize_filename
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_db_kode_posisi_file
 from core.compiler import compile_fptk, compile_db_sourcing, compile_db_kode_posisi
@@ -15,7 +16,9 @@ from core.utils import (
     calculate_deadline_sla,
     calculate_detail_sla,
     get_sla_option_list,
-    calculate_filter_kategorisasi
+    calculate_filter_kategorisasi,
+    get_position_details,
+    add_to_db_kode_posisi
 )
 from core.utils import determine_category_fptk
 from core.template_manager import (
@@ -82,7 +85,7 @@ for num in range(1, 6):
 
 
 # ============================================================
-#  FUNGSI DETAIL SLA OTOMATIS 
+# FUNGSI DETAIL SLA OTOMATIS
 # ============================================================
 
 def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, today=None):
@@ -125,7 +128,44 @@ def sanitize_value(value):
 
 
 # ============================================================
-#  CACHE FUNCTIONS 
+# AUTO-FILL FUNCTIONS (DB Kode Posisi)
+# ============================================================
+
+def get_position_details_cached(db, posisi, direktorat=None):
+    """Wrapper dengan cache session biar ga query terus"""
+    if not posisi:
+        return None
+    
+    cache_key = f"pos_{posisi.strip().lower()}_{direktorat.strip().lower() if direktorat else ''}"
+    if "position_cache" not in st.session_state:
+        st.session_state.position_cache = {}
+    
+    if cache_key in st.session_state.position_cache:
+        return st.session_state.position_cache[cache_key]
+    
+    result = get_position_details(db, posisi, direktorat)
+    st.session_state.position_cache[cache_key] = result
+    return result
+
+
+def add_position_to_master(db, posisi, direktorat=None, business_unit=None, location=None,
+                           division=None, department=None, user_manager=None, indirect_user=None, kode=None):
+    """Tambahkan posisi ke DB Kode Posisi dan update cache"""
+    if not posisi:
+        return None
+    
+    result = add_to_db_kode_posisi(
+        db, posisi, direktorat, business_unit, location,
+        division, department, user_manager, indirect_user, kode
+    )
+    # Clear cache
+    if "position_cache" in st.session_state:
+        st.session_state.position_cache = {}
+    return result
+
+
+# ============================================================
+# FUNGSI GET MASTER OPTIONS (CACHE)
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -229,7 +269,7 @@ def get_all_bu_codes():
 
 
 # ============================================================
-#  FUNGSI GENERATE KODE UNIK & KODE ANGKA 
+# FUNGSI GENERATE KODE UNIK & KODE ANGKA
 # ============================================================
 
 def generate_kode_angka(db, posisi, kode_pic):
@@ -628,12 +668,20 @@ def show_upload_compile():
             st.info("📭 Silakan upload file terlebih dahulu")
     
     # ============================================================
-    # TAB 2: INPUT MANUAL FPTK (DIPERBAIKI)
+    # TAB 2: INPUT MANUAL FPTK (DENGAN AUTO-FILL DB KODE POSISI)
     # ============================================================
     
     with tab2:
-        st.subheader("Input FPTK Manual")
+        st.subheader("📝 Input FPTK Manual")
         st.caption("Input satu per satu. PIC otomatis dari user yang login.")
+        
+        # Inisialisasi session state untuk auto-fill
+        if "manual_posisi" not in st.session_state:
+            st.session_state.manual_posisi = ""
+        if "manual_direktorat" not in st.session_state:
+            st.session_state.manual_direktorat = ""
+        if "manual_position_data" not in st.session_state:
+            st.session_state.manual_position_data = {}
         
         pic_mapping = get_pic_mapping()
         level_options = get_level_options()
@@ -641,8 +689,6 @@ def show_upload_compile():
         user_pic_name = user.pic_recruiter or user.display_name or user.username
         user_pic_code = user.kode_pic or ""
         user_pic_bu = user.business_unit or ""
-        
-        st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
         
         for key, val in pic_mapping.items():
             if val["name"].lower() == user_pic_name.lower():
@@ -658,7 +704,7 @@ def show_upload_compile():
                     user_pic_bu = val["bu"]
                     break
         
-        #  JIKA USER ADALAH ADMIN DAN KODE_PIC KOSONG, PAKAI "ADM" 
+        # JIKA ADMIN, PAKAI "ADM"
         if is_admin(db) and not user_pic_code:
             user_pic_code = "ADM"
             user_pic_bu = "CORP"
@@ -695,11 +741,67 @@ def show_upload_compile():
                         help="Auto-generate dari Kode PIC + Posisi + Tanggal"
                     )
                 
-                posisi = st.text_input("Posisi *")
-                business_unit = st.selectbox("Business Unit *", [""] + bu_options)
-                direktorat = st.selectbox("Direktorat *", [""] + direktorat_options)
-                divisi = st.text_input("Divisi *")
-                department = st.text_input("Department *")
+                posisi = st.text_input(
+                    "Posisi *",
+                    value=st.session_state.manual_posisi,
+                    key="manual_posisi_input",
+                    help="Masukkan posisi. Data divisi, department, user, dll akan auto-fill dari DB Kode Posisi"
+                )
+                
+                # Direktorat input
+                default_direktorat = st.session_state.manual_direktorat
+                direktorat = st.selectbox(
+                    "Direktorat *",
+                    [""] + direktorat_options,
+                    index=(direktorat_options.index(default_direktorat) + 1) if default_direktorat in direktorat_options else 0,
+                    key="manual_direktorat_input",
+                    help="Pilih direktorat. Data akan auto-fill dari DB Kode Posisi"
+                )
+                
+                # --- AUTO-FILL LOGIC ---
+                # Cek apakah posisi atau direktorat berubah
+                current_posisi = st.session_state.manual_posisi
+                current_direktorat = st.session_state.manual_direktorat
+                
+                # Update session state
+                if current_posisi != posisi or current_direktorat != direktorat:
+                    st.session_state.manual_posisi = posisi
+                    st.session_state.manual_direktorat = direktorat
+                    
+                    if posisi:
+                        position_data = get_position_details_cached(db, posisi, direktorat)
+                        if position_data:
+                            st.session_state.manual_position_data = position_data
+                            st.rerun()
+                        else:
+                            st.session_state.manual_position_data = {}
+                
+                # Gunakan data dari position_data (baik dari cache maupun query)
+                position_data = st.session_state.manual_position_data
+                if position_data:
+                    st.success(f"✅ Data posisi ditemukan di master: **{position_data.get('position')}**")
+                    if position_data.get("business_unit"):
+                        st.caption(f"🏢 BU: {position_data.get('business_unit')} | 📍 Lokasi: {position_data.get('location') or '-'}")
+                elif posisi:
+                    st.warning(f"⚠️ Posisi '{posisi}' belum ada di DB Kode Posisi")
+                    st.caption("📌 Data akan otomatis ditambahkan ke master saat FPTK disimpan.")
+                
+                # Set nilai default dari position_data (bisa di-overwrite user)
+                default_bu = position_data.get("business_unit", "") if position_data else ""
+                default_divisi = position_data.get("division_chris", "") if position_data else ""
+                default_department = position_data.get("department_chris", "") if position_data else ""
+                default_lokasi_kerja = position_data.get("location", "") if position_data else ""
+                default_user_manager = position_data.get("user_manager", "") if position_data else ""
+                default_indirect_user = position_data.get("indirect_user", "") if position_data else ""
+                
+                business_unit = st.selectbox(
+                    "Business Unit *",
+                    [""] + bu_options,
+                    index=(bu_options.index(default_bu) + 1) if default_bu in bu_options else 0
+                )
+                
+                divisi = st.text_input("Divisi *", value=default_divisi)
+                department = st.text_input("Department *", value=default_department)
             
             with col2:
                 fptk_date = st.date_input("FPTK Date (Real) *", datetime.now())
@@ -760,10 +862,10 @@ def show_upload_compile():
             col1, col2 = st.columns(2)
             with col1:
                 nama_kandidat = st.text_input("Nama Kandidat")
-                lokasi_kerja = st.text_input("Lokasi Kerja")
+                lokasi_kerja = st.text_input("Lokasi Kerja", value=default_lokasi_kerja)
                 lokasi_hr = st.text_input("Lokasi HR")
-                user_manager = st.text_input("User (Manager)")
-                indirect_user = st.text_input("Indirect User")
+                user_manager = st.text_input("User (Manager)", value=default_user_manager)
+                indirect_user = st.text_input("Indirect User", value=default_indirect_user)
                 status_karyawan = st.text_input("Status Karyawan")
             with col2:
                 estimasi_join = st.date_input("Estimasi Join", value=None)
@@ -792,20 +894,20 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            #  GENERATE KODE UNIK 
+            # GENERATE KODE UNIK
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            #  GENERATE KODE ANGKA 
+            # GENERATE KODE ANGKA
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                #  CEK DUPLIKAT 
+                # CEK DUPLIKAT
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
@@ -836,7 +938,6 @@ def show_upload_compile():
                             
                             kode_unik_baru = generate_kode_unik(kode_pic, posisi, new_fptk_date_kode)
                             
-                            # Ambil posisi_code untuk suffix
                             posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
                             
                             suffix_index = 0
@@ -869,6 +970,23 @@ def show_upload_compile():
                         
                         if db.is_active:
                             db.rollback()
+                        
+                        # ============================================================
+                        # ADD / UPDATE POSITION TO DB KODE POSISI (AUTO-FILL MASTER)
+                        # ============================================================
+                        if posisi:
+                            add_position_to_master(
+                                db,
+                                posisi=posisi,
+                                direktorat=direktorat,
+                                business_unit=business_unit,
+                                location=lokasi_kerja,
+                                division=divisi,
+                                department=department,
+                                user_manager=user_manager,
+                                indirect_user=indirect_user,
+                                kode=kode_pic
+                            )
                         
                         created_count = 0
                         skipped_count = 0
@@ -987,6 +1105,7 @@ def show_upload_compile():
                         
                         if created_count > 0:
                             st.success(f"✅ {created_count} FPTK berhasil disimpan!")
+                            st.success(f"✅ Posisi '{posisi}' telah ditambahkan/ diupdate ke DB Kode Posisi.")
                             if skipped_count > 0:
                                 st.warning(f"⚠️ {skipped_count} FPTK dilewati (duplikat)")
                             st.info(f"📋 Kode Unik terakhir: **{last_kode_unik}**")
@@ -994,6 +1113,11 @@ def show_upload_compile():
                             st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
                             st.balloons()
                             st.cache_data.clear()
+                            # Clear session state agar form reset
+                            st.session_state.manual_posisi = ""
+                            st.session_state.manual_direktorat = ""
+                            st.session_state.manual_position_data = {}
+                            st.rerun()
                         else:
                             st.warning("⚠️ Tidak ada FPTK yang berhasil disimpan")
                         
@@ -1002,7 +1126,7 @@ def show_upload_compile():
                         db.rollback()
     
     # ============================================================
-    # TAB 3: PASTE EMAIL BODY (DIPERBAIKI)
+    # TAB 3: PASTE EMAIL BODY (DENGAN AUTO-FILL DB KODE POSISI)
     # ============================================================
     
     with tab3:
@@ -1056,7 +1180,7 @@ def show_upload_compile():
                         user_pic_code = val["code"]
                         break
             
-            #  JIKA ADMIN, PAKAI "ADM" 
+            # JIKA ADMIN, PAKAI "ADM"
             if is_admin(db) and not user_pic_code:
                 user_pic_code = "ADM"
                 user_pic_name = "Admin"
@@ -1094,24 +1218,60 @@ def show_upload_compile():
                         help="Auto-generate dari Kode PIC + Posisi + Tanggal"
                     )
                 
-                posisi = st.text_input("Posisi *", value=parsed_data.get("posisi", ""))
-                
-                default_bu = parsed_data.get("business_unit", "")
-                business_unit = st.selectbox(
-                    "Business Unit *",
-                    [""] + bu_options,
-                    index=(bu_options.index(default_bu) + 1) if default_bu in bu_options else 0
+                posisi = st.text_input(
+                    "Posisi *",
+                    value=parsed_data.get("posisi", ""),
+                    key="email_posisi_input",
+                    help="Masukkan posisi. Data divisi, department, user, dll akan auto-fill dari DB Kode Posisi"
                 )
                 
+                # Direktorat
                 default_direktorat = parsed_data.get("direktorat", "")
                 direktorat = st.selectbox(
                     "Direktorat *",
                     [""] + direktorat_options,
-                    index=(direktorat_options.index(default_direktorat) + 1) if default_direktorat in direktorat_options else 0
+                    index=(direktorat_options.index(default_direktorat) + 1) if default_direktorat in direktorat_options else 0,
+                    key="email_direktorat_input"
                 )
                 
-                divisi = st.text_input("Divisi *", value=parsed_data.get("divisi", ""))
-                department = st.text_input("Department *", value=parsed_data.get("department", ""))
+                # --- AUTO-FILL LOGIC UNTUK EMAIL TAB ---
+                if posisi:
+                    position_data = get_position_details_cached(db, posisi, direktorat)
+                    if position_data:
+                        st.success(f"✅ Data posisi ditemukan di master: **{position_data.get('position')}**")
+                        if position_data.get("business_unit"):
+                            st.caption(f"🏢 BU: {position_data.get('business_unit')} | 📍 Lokasi: {position_data.get('location') or '-'}")
+                        default_bu_email = position_data.get("business_unit", "")
+                        default_divisi_email = position_data.get("division_chris", "")
+                        default_department_email = position_data.get("department_chris", "")
+                        default_lokasi_kerja_email = position_data.get("location", "")
+                        default_user_manager_email = position_data.get("user_manager", "")
+                        default_indirect_user_email = position_data.get("indirect_user", "")
+                    else:
+                        st.warning(f"⚠️ Posisi '{posisi}' belum ada di DB Kode Posisi")
+                        st.caption("📌 Data akan otomatis ditambahkan ke master saat FPTK disimpan.")
+                        default_bu_email = ""
+                        default_divisi_email = ""
+                        default_department_email = ""
+                        default_lokasi_kerja_email = ""
+                        default_user_manager_email = ""
+                        default_indirect_user_email = ""
+                else:
+                    default_bu_email = parsed_data.get("business_unit", "")
+                    default_divisi_email = parsed_data.get("divisi", "")
+                    default_department_email = parsed_data.get("department", "")
+                    default_lokasi_kerja_email = parsed_data.get("lokasi_kerja", "")
+                    default_user_manager_email = parsed_data.get("user_manager", "")
+                    default_indirect_user_email = parsed_data.get("indirect_user", "")
+                
+                business_unit = st.selectbox(
+                    "Business Unit *",
+                    [""] + bu_options,
+                    index=(bu_options.index(default_bu_email) + 1) if default_bu_email in bu_options else 0
+                )
+                
+                divisi = st.text_input("Divisi *", value=default_divisi_email)
+                department = st.text_input("Department *", value=default_department_email)
             
             with col2:
                 fptk_date = st.date_input(
@@ -1205,10 +1365,10 @@ def show_upload_compile():
             col1, col2 = st.columns(2)
             with col1:
                 nama_kandidat = st.text_input("Nama Kandidat", value=parsed_data.get("nama_kandidat", ""))
-                lokasi_kerja = st.text_input("Lokasi Kerja", value=parsed_data.get("lokasi_kerja", ""))
+                lokasi_kerja = st.text_input("Lokasi Kerja", value=parsed_data.get("lokasi_kerja", default_lokasi_kerja_email if 'default_lokasi_kerja_email' in dir() else ""))
                 lokasi_hr = st.text_input("Lokasi HR", value=parsed_data.get("lokasi_hr", ""))
-                user_manager = st.text_input("User (Manager)", value=parsed_data.get("user_manager", ""))
-                indirect_user = st.text_input("Indirect User", value=parsed_data.get("indirect_user", ""))
+                user_manager = st.text_input("User (Manager)", value=parsed_data.get("user_manager", default_user_manager_email if 'default_user_manager_email' in dir() else ""))
+                indirect_user = st.text_input("Indirect User", value=parsed_data.get("indirect_user", default_indirect_user_email if 'default_indirect_user_email' in dir() else ""))
                 status_karyawan = st.text_input("Status Karyawan", value=parsed_data.get("status_karyawan", ""))
             with col2:
                 estimasi_join = st.date_input("Estimasi Join", value=None)
@@ -1238,20 +1398,20 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            #  GENERATE KODE UNIK 
+            # GENERATE KODE UNIK
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            #  GENERATE KODE ANGKA 
+            # GENERATE KODE ANGKA
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                #  CEK DUPLIKAT 
+                # CEK DUPLIKAT
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
@@ -1333,6 +1493,23 @@ def show_upload_compile():
                         if db.is_active:
                             db.rollback()
                         
+                        # ============================================================
+                        # ADD / UPDATE POSITION TO DB KODE POSISI (AUTO-FILL MASTER)
+                        # ============================================================
+                        if posisi:
+                            add_position_to_master(
+                                db,
+                                posisi=posisi,
+                                direktorat=direktorat,
+                                business_unit=business_unit,
+                                location=lokasi_kerja,
+                                division=divisi,
+                                department=department,
+                                user_manager=user_manager,
+                                indirect_user=indirect_user,
+                                kode=kode_pic
+                            )
+                        
                         posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
                         kode_angka_base = kode_angka_used
                         
@@ -1384,6 +1561,7 @@ def show_upload_compile():
                         st.session_state.parsed_email_data = {}
                         
                         st.success(f"✅ FPTK berhasil disimpan dari email!")
+                        st.success(f"✅ Posisi '{posisi}' telah ditambahkan/ diupdate ke DB Kode Posisi.")
                         st.info(f"📋 Kode Unik: **{kode_unik_used}**")
                         st.info(f"📋 Kode Angka: **{kode_angka_used}**")
                         st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
