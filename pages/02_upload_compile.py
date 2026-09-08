@@ -98,10 +98,7 @@ def generate_kode_unik(kode_pic, posisi, fptk_date):
             return f"{kode_pic}XXXX{date_code}"
         return ""
     
-    # Format tanggal: DDMMYY (contoh: 090326 untuk 9 Maret 2026)
     date_code = fptk_date.strftime("%d%m%y")
-    
-    # Ambil 4 huruf pertama dari posisi (tanpa spasi)
     posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
     if not posisi_code:
         posisi_code = "XXXX"
@@ -313,18 +310,36 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
                 if sourcing_df is not None and not sourcing_df.empty:
                     progress_placeholder.progress(60, text="Compile DB Sourcing...")
                     
-                    # VALIDASI DULU SEBELUM COMPILE
+                    # VALIDASI
                     sourcing_valid, sourcing_errors = validate_db_sourcing_file(
                         df=sourcing_df,
                         db=_db,
                         user_id=user.id
                     )
                     
-                    if not sourcing_valid:
-                        # TAMPILKAN ERROR DETAIL
-                        st.warning(f"⚠️ DB Sourcing: {len(sourcing_errors)} issues ditemukan")
-                        with st.expander(f"📋 Detail DB Sourcing Issues ({len(sourcing_errors)})", expanded=False):
-                            for err in sourcing_errors:
+                    # PISAHKAN WARNING DAN ERROR
+                    sourcing_warnings = [e for e in sourcing_errors if e.get("warning", False)]
+                    sourcing_real_errors = [e for e in sourcing_errors if not e.get("warning", False)]
+                    
+                    # TAMPILKAN WARNING
+                    if sourcing_warnings:
+                        st.warning(f"⚠️ DB Sourcing: {len(sourcing_warnings)} warning")
+                        with st.expander(f"⚠️ Detail DB Sourcing Warning ({len(sourcing_warnings)})", expanded=False):
+                            for err in sourcing_warnings:
+                                if err.get("field") == "SUMMARY":
+                                    st.info(f"📌 {err.get('error', '')}")
+                                else:
+                                    row = err.get("row", "?")
+                                    field = err.get("field", "Unknown")
+                                    value = err.get("value", "")
+                                    error_msg = err.get("error", "")
+                                    st.markdown(f"- **Row {row}** - {field}: `{value}` → ⚠️ {error_msg}")
+                    
+                    # CEK APAKAH ADA ERROR KRITIS
+                    if sourcing_real_errors:
+                        st.error(f"❌ DB Sourcing: {len(sourcing_real_errors)} error (tidak di-compile)")
+                        with st.expander(f"❌ Detail DB Sourcing Error ({len(sourcing_real_errors)})", expanded=True):
+                            for err in sourcing_real_errors:
                                 if err.get("field") == "SUMMARY":
                                     st.info(f"📌 {err.get('error', '')}")
                                 else:
@@ -333,14 +348,9 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
                                     value = err.get("value", "")
                                     error_msg = err.get("error", "")
                                     expected = err.get("expected", "")
-                                    is_warning = err.get("warning", False)
-                                    
-                                    if is_warning:
-                                        st.warning(f"- **Row {row}** - {field}: `{value}` → ⚠️ {error_msg}")
-                                    else:
-                                        st.error(f"- **Row {row}** - {field}: `{value}` → ❌ {error_msg} (Expected: {expected})")
+                                    st.markdown(f"- **Row {row}** - {field}: `{value}` → ❌ {error_msg} (Expected: {expected})")
                     else:
-                        # COMPILE JIKA VALID
+                        # COMPILE JIKA TIDAK ADA ERROR (WARNING BOLEH)
                         sourcing_result = compile_db_sourcing(
                             db=_db,
                             df=sourcing_df,
@@ -938,13 +948,11 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            # GENERATE KODE UNIK
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            # GENERATE KODE ANGKA
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
