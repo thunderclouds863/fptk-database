@@ -18,8 +18,7 @@ from core.utils import (
     get_sla_option_list,
     calculate_filter_kategorisasi,
     get_position_details,
-    add_to_db_kode_posisi,
-    parse_excel_serial_date
+    add_to_db_kode_posisi
 )
 from core.utils import determine_category_fptk
 from core.template_manager import (
