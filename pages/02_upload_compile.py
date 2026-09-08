@@ -321,21 +321,14 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     time.sleep(0.3)
     
     # ============================================================
-    # COMPILE DB SOURCING - HEADER DI ROW 1 (INDEX 1)
+    # COMPILE DB SOURCING
     # ============================================================
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Sourcing" in xls.sheet_names:
-                # Baca dengan header di baris ke-2 (index 1) karena row 0 biasanya judul atau kosong
-                sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=1)
-                
-                # Bersihkan kolom Unnamed
+                sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
                 sourcing_df = sourcing_df.loc[:, ~sourcing_df.columns.str.contains('^Unnamed')]
-                
-                # Hapus baris kosong
                 sourcing_df = sourcing_df.dropna(how='all')
-                
-                # RENAME KOLOM MANUAL - SESUAIKAN DENGAN HEADER ANDA
                 column_mapping = {}
                 for col in sourcing_df.columns:
                     col_str = str(col).strip()
@@ -477,7 +470,6 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Kode Posisi" in xls.sheet_names:
-                # Baca dengan header di baris pertama
                 dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
                 
                 # Bersihkan dataframe
