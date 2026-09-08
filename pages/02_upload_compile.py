@@ -287,53 +287,63 @@ def clean_dataframe(df):
     
     return df
 
-# ============================================================
-# COMPILE WITH PROGRESS
-# ============================================================
-
-def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
-    status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
-    progress_placeholder.progress(10, text="Validasi file...")
-    time.sleep(0.3)
-    
-    status_placeholder.info("📊 Step 2/5: Compile FPTK...")
-    progress_placeholder.progress(30, text="Compile FPTK...")
-    time.sleep(0.3)
-    
-    file_bytes = file.read()
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
-    
-    if _db.is_active:
-        _db.rollback()
-    
-    result = compile_fptk(
-        _db, df, user.id, cycle.id,
-        sanitize_filename(file.name), file_bytes, is_sto
-    )
-    
-    if not result["success"]:
-        progress_placeholder.progress(100, text="❌ Gagal!")
-        status_placeholder.error(f"❌ Compile FPTK gagal: {result.get('errors', ['Unknown error'])}")
-        return False, None
-    
-    progress_placeholder.progress(50, text="✅ FPTK selesai")
-    status_placeholder.info("📊 Step 3/5: Compile DB Sourcing...")
-    time.sleep(0.3)
-    
     # ============================================================
-    # COMPILE DB SOURCING
+    # COMPILE WITH PROGRESS
+    # ============================================================
+    
+    def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
+        status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
+        progress_placeholder.progress(10, text="Validasi file...")
+        time.sleep(0.3)
+        
+        status_placeholder.info("📊 Step 2/5: Compile FPTK...")
+        progress_placeholder.progress(30, text="Compile FPTK...")
+        time.sleep(0.3)
+        
+        file_bytes = file.read()
+        file_hash = hashlib.sha256(file_bytes).hexdigest()
+        
+        if _db.is_active:
+            _db.rollback()
+        
+        result = compile_fptk(
+            _db, df, user.id, cycle.id,
+            sanitize_filename(file.name), file_bytes, is_sto
+        )
+        
+        if not result["success"]:
+            progress_placeholder.progress(100, text="❌ Gagal!")
+            status_placeholder.error(f"❌ Compile FPTK gagal: {result.get('errors', ['Unknown error'])}")
+            return False, None
+        
+        progress_placeholder.progress(50, text="✅ FPTK selesai")
+        status_placeholder.info("📊 Step 3/5: Compile DB Sourcing...")
+        time.sleep(0.3)
+        
+    # ============================================================
+    # COMPILE DB SOURCING - HEADER DI ROW 1 (INDEX 0)
     # ============================================================
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Sourcing" in xls.sheet_names:
+                # PERBAIKAN: Baca dengan header di baris pertama (index 0)
                 sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
+                
+                # Bersihkan kolom Unnamed
                 sourcing_df = sourcing_df.loc[:, ~sourcing_df.columns.str.contains('^Unnamed')]
+                
+                # Hapus baris kosong
                 sourcing_df = sourcing_df.dropna(how='all')
+                
+                # PERBAIKAN: Tampilkan kolom untuk debug
+                st.write("**Kolom yang terbaca dari DB Sourcing:**", sourcing_df.columns.tolist())
+                
+                # RENAME KOLOM MANUAL - SESUAIKAN DENGAN HEADER ANDA
                 column_mapping = {}
                 for col in sourcing_df.columns:
                     col_str = str(col).strip()
                     
-                    # Cari kolom Sourcing Date (yang bukan Freelance)
+                    # Cari kolom Sourcing Date
                     if "Sourcing Date" in col_str and "Freelance" not in col_str:
                         column_mapping[col] = "sourcing_date"
                     # Cari kolom Kode Unik
@@ -458,8 +468,7 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
                 else:
                     st.info("📭 DB Sourcing sheet kosong, dilewati")
     except Exception as e:
-        st.warning(f"⚠️ DB Sourcing error: {str(e)}")
-    
+        st.warning(f"⚠️ DB Sourcing error: {str(e)}")    
     progress_placeholder.progress(75, text="✅ DB Sourcing selesai")
     status_placeholder.info("📊 Step 4/5: Compile DB Kode Posisi...")
     time.sleep(0.3)
