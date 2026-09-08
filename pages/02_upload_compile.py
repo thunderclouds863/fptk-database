@@ -18,7 +18,8 @@ from core.utils import (
     get_sla_option_list,
     calculate_filter_kategorisasi,
     get_position_details,
-    add_to_db_kode_posisi
+    add_to_db_kode_posisi,
+    get_single_value  # PERBAIKAN: tambahkan import ini
 )
 from core.utils import determine_category_fptk
 from core.template_manager import (
@@ -287,41 +288,41 @@ def clean_dataframe(df):
     
     return df
 
-    # ============================================================
-    # COMPILE WITH PROGRESS
-    # ============================================================
+# ============================================================
+# COMPILE WITH PROGRESS - DIPINDAHKAN KE LUAR FUNGSI show_upload_compile
+# ============================================================
+
+def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
+    status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
+    progress_placeholder.progress(10, text="Validasi file...")
+    time.sleep(0.3)
     
-    def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
-        status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
-        progress_placeholder.progress(10, text="Validasi file...")
-        time.sleep(0.3)
-        
-        status_placeholder.info("📊 Step 2/5: Compile FPTK...")
-        progress_placeholder.progress(30, text="Compile FPTK...")
-        time.sleep(0.3)
-        
-        file_bytes = file.read()
-        file_hash = hashlib.sha256(file_bytes).hexdigest()
-        
-        if _db.is_active:
-            _db.rollback()
-        
-        result = compile_fptk(
-            _db, df, user.id, cycle.id,
-            sanitize_filename(file.name), file_bytes, is_sto
-        )
-        
-        if not result["success"]:
-            progress_placeholder.progress(100, text="❌ Gagal!")
-            status_placeholder.error(f"❌ Compile FPTK gagal: {result.get('errors', ['Unknown error'])}")
-            return False, None
-        
-        progress_placeholder.progress(50, text="✅ FPTK selesai")
-        status_placeholder.info("📊 Step 3/5: Compile DB Sourcing...")
-        time.sleep(0.3)
-        
+    status_placeholder.info("📊 Step 2/5: Compile FPTK...")
+    progress_placeholder.progress(30, text="Compile FPTK...")
+    time.sleep(0.3)
+    
+    file_bytes = file.read()
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    
+    if _db.is_active:
+        _db.rollback()
+    
+    result = compile_fptk(
+        _db, df, user.id, cycle.id,
+        sanitize_filename(file.name), file_bytes, is_sto
+    )
+    
+    if not result["success"]:
+        progress_placeholder.progress(100, text="❌ Gagal!")
+        status_placeholder.error(f"❌ Compile FPTK gagal: {result.get('errors', ['Unknown error'])}")
+        return False, None
+    
+    progress_placeholder.progress(50, text="✅ FPTK selesai")
+    status_placeholder.info("📊 Step 3/5: Compile DB Sourcing...")
+    time.sleep(0.3)
+    
     # ============================================================
-    # COMPILE DB SOURCING - HEADER DI ROW 1 (INDEX 0)
+    # COMPILE DB SOURCING - PERBAIKAN
     # ============================================================
     try:
         with pd.ExcelFile(file) as xls:
@@ -335,36 +336,25 @@ def clean_dataframe(df):
                 # Hapus baris kosong
                 sourcing_df = sourcing_df.dropna(how='all')
                 
-                # PERBAIKAN: Tampilkan kolom untuk debug
-                st.write("**Kolom yang terbaca dari DB Sourcing:**", sourcing_df.columns.tolist())
-                
-                # RENAME KOLOM MANUAL - SESUAIKAN DENGAN HEADER ANDA
+                # RENAME KOLOM MANUAL
                 column_mapping = {}
                 for col in sourcing_df.columns:
                     col_str = str(col).strip()
                     
-                    # Cari kolom Sourcing Date
                     if "Sourcing Date" in col_str and "Freelance" not in col_str:
                         column_mapping[col] = "sourcing_date"
-                    # Cari kolom Kode Unik
                     elif "Kode Unik" in col_str:
                         column_mapping[col] = "kode_unik"
-                    # Cari kolom Posisi
                     elif col_str == "Posisi":
                         column_mapping[col] = "posisi"
-                    # Cari kolom Model Rekrutmen
                     elif "Model Rekrutmen" in col_str:
                         column_mapping[col] = "model_rekrutmen"
-                    # Cari kolom Rekruter
                     elif col_str == "Rekruter":
                         column_mapping[col] = "rekruter"
-                    # Cari kolom Sumber Sourcing
                     elif col_str == "Sumber Sourcing":
                         column_mapping[col] = "sumber_sourcing"
-                    # Cari kolom Nama
                     elif col_str == "Nama":
                         column_mapping[col] = "nama"
-                    # Cari kolom lainnya untuk optional mapping
                     elif col_str == "Jenjang Pendidikan":
                         column_mapping[col] = "jenjang_pendidikan"
                     elif col_str == "Jurusan":
@@ -412,18 +402,15 @@ def clean_dataframe(df):
                 elif sourcing_df is not None and not sourcing_df.empty:
                     progress_placeholder.progress(60, text="Compile DB Sourcing...")
                     
-                    # VALIDASI
                     sourcing_valid, sourcing_errors = validate_db_sourcing_file(
                         df=sourcing_df,
                         db=_db,
                         user_id=user.id
                     )
                     
-                    # PISAHKAN WARNING DAN ERROR
                     sourcing_warnings = [e for e in sourcing_errors if e.get("warning", False)]
                     sourcing_real_errors = [e for e in sourcing_errors if not e.get("warning", False)]
                     
-                    # TAMPILKAN WARNING
                     if sourcing_warnings:
                         st.warning(f"⚠️ DB Sourcing: {len(sourcing_warnings)} warning")
                         with st.expander(f"⚠️ Detail DB Sourcing Warning ({len(sourcing_warnings)})", expanded=False):
@@ -437,7 +424,6 @@ def clean_dataframe(df):
                                     error_msg = err.get("error", "")
                                     st.markdown(f"- **Row {row}** - {field}: `{value}` → ⚠️ {error_msg}")
                     
-                    # CEK APAKAH ADA ERROR KRITIS
                     if sourcing_real_errors:
                         st.error(f"❌ DB Sourcing: {len(sourcing_real_errors)} error (tidak di-compile)")
                         with st.expander(f"❌ Detail DB Sourcing Error ({len(sourcing_real_errors)})", expanded=True):
@@ -452,7 +438,6 @@ def clean_dataframe(df):
                                     expected = err.get("expected", "")
                                     st.markdown(f"- **Row {row}** - {field}: `{value}` → ❌ {error_msg} (Expected: {expected})")
                     else:
-                        # COMPILE JIKA TIDAK ADA ERROR (WARNING BOLEH)
                         sourcing_result = compile_db_sourcing(
                             db=_db,
                             df=sourcing_df,
@@ -468,7 +453,8 @@ def clean_dataframe(df):
                 else:
                     st.info("📭 DB Sourcing sheet kosong, dilewati")
     except Exception as e:
-        st.warning(f"⚠️ DB Sourcing error: {str(e)}")    
+        st.warning(f"⚠️ DB Sourcing error: {str(e)}")
+    
     progress_placeholder.progress(75, text="✅ DB Sourcing selesai")
     status_placeholder.info("📊 Step 4/5: Compile DB Kode Posisi...")
     time.sleep(0.3)
@@ -480,8 +466,6 @@ def clean_dataframe(df):
         with pd.ExcelFile(file) as xls:
             if "DB Kode Posisi" in xls.sheet_names:
                 dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
-                
-                # Bersihkan dataframe
                 dbk_df = clean_dataframe(dbk_df)
                 
                 if dbk_df is not None and not dbk_df.empty:
