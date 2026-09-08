@@ -271,6 +271,38 @@ def get_all_bu_codes():
     return ALL_BU_CODES.copy()
 
 # ============================================================
+# FUNGSI HELPERS UNTUK FIND HEADER ROW
+# ============================================================
+
+def find_header_row(df_raw, keywords_list):
+    """
+    Cari header row dalam dataframe dengan keywords tertentu.
+    keywords_list: list of list keywords, misal [["Kode Unik", "Posisi"], ["Kode", "Posisi"]]
+    """
+    for i, row in df_raw.iterrows():
+        row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
+        for keywords in keywords_list:
+            if all(kw.lower() in row_text.lower() for kw in keywords):
+                return i
+    return None
+
+def clean_dataframe(df):
+    """Hapus kolom Unnamed dan baris kosong dari dataframe"""
+    if df is None or df.empty:
+        return df
+    
+    # Hapus kolom Unnamed
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    
+    # Hapus baris kosong
+    df = df.dropna(how='all')
+    
+    # Hapus baris yang semua nilainya kosong atau NaN
+    df = df.dropna(axis=0, how='all')
+    
+    return df
+
+# ============================================================
 # COMPILE WITH PROGRESS
 # ============================================================
 
@@ -303,10 +335,51 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     status_placeholder.info("📊 Step 3/5: Compile DB Sourcing...")
     time.sleep(0.3)
     
+    # ============================================================
+    # COMPILE DB SOURCING - DENGAN FIND HEADER ROW
+    # ============================================================
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Sourcing" in xls.sheet_names:
-                sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
+                # BACA TANPA HEADER
+                sourcing_df_raw = pd.read_excel(file, sheet_name="DB Sourcing", header=None)
+                
+                # CARI HEADER ROW
+                header_row = find_header_row(
+                    sourcing_df_raw,
+                    [
+                        ["Kode Unik", "Nama"],
+                        ["Kode", "Nama", "Sourcing"],
+                        ["Model", "Sumber"],
+                        ["Kode Unik", "Tanggal"],
+                        ["Kode", "Nama", "Tanggal"],
+                    ]
+                )
+                
+                if header_row is None:
+                    # Coba cari di 10 baris pertama
+                    for i in range(min(10, len(sourcing_df_raw))):
+                        row_text = " ".join([str(x) for x in sourcing_df_raw.iloc[i].values if pd.notna(x)])
+                        keywords = ["kode", "nama", "tanggal", "sourcing", "model", "sumber"]
+                        found = sum(1 for kw in keywords if kw in row_text.lower())
+                        if found >= 2:
+                            header_row = i
+                            break
+                
+                if header_row is None:
+                    header_row = 0
+                    status_placeholder.warning("⚠️ Header DB Sourcing tidak ditemukan, menggunakan baris pertama")
+                
+                # BACA DENGAN HEADER YANG DITEMUKAN
+                sourcing_df = pd.read_excel(
+                    file, 
+                    sheet_name="DB Sourcing", 
+                    header=header_row
+                )
+                
+                # BERSIHKAN DATAFRAME
+                sourcing_df = clean_dataframe(sourcing_df)
+                
                 if sourcing_df is not None and not sourcing_df.empty:
                     progress_placeholder.progress(60, text="Compile DB Sourcing...")
                     
@@ -363,6 +436,8 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
                             st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
                         else:
                             st.error(f"❌ DB Sourcing compile failed: {sourcing_result.get('errors', ['Unknown error'])}")
+                else:
+                    st.info("📭 DB Sourcing sheet kosong, dilewati")
     except Exception as e:
         st.warning(f"⚠️ DB Sourcing error: {str(e)}")
     
@@ -370,10 +445,46 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     status_placeholder.info("📊 Step 4/5: Compile DB Kode Posisi...")
     time.sleep(0.3)
     
+    # ============================================================
+    # COMPILE DB KODE POSISI - DENGAN FIND HEADER ROW
+    # ============================================================
     try:
         with pd.ExcelFile(file) as xls:
             if "DB Kode Posisi" in xls.sheet_names:
-                dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
+                # BACA TANPA HEADER
+                dbk_df_raw = pd.read_excel(file, sheet_name="DB Kode Posisi", header=None)
+                
+                # CARI HEADER ROW
+                header_row = find_header_row(
+                    dbk_df_raw,
+                    [
+                        ["POSITION", "KODE"],
+                        ["Position", "Kode"],
+                        ["Posisi", "Kode"],
+                    ]
+                )
+                
+                if header_row is None:
+                    # Coba cari di 10 baris pertama
+                    for i in range(min(10, len(dbk_df_raw))):
+                        row_text = " ".join([str(x) for x in dbk_df_raw.iloc[i].values if pd.notna(x)])
+                        if "position" in row_text.lower() and "kode" in row_text.lower():
+                            header_row = i
+                            break
+                
+                if header_row is None:
+                    header_row = 0
+                
+                # BACA DENGAN HEADER YANG DITEMUKAN
+                dbk_df = pd.read_excel(
+                    file, 
+                    sheet_name="DB Kode Posisi", 
+                    header=header_row
+                )
+                
+                # BERSIHKAN DATAFRAME
+                dbk_df = clean_dataframe(dbk_df)
+                
                 if dbk_df is not None and not dbk_df.empty:
                     progress_placeholder.progress(85, text="Compile DB Kode Posisi...")
                     if _db.is_active:
@@ -390,6 +501,8 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
                         st.success(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
                     else:
                         st.warning(f"⚠️ DB Kode Posisi: {len(dbk_result.get('errors', []))} errors")
+                else:
+                    st.info("📭 DB Kode Posisi sheet kosong, dilewati")
     except Exception as e:
         st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
     
@@ -641,21 +754,45 @@ def show_upload_compile():
                     status_placeholder.info(f"📄 Memproses file {file_num}/{total_files}: **{file.name}**")
                     
                     try:
-                        df = pd.read_excel(file, sheet_name="FPTK", header=None)
-                        header_row = None
-                        for i, row in df.iterrows():
-                            row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
-                            if "Kode Unik" in row_text and "Posisi" in row_text:
-                                header_row = i
-                                break
+                        # ============================================================
+                        # BACA FPTK - DENGAN FIND HEADER ROW
+                        # ============================================================
+                        df_raw = pd.read_excel(file, sheet_name="FPTK", header=None)
+                        
+                        # CARI HEADER ROW UNTUK FPTK
+                        header_row = find_header_row(
+                            df_raw,
+                            [
+                                ["Kode Unik", "Posisi"],
+                                ["Kode", "Posisi", "Business"],
+                            ]
+                        )
                         
                         if header_row is None:
-                            st.error(f"❌ {file.name}: Header tidak ditemukan")
+                            # Coba cari manual
+                            for i, row in df_raw.iterrows():
+                                row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
+                                if "Kode Unik" in row_text and "Posisi" in row_text:
+                                    header_row = i
+                                    break
+                        
+                        if header_row is None:
+                            st.error(f"❌ {file.name}: Header FPTK tidak ditemukan")
                             error_count += 1
                             continue
                         
-                        df.columns = df.iloc[header_row].astype(str).str.strip()
-                        df = df.iloc[header_row+1:].reset_index(drop=True)
+                        # SET HEADER
+                        df_columns = df_raw.iloc[header_row].astype(str).str.strip()
+                        df = df_raw.iloc[header_row+1:].reset_index(drop=True)
+                        df.columns = df_columns
+                        
+                        # BERSIHKAN DATAFRAME
+                        df = clean_dataframe(df)
+                        
+                        if df.empty:
+                            st.warning(f"⚠️ {file.name}: Tidak ada data FPTK setelah cleaning")
+                            error_count += 1
+                            continue
                         
                         validated, errors = validate_fptk_file(df, db, user.id, is_sto)
                         
