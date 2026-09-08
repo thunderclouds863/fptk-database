@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 from typing import Tuple, List, Dict, Any, Optional
 
 from core.models import FPTK, DBSourcing, DBKodePosisi
-from core.utils import parse_date_dmy, safe_int, normalize_key
+from core.utils import parse_date_dmy, safe_int, normalize_key, is_valid_email
 
 
 # ============================================================
@@ -17,8 +17,8 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
     - Kode PIC
     - Kode Angka (dari kolom Kode Angka (ID) di Excel)
     - FPTK Date Kode
-    Format: [Kode PIC][Kode Angka][FPTK Date Kode DDMMYY]
-    Contoh: ADM001300826
+    Format: [Kode PIC][Kode Angka (tanpa huruf)][FPTK Date Kode DDMMYY]
+    Contoh: CORP001090326
     """
     if not kode_pic or not kode_angka or not fptk_date_kode:
         return ""
@@ -42,6 +42,7 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
     else:
         date_code = str(fptk_date_kode)
     
+    # Format: Kode PIC + Angka (3 digit) + Date (6 digit)
     return f"{kode_pic}{angka_part}{date_code}"
 
 
@@ -218,7 +219,10 @@ def safe_level_fptk_from_string(value):
     if match:
         num = int(match.group(1))
         letter = match.group(2) if match.group(2) else 'A'
-        if 1 <= num <= 5 and letter in ['A', 'B', 'C']:
+        # Validasi letter A/B/C
+        if letter not in ['A', 'B', 'C']:
+            letter = 'A'
+        if 1 <= num <= 5:
             return f"{num}{letter}"
     
     # Last resort: just number
@@ -452,7 +456,7 @@ def validate_fptk_file(
                 df.at[idx, 'fptk_date_kode'] = parsed_kode
                 fptk_date_kode = parsed_kode
         
-        # 5. GENERATE KODE UNIK
+        # 5. GENERATE KODE UNIK - TIDAK PERLU VALIDASI FORMAT, HANYA CEK DUPLIKAT
         kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             if kode_pic and kode_angka and fptk_date_kode:
@@ -475,17 +479,8 @@ def validate_fptk_file(
                     "expected": "Format: [Kode PIC][Kode Angka][FPTK Date Kode DDMMYY]"
                 })
         else:
+            # HANYA CEK DUPLIKAT, TIDAK VALIDASI FORMAT
             kode_unik_clean = str(kode_unik).strip()
-            expected_kode_unik = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
-            if expected_kode_unik and kode_unik_clean != expected_kode_unik:
-                errors.append({
-                    "row": row_num,
-                    "field": "Kode Unik",
-                    "value": kode_unik,
-                    "warning": True,
-                    "error": f"Kode Unik '{kode_unik}' tidak sesuai format. Seharusnya: {expected_kode_unik}",
-                    "expected": "Kode Unik akan tetap digunakan, tapi sebaiknya disesuaikan"
-                })
             
             # CEK DUPLIKAT - HANYA WARNING
             existing_same_code = db.query(FPTK).filter(
@@ -536,7 +531,7 @@ def validate_fptk_file(
                 "expected": "Nama Direktorat yang valid"
             })
         
-        # 9. LEVEL FPTK - DENGAN HURUF A/B/C
+        # 9. LEVEL FPTK - SUPPORT A/B/C
         level = row.get("level_fptk")
         if pd.isna(level) or str(level).strip() == "":
             errors.append({
@@ -549,27 +544,32 @@ def validate_fptk_file(
         else:
             level_str = str(level).strip().upper()
             # VALID: 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C
-            if not re.match(r'^[1-5][A-C]$', level_str):
+            if re.match(r'^[1-5][A-C]$', level_str):
+                # VALID, TIDAK PERLU PERBAIKAN
+                pass
+            else:
                 match = re.search(r'(\d+)', level_str)
                 if match:
                     num = int(match.group(1))
                     if 1 <= num <= 5:
                         # Coba ambil huruf dari string
-                        letter_match = re.search(r'[A-Z]', level_str)
+                        letter_match = re.search(r'[A-C]', level_str)
                         letter = letter_match.group() if letter_match else 'A'
-                        # Validasi huruf A/B/C
+                        # Pastikan hanya A/B/C
                         if letter not in ['A', 'B', 'C']:
                             letter = 'A'
                         suggested = f"{num}{letter}"
                         df.at[idx, 'level_fptk'] = suggested
-                        errors.append({
-                            "row": row_num,
-                            "field": "Level FPTK",
-                            "value": level,
-                            "warning": True,
-                            "error": f"Level FPTK '{level}' diformat ulang menjadi '{suggested}'",
-                            "expected": f"Level FPTK harus: 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C"
-                        })
+                        # HANYA WARNING JIKA BERBEDA
+                        if suggested != level_str:
+                            errors.append({
+                                "row": row_num,
+                                "field": "Level FPTK",
+                                "value": level,
+                                "warning": True,
+                                "error": f"Level FPTK '{level}' diformat ulang menjadi '{suggested}'",
+                                "expected": f"Level FPTK harus: 1A, 1B, 1C, 2A, 2B, 2C, 3A, 3B, 3C, 4A, 4B, 4C, 5A, 5B, 5C"
+                            })
                     else:
                         errors.append({
                             "row": row_num,
@@ -720,7 +720,7 @@ def validate_db_sourcing_file(
     db,
     user_id: int
 ) -> Tuple[bool, List[Dict[str, Any]]]:
-    """Validasi file DB Sourcing"""
+    """Validasi file DB Sourcing dengan error detail"""
     errors = []
     
     if df.empty:
@@ -797,22 +797,40 @@ def validate_db_sourcing_file(
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
     
+    # VALIDASI PER ROW DENGAN ERROR DETAIL
+    valid_models = ["Freelance", "Sourcing", "Internal", "External", "Headhunter", "Hired", ""]
+    
     for idx, row in df.iterrows():
         row_num = idx + 2
+        row_errors = []
         
+        # 1. KODE UNIK
         kode_unik = row.get("kode_unik")
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
-            errors.append({
+            row_errors.append({
                 "row": row_num,
                 "field": "Kode Unik",
                 "value": kode_unik,
                 "error": "Kode Unik tidak boleh kosong",
                 "expected": "Kode Unik yang terdaftar di FPTK"
             })
+        else:
+            # CEK EXISTING FPTK
+            existing_fptk = db.query(FPTK).filter(FPTK.kode_unik == str(kode_unik).strip()).first()
+            if not existing_fptk:
+                row_errors.append({
+                    "row": row_num,
+                    "field": "Kode Unik",
+                    "value": kode_unik,
+                    "warning": True,
+                    "error": f"Kode Unik '{kode_unik}' tidak ditemukan di tabel FPTK",
+                    "expected": "Kode Unik harus terdaftar di FPTK"
+                })
         
+        # 2. NAMA
         nama = row.get("nama")
         if pd.isna(nama) or str(nama).strip() == "":
-            errors.append({
+            row_errors.append({
                 "row": row_num,
                 "field": "Nama",
                 "value": nama,
@@ -820,9 +838,10 @@ def validate_db_sourcing_file(
                 "expected": "Nama kandidat"
             })
         
+        # 3. SOURCING DATE
         sourcing_date = row.get("sourcing_date")
         if pd.isna(sourcing_date) or str(sourcing_date).strip() == "":
-            errors.append({
+            row_errors.append({
                 "row": row_num,
                 "field": "Sourcing Date",
                 "value": sourcing_date,
@@ -830,24 +849,88 @@ def validate_db_sourcing_file(
                 "expected": "Format tanggal yang valid"
             })
         elif not _is_valid_date(sourcing_date):
-            errors.append({
+            row_errors.append({
                 "row": row_num,
                 "field": "Sourcing Date",
                 "value": sourcing_date,
                 "error": f"Format Sourcing Date '{sourcing_date}' tidak valid",
                 "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
             })
+        
+        # 4. MODEL REKRUTMEN
+        model = row.get("model_rekrutmen")
+        if model and not pd.isna(model) and str(model).strip():
+            model_val = str(model).strip()
+            if model_val not in valid_models:
+                row_errors.append({
+                    "row": row_num,
+                    "field": "Model Rekrutmen",
+                    "value": model,
+                    "warning": True,
+                    "error": f"Model Rekrutmen '{model}' tidak dikenal",
+                    "expected": f"Salah satu: {', '.join([m for m in valid_models if m])}"
+                })
+        
+        # 5. EMAIL VALIDASI
+        email = row.get("email")
+        if email and not pd.isna(email) and str(email).strip():
+            if not is_valid_email(str(email).strip()):
+                row_errors.append({
+                    "row": row_num,
+                    "field": "Email",
+                    "value": email,
+                    "warning": True,
+                    "error": f"Format email '{email}' tidak valid",
+                    "expected": "Format email yang valid (contoh: nama@domain.com)"
+                })
+        
+        # 6. IPK VALIDASI
+        ipk = row.get("ipk")
+        if ipk and not pd.isna(ipk):
+            try:
+                ipk_val = float(str(ipk).replace(',', '.'))
+                if ipk_val < 0 or ipk_val > 4:
+                    row_errors.append({
+                        "row": row_num,
+                        "field": "IPK",
+                        "value": ipk,
+                        "warning": True,
+                        "error": f"IPK '{ipk}' di luar range (0-4)",
+                        "expected": "IPK antara 0-4"
+                    })
+            except:
+                row_errors.append({
+                    "row": row_num,
+                    "field": "IPK",
+                    "value": ipk,
+                    "warning": True,
+                    "error": f"IPK '{ipk}' tidak valid",
+                    "expected": "Format angka (contoh: 3.5)"
+                })
+        
+        # Tambahkan semua error row
+        errors.extend(row_errors)
     
+    # SUMMARY
     if errors:
         error_count = len(errors)
+        warning_count = len([e for e in errors if e.get("warning", False)])
+        critical_count = error_count - warning_count
         unique_rows = len(set(e["row"] for e in errors if e["row"] > 0))
+        
+        summary_msg = f"Total {error_count} issues pada {unique_rows} baris data DB Sourcing"
+        if critical_count > 0:
+            summary_msg += f" ({critical_count} error, {warning_count} warning)"
+        else:
+            summary_msg += f" ({warning_count} warning)"
+        
         errors.insert(0, {
             "row": 0,
             "field": "SUMMARY",
             "value": "",
-            "error": f"Total {error_count} error pada {unique_rows} baris data DB Sourcing",
+            "error": summary_msg,
             "expected": f"Semua {len(df)} baris harus valid",
-            "example": "Perbaiki error di bawah ini"
+            "example": "Perbaiki error/warning di bawah ini"
         })
         return False, errors
     
