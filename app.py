@@ -534,11 +534,15 @@ if not st.session_state.user_id:
 
 
 # ============================================================
-# SIDEBAR (HANYA TAMPIL SETELAH LOGIN)
+# SIDEBAR - SEMUA KONTROL DI SINI
 # ============================================================
 
 with st.sidebar:
 
+    # ========================================================
+    # USER INFO
+    # ========================================================
+    
     st.markdown(
         f"### 👤 {st.session_state.user_display}"
     )
@@ -596,84 +600,71 @@ with st.sidebar:
 
     st.markdown("---")
 
-# ========================================================
-# FILTER & SORT CONTROL - FITUR DI PERTAHANKAN
-# ========================================================
+    # ========================================================
+    # FILTER & SORT CONTROL - DI SIDEBAR
+    # ========================================================
 
-st.markdown("### 🔍 Filter & Sort")
+    st.markdown("### 🔍 Filter & Sort")
 
-# Show filter controls based on current page
-current_page = st.session_state.page
+    # Show filter controls based on current page
+    current_page = st.session_state.page
 
-if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
-    with st.expander("📅 Filter Tanggal", expanded=False):
-        col1, col2 = st.columns(2)
-        with col1:
-            start_date = st.date_input(
-                "Dari",
-                value=st.session_state.date_filter_start,
-                key="date_filter_start_input"
-            )
-            if start_date != st.session_state.date_filter_start:
-                st.session_state.date_filter_start = start_date
-                st.session_state.filter_applied = True
+    if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
+        
+        # ====================================================
+        # FILTER TANGGAL
+        # ====================================================
+        
+        with st.expander("📅 Filter Tanggal", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                start_date = st.date_input(
+                    "Dari",
+                    value=st.session_state.date_filter_start,
+                    key="date_filter_start_input"
+                )
+                if start_date != st.session_state.date_filter_start:
+                    st.session_state.date_filter_start = start_date
+                    st.session_state.filter_applied = True
 
-        with col2:
-            end_date = st.date_input(
-                "Sampai",
-                value=st.session_state.date_filter_end,
-                key="date_filter_end_input"
-            )
-            if end_date != st.session_state.date_filter_end:
-                st.session_state.date_filter_end = end_date
-                st.session_state.filter_applied = True
+            with col2:
+                end_date = st.date_input(
+                    "Sampai",
+                    value=st.session_state.date_filter_end,
+                    key="date_filter_end_input"
+                )
+                if end_date != st.session_state.date_filter_end:
+                    st.session_state.date_filter_end = end_date
+                    st.session_state.filter_applied = True
 
-    with st.expander("🏷️ Filter Status", expanded=False):
-        # Ambil status options dari database
-        db = get_cached_db()
-        try:
-            # Import models yang tersedia
-            from core.models import FPTK
+        # ====================================================
+        # FILTER STATUS
+        # ====================================================
+        
+        with st.expander("🏷️ Filter Status", expanded=False):
+            # Status options default
+            status_options = ["Open", "In Progress", "Completed", "Cancelled", "On Hold", "Rejected"]
             
-            # Cek apakah model Sourcing ada
+            # Coba ambil dari database jika bisa
             try:
-                from core.models import Sourcing
-                has_sourcing = True
-            except ImportError:
-                has_sourcing = False
-                Sourcing = None
-            
-            status_list = []
-            
-            if current_page == "fptk_view":
-                # Untuk FPTK View
-                status_results = db.query(FPTK.status).distinct().all()
-                status_list = [s[0] for s in status_results if s[0]]
-                
-            elif current_page == "sourcing_view" and has_sourcing:
-                # Untuk Sourcing View
-                status_results = db.query(Sourcing.status).distinct().all()
-                status_list = [s[0] for s in status_results if s[0]]
-                
-            elif current_page == "dashboard":
-                # Untuk Dashboard, ambil dari kedua tabel
-                fptk_status = db.query(FPTK.status).distinct().all()
-                fptk_list = [s[0] for s in fptk_status if s[0]]
-                
-                if has_sourcing:
-                    sourcing_status = db.query(Sourcing.status).distinct().all()
-                    sourcing_list = [s[0] for s in sourcing_status if s[0]]
-                    status_list = list(set(fptk_list + sourcing_list))
-                else:
-                    status_list = fptk_list
-
-            # Jika tidak ada status, berikan opsi default
-            if not status_list:
-                status_list = ["Open", "In Progress", "Completed", "Cancelled"]
+                db = get_cached_db()
+                try:
+                    from core.models import FPTK
+                    # Coba ambil status dari FPTK
+                    results = db.query(FPTK.status).distinct().all()
+                    db_status = [s[0] for s in results if s[0]]
+                    if db_status:
+                        status_options = db_status
+                except:
+                    pass
+                finally:
+                    db.close()
+            except:
+                pass
 
             selected_status = st.multiselect(
                 "Pilih Status",
-                options=status_list,
+                options=status_options,
                 default=st.session_state.status_filter,
                 key="status_filter_select"
             )
@@ -681,75 +672,70 @@ if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
             if selected_status != st.session_state.status_filter:
                 st.session_state.status_filter = selected_status
                 st.session_state.filter_applied = True
-                
-        except Exception as e:
-            st.warning(f"⚠️ Error loading status options: {str(e)}")
-            # Fallback ke opsi default
-            default_status = ["Open", "In Progress", "Completed", "Cancelled"]
-            selected_status = st.multiselect(
-                "Pilih Status",
-                options=default_status,
-                default=st.session_state.status_filter,
-                key="status_filter_select_fallback"
+
+        # ====================================================
+        # SEARCH
+        # ====================================================
+        
+        with st.expander("🔎 Search", expanded=False):
+            search = st.text_input(
+                "Cari keyword",
+                value=st.session_state.search_keyword,
+                key="search_input"
             )
-            if selected_status != st.session_state.status_filter:
-                st.session_state.status_filter = selected_status
+            if search != st.session_state.search_keyword:
+                st.session_state.search_keyword = search
                 st.session_state.filter_applied = True
-        finally:
-            db.close()
 
-    with st.expander("🔎 Search", expanded=False):
-        search = st.text_input(
-            "Cari keyword",
-            value=st.session_state.search_keyword,
-            key="search_input"
-        )
-        if search != st.session_state.search_keyword:
-            st.session_state.search_keyword = search
-            st.session_state.filter_applied = True
+        # ====================================================
+        # SORT CONTROLS
+        # ====================================================
+        
+        with st.expander("📊 Sort", expanded=False):
+            sort_cols = ["Tanggal", "Status", "Nama", "Kode Posisi"]
+            col1, col2 = st.columns([3, 1])
 
-    # Sort controls
-    with st.expander("📊 Sort", expanded=False):
-        sort_cols = ["Tanggal", "Status", "Nama", "Kode Posisi"]
-        col1, col2 = st.columns([3, 1])
+            with col1:
+                sort_by = st.selectbox(
+                    "Sort by",
+                    options=sort_cols,
+                    key="sort_select"
+                )
 
-        with col1:
-            sort_by = st.selectbox(
-                "Sort by",
-                options=sort_cols,
-                key="sort_select"
-            )
+            with col2:
+                sort_order = st.selectbox(
+                    "Order",
+                    options=["Ascending", "Descending"],
+                    key="sort_order_select"
+                )
 
-        with col2:
-            sort_order = st.selectbox(
-                "Order",
-                options=["Ascending", "Descending"],
-                key="sort_order_select"
-            )
+            # Apply sort
+            if st.button("Apply Sort", use_container_width=True):
+                st.session_state.sort_column = sort_by
+                st.session_state.sort_ascending = (sort_order == "Ascending")
+                st.session_state.filter_applied = True
+                st.success("✅ Sort applied!")
 
-        # Apply sort
-        if st.button("Apply Sort", use_container_width=True):
-            st.session_state.sort_column = sort_by
-            st.session_state.sort_ascending = (sort_order == "Ascending")
-            st.session_state.filter_applied = True
-            st.success("✅ Sort applied!")
+        # ====================================================
+        # RESET FILTERS
+        # ====================================================
+        
+        if st.button("🔄 Reset All Filters", use_container_width=True):
+            st.session_state.date_filter_start = None
+            st.session_state.date_filter_end = None
+            st.session_state.status_filter = []
+            st.session_state.search_keyword = ""
+            st.session_state.sort_column = None
+            st.session_state.sort_ascending = True
+            st.session_state.filter_applied = False
+            st.success("✅ Filters reset!")
+            time.sleep(0.3)
+            st.rerun()
 
-    # Reset filters
-    if st.button("🔄 Reset All Filters", use_container_width=True):
-        st.session_state.date_filter_start = None
-        st.session_state.date_filter_end = None
-        st.session_state.status_filter = []
-        st.session_state.search_keyword = ""
-        st.session_state.sort_column = None
-        st.session_state.sort_ascending = True
-        st.session_state.filter_applied = False
-        st.success("✅ Filters reset!")
-        time.sleep(0.3)
-        st.rerun()
+        st.markdown("---")
 
-    st.markdown("---")
     # ========================================================
-    # CACHE CONTROL SECTION
+    # CACHE CONTROL - DI SIDEBAR
     # ========================================================
 
     st.markdown("### ⚡ Cache Control")
@@ -773,7 +759,7 @@ if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
                 'get_filter_options': get_filter_options
             }
         except ImportError as e:
-            st.sidebar.caption(f"⚠️ Cache functions not available: {str(e)}")
+            st.caption(f"⚠️ Cache functions not available: {str(e)}")
             return None
 
     cache_funcs = get_cache_functions()
@@ -860,7 +846,7 @@ if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
         st.markdown("---")
 
     # ========================================================
-    # CHANGE PASSWORD
+    # CHANGE PASSWORD - DI SIDEBAR
     # ========================================================
 
     with st.expander("🔑 Ganti Password"):
@@ -945,7 +931,7 @@ if current_page in ["fptk_view", "sourcing_view", "dashboard"]:
                 db.close()
 
     # ========================================================
-    # LOGOUT
+    # LOGOUT - DI SIDEBAR
     # ========================================================
 
     st.markdown("---")
@@ -1153,7 +1139,7 @@ elif page == "transfer_fptk":
 
 
 # ============================================================
-# EXPORT MENU (Di Bawah Konten Utama)
+# EXPORT MENU - DI BAWAH KONTEN UTAMA
 # ============================================================
 
 st.markdown("---")
