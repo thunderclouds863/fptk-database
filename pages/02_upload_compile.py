@@ -288,39 +288,6 @@ def clean_dataframe(df):
     df = df.dropna(how='all')
     
     return df
-
-# ============================================================
-# COMPILE WITH PROGRESS - DIPINDAHKAN KE LUAR FUNGSI show_upload_compile
-# ============================================================
-
-def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
-    status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
-    progress_placeholder.progress(10, text="Validasi file...")
-    time.sleep(0.3)
-    
-    status_placeholder.info("📊 Step 2/5: Compile FPTK...")
-    progress_placeholder.progress(30, text="Compile FPTK...")
-    time.sleep(0.3)
-    
-    file_bytes = file.read()
-    file_hash = hashlib.sha256(file_bytes).hexdigest()
-    
-    if _db.is_active:
-        _db.rollback()
-    
-    result = compile_fptk(
-        _db, df, user.id, cycle.id,
-        sanitize_filename(file.name), file_bytes, is_sto
-    )
-    
-    if not result["success"]:
-        progress_placeholder.progress(100, text="❌ Gagal!")
-        status_placeholder.error(f"❌ Compile FPTK gagal: {result.get('errors', ['Unknown error'])}")
-        return False, None
-    
-    progress_placeholder.progress(50, text="✅ FPTK selesai")
-    status_placeholder.info("📊 Step 3/5: Compile DB Sourcing...")
-    time.sleep(0.3)
     
     # ============================================================
     # COMPILE DB SOURCING - PERBAIKAN
