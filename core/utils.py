@@ -19,7 +19,10 @@ def normalize_text(value) -> str:
     return s
 
 def parse_date_dmy(value):
-    """Parse tanggal dengan berbagai format, return date object"""
+    """
+    Parse tanggal dengan berbagai format, return date object.
+    Support: string (dd/mm/yyyy), datetime, Timestamp, Excel serial number
+    """
     if pd.isna(value) or value is None:
         return None
     
@@ -35,6 +38,16 @@ def parse_date_dmy(value):
     if isinstance(value, pd.Timestamp):
         return value.date()
     
+    # Jika numeric (Excel serial date)
+    if isinstance(value, (int, float)):
+        try:
+            # Excel serial date mulai dari 1900-01-01
+            # Excel salah menganggap 1900 adalah tahun kabisat, jadi base = 1899-12-30
+            base = datetime(1899, 12, 30).date()
+            return base + timedelta(days=float(value))
+        except:
+            pass
+    
     # Jika string
     if isinstance(value, str):
         s = str(value).strip()
@@ -49,16 +62,6 @@ def parse_date_dmy(value):
                 return datetime.strptime(s, fmt).date()
             except ValueError:
                 continue
-    
-    # Jika numeric (Excel serial date)
-    if isinstance(value, (int, float)):
-        try:
-            # Excel serial date mulai dari 1900-01-01
-            from datetime import datetime as dt
-            base = dt(1899, 12, 30)
-            return (base + timedelta(days=float(value))).date()
-        except:
-            pass
     
     return None
 
@@ -276,7 +279,10 @@ def is_valid_detail_sla(value: str) -> bool:
     return value in valid_options
 
 def calculate_filter_kategorisasi(posisi: str, level_number: int) -> str:
-    """Hitung Filter Kategorisasi FPTK"""
+    """
+    Hitung Filter Kategorisasi FPTK
+    PRIORITY: CLAP FGDP > Level
+    """
     posisi_lower = posisi.lower() if posisi else ""
     
     # PRIORITY 1: CLAP FGDP (Cimory/Fresh)
@@ -308,6 +314,10 @@ def is_valid_email(value) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, str(value).strip()))
 
+# ============================================================
+# FUNGSI DB KODE POSISI (AUTO-FILL)
+# ============================================================
+
 def get_position_details(db, posisi: str, direktorat: str = None):
     """
     Cari detail position dari DB Kode Posisi berdasarkan posisi (case-insensitive).
@@ -316,6 +326,10 @@ def get_position_details(db, posisi: str, direktorat: str = None):
     """
     if not posisi:
         return None
+    
+    # Import disini untuk menghindari circular import
+    from core.models import DBKodePosisi
+    from sqlalchemy import func
     
     query = db.query(DBKodePosisi).filter(
         func.lower(DBKodePosisi.position) == func.lower(posisi.strip())
@@ -347,7 +361,6 @@ def get_position_details(db, posisi: str, direktorat: str = None):
         }
     return None
 
-
 def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit: str = None, 
                           location: str = None, division: str = None, department: str = None,
                           user_manager: str = None, indirect_user: str = None, kode: str = None):
@@ -357,6 +370,9 @@ def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit
     """
     if not posisi:
         return None
+    
+    from core.models import DBKodePosisi
+    from sqlalchemy import func
     
     # Cek existing
     existing = db.query(DBKodePosisi).filter(
