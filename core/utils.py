@@ -307,3 +307,98 @@ def is_valid_email(value) -> bool:
         return False
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, str(value).strip()))
+
+def get_position_details(db, posisi: str, direktorat: str = None):
+    """
+    Cari detail position dari DB Kode Posisi berdasarkan posisi (case-insensitive).
+    Prioritaskan yang match dengan direktorat.
+    Returns: dict dengan kunci: kode, position, location, business_unit, division_chris, department_chris, user_manager, indirect_user, directorate, year
+    """
+    if not posisi:
+        return None
+    
+    query = db.query(DBKodePosisi).filter(
+        func.lower(DBKodePosisi.position) == func.lower(posisi.strip())
+    )
+    
+    # Coba cari yang match direktorat dulu
+    result = None
+    if direktorat:
+        result = query.filter(
+            func.lower(DBKodePosisi.directorate) == func.lower(direktorat.strip())
+        ).first()
+    
+    # Kalau tidak ada, ambil yang pertama
+    if not result:
+        result = query.first()
+    
+    if result:
+        return {
+            "kode": result.kode,
+            "position": result.position,
+            "location": result.location,
+            "business_unit": result.business_unit,
+            "division_chris": result.division_chris,
+            "department_chris": result.department_chris,
+            "user_manager": result.user_manager,
+            "indirect_user": result.indirect_user,
+            "directorate": result.directorate,
+            "year": result.year
+        }
+    return None
+
+
+def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit: str = None, 
+                          location: str = None, division: str = None, department: str = None,
+                          user_manager: str = None, indirect_user: str = None, kode: str = None):
+    """
+    Tambah posisi baru ke DB Kode Posisi.
+    Kalau sudah ada, update.
+    """
+    if not posisi:
+        return None
+    
+    # Cek existing
+    existing = db.query(DBKodePosisi).filter(
+        func.lower(DBKodePosisi.position) == func.lower(posisi.strip())
+    ).first()
+    
+    if existing:
+        # Update existing
+        if direktorat:
+            existing.directorate = direktorat
+        if business_unit:
+            existing.business_unit = business_unit
+        if location:
+            existing.location = location
+        if division:
+            existing.division_chris = division
+        if department:
+            existing.department_chris = department
+        if user_manager:
+            existing.user_manager = user_manager
+        if indirect_user:
+            existing.indirect_user = indirect_user
+        if kode:
+            existing.kode = kode
+        db.commit()
+        db.refresh(existing)
+        return existing
+    
+    # Insert baru
+    new_entry = DBKodePosisi(
+        kode=kode or "",
+        position=posisi.strip(),
+        location=location or "",
+        business_unit=business_unit or "",
+        division_chris=division or "",
+        department_chris=department or "",
+        user_manager=user_manager or "",
+        indirect_user=indirect_user or "",
+        directorate=direktorat or "",
+        year=datetime.now().year
+    )
+    db.add(new_entry)
+    db.commit()
+    db.refresh(new_entry)
+    return new_entry
