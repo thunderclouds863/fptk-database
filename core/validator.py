@@ -49,6 +49,7 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
 # ============================================================
 # HELPER: FIND COLUMN MAPPING (FUZZY)
 # ============================================================
+
 def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]]) -> Dict[str, str]:
     """Cari mapping kolom dengan fuzzy matching."""
     df_cols = list(df.columns)
@@ -263,6 +264,7 @@ def safe_level_number_from_string(value):
 # ============================================================
 # VALIDATE FPTK FILE
 # ============================================================
+
 def validate_fptk_file(
     df: pd.DataFrame,
     db,
@@ -715,6 +717,7 @@ def validate_fptk_file(
 # ============================================================
 # VALIDATE DB SOURCING FILE
 # ============================================================
+
 def validate_db_sourcing_file(
     df: pd.DataFrame,
     db,
@@ -733,41 +736,57 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
+    # ============================================================
+    # COLUMN MAPPING
+    # ============================================================
     required_mappings = {
         "kode_unik": ["Kode Unik", "Kode UNIK", "Unique Code", "Kode Unik (copy value dari FPTK)"],
-        "nama": ["Nama", "Nama Kandidat", "Candidate Name"],
-        "sourcing_date": ["Sourcing Date", "Tanggal Sourcing", "Tanggal Input"],
+        "nama": ["Nama", "Nama Kandidat", "Candidate Name", "Nama Lengkap"],
+        "sourcing_date": ["Sourcing Date", "Tanggal Sourcing", "Tanggal Input", "Date"],
     }
     
     optional_mappings = {
-        "posisi": ["Posisi", "Position"],
-        "model_rekrutmen": ["Model Rekrutmen", "Model"],
-        "rekruter": ["Rekruter", "Recruiter", "PIC Recruiter"],
-        "sumber_sourcing": ["Sumber Sourcing", "Source"],
-        "nomor_hp": ["Nomor HP", "No HP", "Phone"],
-        "email": ["Email", "Email Address"],
-        "domisili": ["Domisili", "Domicile"],
-        "jenjang_pendidikan": ["Jenjang Pendidikan", "Education Level"],
-        "jurusan": ["Jurusan", "Major"],
-        "tahun_lulus": ["Tahun Lulus", "Graduation Year"],
-        "ipk": ["IPK", "GPA"],
-        "university_tier": ["University Tier", "Univ Tier"],
-        "ipk_tier": ["IPK Tier", "GPA Tier"],
-        "nama_universitas_top10": ["Nama Universitas/Sekolah (TOP 10)", "Universitas"],
+        "posisi": ["Posisi", "Position", "Jabatan"],
+        "model_rekrutmen": [
+            "Model Rekrutmen", 
+            "Model", 
+            "Model Recruitment", 
+            "Recruitment Model",
+            "Kode Model",
+            "Model Sourcing",
+        ],
+        "sumber_sourcing": [
+            "Sumber Sourcing", 
+            "Source", 
+            "Sumber", 
+            "Sumber Kandidat",
+            "Sumber Rekrutmen",
+        ],
+        "rekruter": ["Rekruter", "Recruiter", "PIC Recruiter", "PIC", "PIC Rekruter"],
+        "nomor_hp": ["Nomor HP", "No HP", "Phone", "Telepon", "No Telepon"],
+        "email": ["Email", "Email Address", "Alamat Email"],
+        "domisili": ["Domisili", "Domicile", "Kota Domisili"],
+        "jenjang_pendidikan": ["Jenjang Pendidikan", "Education Level", "Pendidikan"],
+        "jurusan": ["Jurusan", "Major", "Program Studi"],
+        "tahun_lulus": ["Tahun Lulus", "Graduation Year", "Tahun"],
+        "ipk": ["IPK", "GPA", "Nilai"],
+        "university_tier": ["University Tier", "Univ Tier", "Tier Universitas"],
+        "ipk_tier": ["IPK Tier", "GPA Tier", "Tier IPK"],
+        "nama_universitas_top10": ["Nama Universitas/Sekolah (TOP 10)", "Universitas", "Nama Universitas"],
         "nama_universitas_lainnya": ["Nama Universitas/Sekolah Lainnya", "Universitas Lainnya"],
-        "last_position": ["Last Position", "Posisi Terakhir"],
-        "last_company": ["Last Company", "Company Terakhir"],
-        "last_tenure": ["Last Tenure"],
-        "total_tenure": ["Total Tenure"],
-        "pernah_di_fmcg": ["Pernah di FMCG?", "FMCG"],
-        "sourcing_freelance": ["Sourcing Freelance"],
-        "sourcing_hr": ["Sourcing HR"],
-        "shortlist_cv": ["Shortlist CV"],
-        "psikotes": ["Psikotes"],
-        "hr_interview": ["HR Interview"],
-        "user_interview": ["User Interview"],
-        "offering": ["Offering"],
-        "day1": ["Day 1"],
+        "last_position": ["Last Position", "Posisi Terakhir", "Posisi Sebelumnya"],
+        "last_company": ["Last Company", "Company Terakhir", "Perusahaan Sebelumnya"],
+        "last_tenure": ["Last Tenure", "Lama Bekerja"],
+        "total_tenure": ["Total Tenure", "Total Pengalaman"],
+        "pernah_di_fmcg": ["Pernah di FMCG?", "FMCG", "Pengalaman FMCG"],
+        "sourcing_freelance": ["Sourcing Freelance", "Freelance"],
+        "sourcing_hr": ["Sourcing HR", "HR Sourcing"],
+        "shortlist_cv": ["Shortlist CV", "Shortlist"],
+        "psikotes": ["Psikotes", "Psychotest"],
+        "hr_interview": ["HR Interview", "Interview HR"],
+        "user_interview": ["User Interview", "Interview User"],
+        "offering": ["Offering", "Offering Date"],
+        "day1": ["Day 1", "Day1"],
     }
     
     all_mappings = {**required_mappings, **optional_mappings}
@@ -797,8 +816,19 @@ def validate_db_sourcing_file(
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
     
-    # VALIDASI PER ROW DENGAN ERROR DETAIL
-    valid_models = ["Freelance", "Sourcing", "Internal", "External", "Headhunter", "Hired", ""]
+    # ============================================================
+    # VALIDASI PER ROW
+    # ============================================================
+    # MODEL REKRUTMEN YANG VALID: Model 1, Model 2, Model 3, Model 4
+    valid_models = ["Model 1", "Model 2", "Model 3", "Model 4"]
+    valid_models_lower = [m.lower() for m in valid_models]
+    
+    # SUMBER SOURCING YANG VALID
+    valid_sumber = [
+        "Jobstreet", "LinkedIn", "Google Form", 
+        "Referensi User", "Referensi Karyawan", "Campus Hiring"
+    ]
+    valid_sumber_lower = [s.lower() for s in valid_sumber]
     
     for idx, row in df.iterrows():
         row_num = idx + 2
@@ -815,7 +845,6 @@ def validate_db_sourcing_file(
                 "expected": "Kode Unik yang terdaftar di FPTK"
             })
         else:
-            # CEK EXISTING FPTK
             existing_fptk = db.query(FPTK).filter(FPTK.kode_unik == str(kode_unik).strip()).first()
             if not existing_fptk:
                 row_errors.append({
@@ -857,21 +886,61 @@ def validate_db_sourcing_file(
                 "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
             })
         
-        # 4. MODEL REKRUTMEN
+        # 4. MODEL REKRUTMEN - VALIDASI UNTUK Model 1, Model 2, Model 3, Model 4
         model = row.get("model_rekrutmen")
         if model and not pd.isna(model) and str(model).strip():
             model_val = str(model).strip()
-            if model_val not in valid_models:
+            
+            # CEK APAKAH MODEL VALID (Model 1-4)
+            is_valid = False
+            
+            # EXACT MATCH
+            if model_val in valid_models:
+                is_valid = True
+            # CASE-INSENSITIVE
+            elif model_val.lower() in valid_models_lower:
+                is_valid = True
+            # CEK DENGAN REGEX UNTUK "Model X" DIMANA X = 1-4
+            elif re.match(r'^Model\s*[1-4]$', model_val, re.IGNORECASE):
+                is_valid = True
+            
+            # JIKA TIDAK VALID, TAMBAHKAN WARNING
+            if not is_valid:
                 row_errors.append({
                     "row": row_num,
                     "field": "Model Rekrutmen",
                     "value": model,
                     "warning": True,
                     "error": f"Model Rekrutmen '{model}' tidak dikenal",
-                    "expected": f"Salah satu: {', '.join([m for m in valid_models if m])}"
+                    "expected": "Model 1, Model 2, Model 3, atau Model 4"
                 })
         
-        # 5. EMAIL VALIDASI
+        # 5. SUMBER SOURCING - VALIDASI
+        sumber = row.get("sumber_sourcing")
+        if sumber and not pd.isna(sumber) and str(sumber).strip():
+            sumber_val = str(sumber).strip()
+            
+            # CEK APAKAH SUMBER VALID
+            is_valid_sumber = False
+            
+            # EXACT MATCH
+            if sumber_val in valid_sumber:
+                is_valid_sumber = True
+            # CASE-INSENSITIVE
+            elif sumber_val.lower() in valid_sumber_lower:
+                is_valid_sumber = True
+            
+            if not is_valid_sumber:
+                row_errors.append({
+                    "row": row_num,
+                    "field": "Sumber Sourcing",
+                    "value": sumber,
+                    "warning": True,
+                    "error": f"Sumber Sourcing '{sumber}' tidak dikenal",
+                    "expected": f"Salah satu: {', '.join(valid_sumber)}"
+                })
+        
+        # 6. EMAIL VALIDASI
         email = row.get("email")
         if email and not pd.isna(email) and str(email).strip():
             if not is_valid_email(str(email).strip()):
@@ -884,7 +953,7 @@ def validate_db_sourcing_file(
                     "expected": "Format email yang valid (contoh: nama@domain.com)"
                 })
         
-        # 6. IPK VALIDASI
+        # 7. IPK VALIDASI
         ipk = row.get("ipk")
         if ipk and not pd.isna(ipk):
             try:
@@ -911,7 +980,9 @@ def validate_db_sourcing_file(
         # Tambahkan semua error row
         errors.extend(row_errors)
     
+    # ============================================================
     # SUMMARY
+    # ============================================================
     if errors:
         error_count = len(errors)
         warning_count = len([e for e in errors if e.get("warning", False)])
@@ -940,6 +1011,7 @@ def validate_db_sourcing_file(
 # ============================================================
 # VALIDATE DB KODE POSISI FILE
 # ============================================================
+
 def validate_db_kode_posisi_file(
     df: pd.DataFrame,
     db,
@@ -958,6 +1030,9 @@ def validate_db_kode_posisi_file(
         })
         return False, errors
     
+    # ============================================================
+    # COLUMN MAPPING
+    # ============================================================
     required_mappings = {
         "position": ["POSITION", "Position", "Posisi"],
         "kode": ["KODE", "Kode", "Kode Angka"],
@@ -1000,6 +1075,9 @@ def validate_db_kode_posisi_file(
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
     
+    # ============================================================
+    # VALIDASI PER ROW
+    # ============================================================
     for idx, row in df.iterrows():
         row_num = idx + 2
         
@@ -1023,6 +1101,9 @@ def validate_db_kode_posisi_file(
                 "expected": "Kode posisi"
             })
     
+    # ============================================================
+    # SUMMARY
+    # ============================================================
     if errors:
         error_count = len(errors)
         unique_rows = len(set(e["row"] for e in errors if e["row"] > 0))
