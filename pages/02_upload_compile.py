@@ -4,31 +4,23 @@ import re
 import hashlib
 from datetime import datetime, timedelta
 from sqlalchemy import func
+
 from core.database import get_db
 from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate, DBKodePosisi
 from core.auth import get_current_user, is_admin, is_editor, hash_file, sanitize_filename
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_db_kode_posisi_file
 from core.compiler import compile_fptk, compile_db_sourcing, compile_db_kode_posisi
-from core.compile_helper import compile_with_progress
 from core.utils import (
-    normalize_key, safe_int, safe_float, safe_string, safe_boolean_char, safe_date, parse_date_dmy,
-    calculate_sla_days,
-    calculate_deadline_sla,
-    calculate_detail_sla,
-    get_sla_option_list,
-    calculate_filter_kategorisasi,
-    get_position_details,
-    add_to_db_kode_posisi,
-    get_single_value  # PERBAIKAN: tambahkan import ini
+    normalize_key, safe_int, safe_float, safe_string, safe_boolean_char, safe_date,
+    parse_date_dmy, calculate_sla_days, calculate_deadline_sla, calculate_detail_sla,
+    get_sla_option_list, calculate_filter_kategorisasi, get_position_details,
+    add_to_db_kode_posisi, get_single_value
 )
 from core.utils import determine_category_fptk
-from core.template_manager import (
-    save_template,
-    get_active_template,
-    get_template_bytes
-)
+from core.template_manager import save_template, get_active_template, get_template_bytes
 import time
+
 
 # ============================================================
 # CONSTANTS
@@ -85,15 +77,13 @@ for num in range(1, 6):
     for letter in ['A', 'B', 'C']:
         LEVEL_OPTIONS.append(f"{num}{letter}")
 
+
 # ============================================================
 # FUNGSI GENERATE KODE UNIK & KODE ANGKA
 # ============================================================
 
 def generate_kode_unik(kode_pic, posisi, fptk_date):
-    """
-    Generate Kode Unik dari Kode PIC + Posisi (4 huruf pertama) + Tanggal (DDMMYY)
-    Format: CORPLex090326
-    """
+    """Generate Kode Unik dari Kode PIC + Posisi (4 huruf pertama) + Tanggal (DDMMYY)"""
     if not kode_pic or not posisi or not fptk_date:
         if kode_pic and fptk_date:
             date_code = fptk_date.strftime("%d%m%y")
@@ -142,6 +132,7 @@ def check_duplicate(db, kode_unik, posisi):
         FPTK.posisi == posisi
     ).first()
 
+
 # ============================================================
 # FUNGSI AUTO-FILL DB KODE POSISI
 # ============================================================
@@ -169,6 +160,7 @@ def add_position_to_master(db, posisi, direktorat=None, business_unit=None, loca
     if "position_cache" in st.session_state:
         st.session_state.position_cache = {}
     return result
+
 
 # ============================================================
 # FUNGSI DETAIL SLA OTOMATIS
@@ -210,6 +202,25 @@ def sanitize_value(value):
     if value == "" or value == " ":
         return None
     return value
+
+
+# ============================================================
+# CLEAN DATAFRAME
+# ============================================================
+
+def clean_dataframe(df):
+    """Hapus kolom Unnamed dan baris kosong dari dataframe"""
+    if df is None or df.empty:
+        return df
+    
+    # Hapus kolom Unnamed
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
+    
+    # Hapus baris kosong
+    df = df.dropna(how='all')
+    
+    return df
+
 
 # ============================================================
 # FUNGSI GET MASTER OPTIONS (CACHE)
@@ -272,324 +283,6 @@ def get_all_pic_names():
 def get_all_bu_codes():
     return ALL_BU_CODES.copy()
 
-# ============================================================
-# FUNGSI HELPERS UNTUK CLEAN DATAFRAME
-# ============================================================
-
-def clean_dataframe(df):
-    """Hapus kolom Unnamed dan baris kosong dari dataframe"""
-    if df is None or df.empty:
-        return df
-    
-    # Hapus kolom Unnamed
-    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
-    
-    # Hapus baris kosong
-    df = df.dropna(how='all')
-    
-    return df
-    
-    # ============================================================
-    # COMPILE DB SOURCING - PERBAIKAN
-    # ============================================================
-    try:
-        with pd.ExcelFile(file) as xls:
-            if "DB Sourcing" in xls.sheet_names:
-                # PERBAIKAN: Baca dengan header di baris pertama (index 0)
-                sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
-                
-                # Bersihkan kolom Unnamed
-                sourcing_df = sourcing_df.loc[:, ~sourcing_df.columns.str.contains('^Unnamed')]
-                
-                # Hapus baris kosong
-                sourcing_df = sourcing_df.dropna(how='all')
-                
-                # RENAME KOLOM MANUAL
-                column_mapping = {}
-                for col in sourcing_df.columns:
-                    col_str = str(col).strip()
-                    
-                    if "Sourcing Date" in col_str and "Freelance" not in col_str:
-                        column_mapping[col] = "sourcing_date"
-                    elif "Kode Unik" in col_str:
-                        column_mapping[col] = "kode_unik"
-                    elif col_str == "Posisi":
-                        column_mapping[col] = "posisi"
-                    elif "Model Rekrutmen" in col_str:
-                        column_mapping[col] = "model_rekrutmen"
-                    elif col_str == "Rekruter":
-                        column_mapping[col] = "rekruter"
-                    elif col_str == "Sumber Sourcing":
-                        column_mapping[col] = "sumber_sourcing"
-                    elif col_str == "Nama":
-                        column_mapping[col] = "nama"
-                    elif col_str == "Jenjang Pendidikan":
-                        column_mapping[col] = "jenjang_pendidikan"
-                    elif col_str == "Jurusan":
-                        column_mapping[col] = "jurusan"
-                    elif col_str == "Tahun Lulus":
-                        column_mapping[col] = "tahun_lulus"
-                    elif col_str == "IPK":
-                        column_mapping[col] = "ipk"
-                    elif col_str == "Nomor HP":
-                        column_mapping[col] = "nomor_hp"
-                    elif col_str == "Email":
-                        column_mapping[col] = "email"
-                    elif col_str == "Domisili":
-                        column_mapping[col] = "domisili"
-                    elif "University Tier" in col_str:
-                        column_mapping[col] = "university_tier"
-                    elif "IPK Tier" in col_str:
-                        column_mapping[col] = "ipk_tier"
-                    elif "Nama Universitas" in col_str and "TOP 10" in col_str:
-                        column_mapping[col] = "nama_universitas_top10"
-                    elif "Nama Universitas/Sekolah Lainnya" in col_str:
-                        column_mapping[col] = "nama_universitas_lainnya"
-                    elif "Last Position" in col_str:
-                        column_mapping[col] = "last_position"
-                    elif "Last Tenure" in col_str:
-                        column_mapping[col] = "last_tenure"
-                    elif "Last Company" in col_str:
-                        column_mapping[col] = "last_company"
-                    elif "Total Tenure" in col_str:
-                        column_mapping[col] = "total_tenure"
-                    elif "FMCG" in col_str:
-                        column_mapping[col] = "pernah_di_fmcg"
-                
-                if column_mapping:
-                    sourcing_df = sourcing_df.rename(columns=column_mapping)
-                
-                # CEK APAKAH KOLOM YANG DIPERLUKAN ADA
-                required_cols = ["kode_unik", "nama", "sourcing_date"]
-                missing_cols = [col for col in required_cols if col not in sourcing_df.columns]
-                
-                if missing_cols:
-                    st.error(f"❌ Kolom wajib hilang: {missing_cols}")
-                    st.write(f"**Kolom yang tersedia:** {sourcing_df.columns.tolist()}")
-                    st.write(f"**Mapping yang digunakan:** {column_mapping}")
-                elif sourcing_df is not None and not sourcing_df.empty:
-                    progress_placeholder.progress(60, text="Compile DB Sourcing...")
-                    
-                    sourcing_valid, sourcing_errors = validate_db_sourcing_file(
-                        df=sourcing_df,
-                        db=_db,
-                        user_id=user.id
-                    )
-                    
-                    sourcing_warnings = [e for e in sourcing_errors if e.get("warning", False)]
-                    sourcing_real_errors = [e for e in sourcing_errors if not e.get("warning", False)]
-                    
-                    if sourcing_warnings:
-                        st.warning(f"⚠️ DB Sourcing: {len(sourcing_warnings)} warning")
-                        with st.expander(f"⚠️ Detail DB Sourcing Warning ({len(sourcing_warnings)})", expanded=False):
-                            for err in sourcing_warnings:
-                                if err.get("field") == "SUMMARY":
-                                    st.info(f"📌 {err.get('error', '')}")
-                                else:
-                                    row = err.get("row", "?")
-                                    field = err.get("field", "Unknown")
-                                    value = err.get("value", "")
-                                    error_msg = err.get("error", "")
-                                    st.markdown(f"- **Row {row}** - {field}: `{value}` → ⚠️ {error_msg}")
-                    
-                    if sourcing_real_errors:
-                        st.error(f"❌ DB Sourcing: {len(sourcing_real_errors)} error (tidak di-compile)")
-                        with st.expander(f"❌ Detail DB Sourcing Error ({len(sourcing_real_errors)})", expanded=True):
-                            for err in sourcing_real_errors:
-                                if err.get("field") == "SUMMARY":
-                                    st.info(f"📌 {err.get('error', '')}")
-                                else:
-                                    row = err.get("row", "?")
-                                    field = err.get("field", "Unknown")
-                                    value = err.get("value", "")
-                                    error_msg = err.get("error", "")
-                                    expected = err.get("expected", "")
-                                    st.markdown(f"- **Row {row}** - {field}: `{value}` → ❌ {error_msg} (Expected: {expected})")
-                    else:
-                        sourcing_result = compile_db_sourcing(
-                            db=_db,
-                            df=sourcing_df,
-                            user_id=user.id,
-                            cycle_id=cycle.id,
-                            file_name=sanitize_filename(file.name),
-                            file_hash=file_hash
-                        )
-                        if sourcing_result["success"]:
-                            st.success(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows imported")
-                        else:
-                            st.error(f"❌ DB Sourcing compile failed: {sourcing_result.get('errors', ['Unknown error'])}")
-                else:
-                    st.info("📭 DB Sourcing sheet kosong, dilewati")
-    except Exception as e:
-        st.warning(f"⚠️ DB Sourcing error: {str(e)}")
-    
-    progress_placeholder.progress(75, text="✅ DB Sourcing selesai")
-    status_placeholder.info("📊 Step 4/5: Compile DB Kode Posisi...")
-    time.sleep(0.3)
-    
-    # ============================================================
-    # COMPILE DB KODE POSISI
-    # ============================================================
-    try:
-        with pd.ExcelFile(file) as xls:
-            if "DB Kode Posisi" in xls.sheet_names:
-                dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
-                dbk_df = clean_dataframe(dbk_df)
-                
-                if dbk_df is not None and not dbk_df.empty:
-                    progress_placeholder.progress(85, text="Compile DB Kode Posisi...")
-                    if _db.is_active:
-                        _db.rollback()
-                    dbk_result = compile_db_kode_posisi(
-                        db=_db,
-                        df=dbk_df,
-                        user_id=user.id,
-                        cycle_id=cycle.id,
-                        file_name=sanitize_filename(file.name),
-                        file_hash=file_hash
-                    )
-                    if dbk_result["success"]:
-                        st.success(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
-                    else:
-                        st.warning(f"⚠️ DB Kode Posisi: {len(dbk_result.get('errors', []))} errors")
-                else:
-                    st.info("📭 DB Kode Posisi sheet kosong, dilewati")
-    except Exception as e:
-        st.warning(f"⚠️ DB Kode Posisi error: {str(e)}")
-    
-    progress_placeholder.progress(95, text="Finalisasi...")
-    status_placeholder.info("📊 Step 5/5: Menyimpan status...")
-    time.sleep(0.3)
-    
-    mark_user_uploading(_db, user.id, cycle.id)
-    
-    progress_placeholder.progress(100, text="✅ Selesai!")
-    status_placeholder.success(f"✅ {file.name}: Selesai! FPTK Imported {result.get('imported',0)}, Updated {result.get('updated',0)}")
-    time.sleep(0.5)
-    
-    return True, result
-
-# ============================================================
-# FUNGSI PARSE EMAIL
-# ============================================================
-
-def parse_email_body(body: str, bu_options: list, alasan_options: list, category_options: list, direktorat_options: list) -> dict:
-    result = {
-        "posisi": "", "alasan": "", "business_unit": "", "divisi": "", "department": "",
-        "level_fptk": "1A", "level_number": 1, "lokasi_kerja": "", "lokasi_hr": "",
-        "status_karyawan": "", "vacancy": 1, "pic_email": "", "pic_recruiter": "",
-        "kode_pic": "", "kode_bu": "", "category": "", "direktorat": "",
-        "nama_kandidat": "", "user_manager": "", "indirect_user": "",
-        "fptk_date": datetime.now(), "kode_unik": "", "remark": ""
-    }
-    
-    if not body:
-        return result
-    
-    text = body.replace('\r\n', '\n').replace('\r', '\n')
-    lines = text.split('\n')
-    
-    def find_field(field_names):
-        for i, line in enumerate(lines):
-            clean_line = line.strip()
-            for name in field_names:
-                if name.lower() in clean_line.lower():
-                    if ':' in clean_line:
-                        value = clean_line.split(':', 1)[1].strip()
-                        if value:
-                            return value
-                    if i + 1 < len(lines):
-                        next_line = lines[i + 1].strip()
-                        if next_line and not any(k in next_line.lower() for k in ["nama", "posisi", "alasan", "email"]):
-                            return next_line
-        return ""
-    
-    result["posisi"] = find_field(["Nama Jabatan Yang Dicari", "Jabatan Yang Dicari", "Position", "Posisi"])
-    result["alasan"] = find_field(["Alasan Permintaan FPTK", "Alasan FPTK"])
-    result["business_unit"] = find_field(["PT/Business Unit", "Business Unit", "PT / Business Unit"])
-    result["divisi"] = find_field(["Divisi"])
-    result["department"] = find_field(["Department", "Departemen"])
-    result["level_fptk"] = find_field(["Level Posisi", "Level FPTK", "Level"])
-    result["lokasi_kerja"] = find_field(["Lokasi Kerja"])
-    result["lokasi_hr"] = find_field(["Lokasi HR", "HR Location"])
-    result["status_karyawan"] = find_field(["Status Karyawan"])
-    result["vacancy"] = safe_int(find_field(["Jumlah Posisi Yang Dicari", "Jumlah Posisi", "Vacancy"])) or 1
-    result["pic_email"] = find_field(["Email PIC Rekruter", "PIC Rekruter", "Email PIC Recruiter"])
-    
-    if result["level_fptk"]:
-        match = re.search(r'(\d+)', result["level_fptk"])
-        if match:
-            result["level_number"] = int(match.group(1))
-            level_num = result["level_number"]
-            if 1 <= level_num <= 5:
-                result["level_fptk"] = f"{level_num}A"
-    else:
-        result["level_fptk"] = "1A"
-        result["level_number"] = 1
-    
-    pic_mapping = get_pic_mapping()
-    pic_found = False
-    
-    if result["pic_email"]:
-        email_lower = result["pic_email"].lower()
-        for key, value in pic_mapping.items():
-            if key in email_lower:
-                result["pic_recruiter"] = value["name"]
-                result["kode_pic"] = value["code"]
-                result["kode_bu"] = value["bu"]
-                pic_found = True
-                break
-    
-    if not pic_found:
-        body_lower = body.lower()
-        for key, value in pic_mapping.items():
-            if key in body_lower:
-                result["pic_recruiter"] = value["name"]
-                result["kode_pic"] = value["code"]
-                result["kode_bu"] = value["bu"]
-                pic_found = True
-                break
-    
-    alasan_lower = result["alasan"].lower()
-    if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
-        result["category"] = "REPLACEMENT"
-    elif "penambahan" in alasan_lower or "jabatan baru" in alasan_lower or "new" in alasan_lower:
-        result["category"] = "NEW"
-    else:
-        result["category"] = "REPLACEMENT"
-    
-    bu_mapping = get_bu_mapping()
-    bu_lower = result["business_unit"].lower()
-    for key, value in bu_mapping.items():
-        if key.lower() in bu_lower or value["nama"].lower() in bu_lower:
-            result["business_unit"] = value["nama"]
-            result["kode_bu"] = key
-            break
-    
-    if not result["kode_bu"] and result["kode_pic"]:
-        for key, value in pic_mapping.items():
-            if value["code"] == result["kode_pic"]:
-                result["kode_bu"] = value["bu"]
-                break
-    
-    if result["kode_bu"]:
-        bu_map = {
-            "CORP": "Corporate",
-            "MP": "Commercial MP",
-            "CMD": "Commercial CMD",
-            "JESS": "Commercial JESS",
-            "MS": "Commercial MS"
-        }
-        result["direktorat"] = bu_map.get(result["kode_bu"], "")
-    
-    if result["kode_pic"]:
-        date_code = datetime.now().strftime("%d%m%y")
-        posisi_code = ""
-        if result["posisi"]:
-            posisi_code = re.sub(r'[^A-Za-z]', '', result["posisi"])[:4].upper()
-        result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
-    
-    return result
 
 # ============================================================
 # FUNGSI UTAMA show_upload_compile()
@@ -767,16 +460,162 @@ def show_upload_compile():
                             error_count += 1
                             continue
                         
-                        success, result = compile_with_progress(
-                            file, df, db, user, cycle, is_sto,
-                            progress_placeholder, status_placeholder
+                        # ============================================================
+                        # COMPILE FPTK (pake core/compiler.py)
+                        # ============================================================
+                        progress_placeholder.progress(20, text=f"Compile FPTK...")
+                        file_hash = hashlib.sha256(file.getvalue()).hexdigest()
+                        file_name = sanitize_filename(file.name)
+                        
+                        fptk_result = compile_fptk(
+                            db=db,
+                            rows_or_df=df,
+                            user_id=user.id,
+                            cycle_id=cycle.id,
+                            file_name=file_name,
+                            file_bytes=file.getvalue(),
+                            is_sto=is_sto
                         )
                         
-                        if success:
-                            success_count += 1
-                            st.cache_data.clear()
+                        if fptk_result["success"]:
+                            progress_placeholder.progress(40, text=f"✅ FPTK: {fptk_result.get('imported',0)} imported, {fptk_result.get('updated',0)} updated")
+                            status_placeholder.info(f"✅ FPTK: {fptk_result.get('imported',0)} imported, {fptk_result.get('updated',0)} updated")
                         else:
+                            st.error(f"❌ {file.name}: FPTK compile gagal: {fptk_result.get('errors', [])}")
                             error_count += 1
+                            continue
+                        
+                        # ============================================================
+                        # COMPILE DB SOURCING (pake core/compiler.py)
+                        # ============================================================
+                        try:
+                            with pd.ExcelFile(file) as xls:
+                                if "DB Sourcing" in xls.sheet_names:
+                                    progress_placeholder.progress(60, text=f"Compile DB Sourcing...")
+                                    sourcing_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
+                                    sourcing_df = clean_dataframe(sourcing_df)
+                                    
+                                    # RENAME KOLOM
+                                    column_mapping = {}
+                                    for col in sourcing_df.columns:
+                                        col_str = str(col).strip()
+                                        if "Sourcing Date" in col_str and "Freelance" not in col_str:
+                                            column_mapping[col] = "sourcing_date"
+                                        elif "Kode Unik" in col_str:
+                                            column_mapping[col] = "kode_unik"
+                                        elif col_str == "Posisi":
+                                            column_mapping[col] = "posisi"
+                                        elif col_str == "Nama":
+                                            column_mapping[col] = "nama"
+                                        elif "Model Rekrutmen" in col_str:
+                                            column_mapping[col] = "model_rekrutmen"
+                                        elif col_str == "Rekruter":
+                                            column_mapping[col] = "rekruter"
+                                        elif col_str == "Sumber Sourcing":
+                                            column_mapping[col] = "sumber_sourcing"
+                                        elif col_str == "Jenjang Pendidikan":
+                                            column_mapping[col] = "jenjang_pendidikan"
+                                        elif col_str == "Jurusan":
+                                            column_mapping[col] = "jurusan"
+                                        elif col_str == "Tahun Lulus":
+                                            column_mapping[col] = "tahun_lulus"
+                                        elif col_str == "IPK":
+                                            column_mapping[col] = "ipk"
+                                        elif col_str == "Nomor HP":
+                                            column_mapping[col] = "nomor_hp"
+                                        elif col_str == "Email":
+                                            column_mapping[col] = "email"
+                                        elif col_str == "Domisili":
+                                            column_mapping[col] = "domisili"
+                                        elif "University Tier" in col_str:
+                                            column_mapping[col] = "university_tier"
+                                        elif "IPK Tier" in col_str:
+                                            column_mapping[col] = "ipk_tier"
+                                        elif "Nama Universitas" in col_str and "TOP 10" in col_str:
+                                            column_mapping[col] = "nama_universitas_top10"
+                                        elif "Nama Universitas/Sekolah Lainnya" in col_str:
+                                            column_mapping[col] = "nama_universitas_lainnya"
+                                        elif "Last Position" in col_str:
+                                            column_mapping[col] = "last_position"
+                                        elif "Last Tenure" in col_str:
+                                            column_mapping[col] = "last_tenure"
+                                        elif "Last Company" in col_str:
+                                            column_mapping[col] = "last_company"
+                                        elif "Total Tenure" in col_str:
+                                            column_mapping[col] = "total_tenure"
+                                        elif "FMCG" in col_str:
+                                            column_mapping[col] = "pernah_di_fmcg"
+                                    
+                                    if column_mapping:
+                                        sourcing_df = sourcing_df.rename(columns=column_mapping)
+                                    
+                                    # CEK KOLOM WAJIB
+                                    required_cols = ["kode_unik", "nama", "sourcing_date"]
+                                    missing_cols = [col for col in required_cols if col not in sourcing_df.columns]
+                                    
+                                    if missing_cols:
+                                        st.warning(f"⚠️ {file.name}: DB Sourcing kolom wajib hilang: {missing_cols}")
+                                        st.info(f"📋 Kolom tersedia: {sourcing_df.columns.tolist()}")
+                                    elif sourcing_df is not None and not sourcing_df.empty:
+                                        sourcing_result = compile_db_sourcing(
+                                            db=db,
+                                            df=sourcing_df,
+                                            user_id=user.id,
+                                            cycle_id=cycle.id,
+                                            file_name=file_name,
+                                            file_hash=file_hash
+                                        )
+                                        if sourcing_result["success"]:
+                                            progress_placeholder.progress(75, text=f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows")
+                                            status_placeholder.info(f"✅ DB Sourcing: {sourcing_result.get('imported', 0)} rows")
+                                        else:
+                                            st.warning(f"⚠️ {file.name}: DB Sourcing: {sourcing_result.get('errors', [])}")
+                                    else:
+                                        st.info(f"📭 {file.name}: DB Sourcing sheet kosong")
+                                else:
+                                    st.info(f"📭 {file.name}: DB Sourcing sheet tidak ditemukan")
+                        except Exception as e:
+                            st.warning(f"⚠️ {file.name}: DB Sourcing error: {str(e)}")
+                        
+                        # ============================================================
+                        # COMPILE DB KODE POSISI (pake core/compiler.py)
+                        # ============================================================
+                        try:
+                            with pd.ExcelFile(file) as xls:
+                                if "DB Kode Posisi" in xls.sheet_names:
+                                    progress_placeholder.progress(85, text=f"Compile DB Kode Posisi...")
+                                    dbk_df = pd.read_excel(file, sheet_name="DB Kode Posisi", header=0)
+                                    dbk_df = clean_dataframe(dbk_df)
+                                    
+                                    if dbk_df is not None and not dbk_df.empty:
+                                        dbk_result = compile_db_kode_posisi(
+                                            db=db,
+                                            df=dbk_df,
+                                            user_id=user.id,
+                                            cycle_id=cycle.id,
+                                            file_name=file_name,
+                                            file_hash=file_hash
+                                        )
+                                        if dbk_result["success"]:
+                                            progress_placeholder.progress(95, text=f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
+                                            status_placeholder.info(f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
+                                        else:
+                                            st.warning(f"⚠️ {file.name}: DB Kode Posisi: {dbk_result.get('errors', [])}")
+                                    else:
+                                        st.info(f"📭 {file.name}: DB Kode Posisi sheet kosong")
+                                else:
+                                    st.info(f"📭 {file.name}: DB Kode Posisi sheet tidak ditemukan")
+                        except Exception as e:
+                            st.warning(f"⚠️ {file.name}: DB Kode Posisi error: {str(e)}")
+                        
+                        # ============================================================
+                        # UPDATE STATUS USER
+                        # ============================================================
+                        mark_user_uploading(db, user.id, cycle.id)
+                        success_count += 1
+                        progress_placeholder.progress(100, text="✅ Selesai!")
+                        status_placeholder.success(f"✅ {file.name}: Selesai!")
+                        st.cache_data.clear()
                         
                     except Exception as e:
                         st.error(f"❌ {file.name}: {str(e)}")
@@ -1640,3 +1479,126 @@ def show_upload_compile():
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
                         db.rollback()
+
+
+# ============================================================
+# FUNGSI PARSE EMAIL
+# ============================================================
+
+def parse_email_body(body: str, bu_options: list, alasan_options: list, category_options: list, direktorat_options: list) -> dict:
+    result = {
+        "posisi": "", "alasan": "", "business_unit": "", "divisi": "", "department": "",
+        "level_fptk": "1A", "level_number": 1, "lokasi_kerja": "", "lokasi_hr": "",
+        "status_karyawan": "", "vacancy": 1, "pic_email": "", "pic_recruiter": "",
+        "kode_pic": "", "kode_bu": "", "category": "", "direktorat": "",
+        "nama_kandidat": "", "user_manager": "", "indirect_user": "",
+        "fptk_date": datetime.now(), "kode_unik": "", "remark": ""
+    }
+    
+    if not body:
+        return result
+    
+    text = body.replace('\r\n', '\n').replace('\r', '\n')
+    lines = text.split('\n')
+    
+    def find_field(field_names):
+        for i, line in enumerate(lines):
+            clean_line = line.strip()
+            for name in field_names:
+                if name.lower() in clean_line.lower():
+                    if ':' in clean_line:
+                        value = clean_line.split(':', 1)[1].strip()
+                        if value:
+                            return value
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line and not any(k in next_line.lower() for k in ["nama", "posisi", "alasan", "email"]):
+                            return next_line
+        return ""
+    
+    result["posisi"] = find_field(["Nama Jabatan Yang Dicari", "Jabatan Yang Dicari", "Position", "Posisi"])
+    result["alasan"] = find_field(["Alasan Permintaan FPTK", "Alasan FPTK"])
+    result["business_unit"] = find_field(["PT/Business Unit", "Business Unit", "PT / Business Unit"])
+    result["divisi"] = find_field(["Divisi"])
+    result["department"] = find_field(["Department", "Departemen"])
+    result["level_fptk"] = find_field(["Level Posisi", "Level FPTK", "Level"])
+    result["lokasi_kerja"] = find_field(["Lokasi Kerja"])
+    result["lokasi_hr"] = find_field(["Lokasi HR", "HR Location"])
+    result["status_karyawan"] = find_field(["Status Karyawan"])
+    result["vacancy"] = safe_int(find_field(["Jumlah Posisi Yang Dicari", "Jumlah Posisi", "Vacancy"])) or 1
+    result["pic_email"] = find_field(["Email PIC Rekruter", "PIC Rekruter", "Email PIC Recruiter"])
+    
+    if result["level_fptk"]:
+        match = re.search(r'(\d+)', result["level_fptk"])
+        if match:
+            result["level_number"] = int(match.group(1))
+            level_num = result["level_number"]
+            if 1 <= level_num <= 5:
+                result["level_fptk"] = f"{level_num}A"
+    else:
+        result["level_fptk"] = "1A"
+        result["level_number"] = 1
+    
+    pic_mapping = get_pic_mapping()
+    pic_found = False
+    
+    if result["pic_email"]:
+        email_lower = result["pic_email"].lower()
+        for key, value in pic_mapping.items():
+            if key in email_lower:
+                result["pic_recruiter"] = value["name"]
+                result["kode_pic"] = value["code"]
+                result["kode_bu"] = value["bu"]
+                pic_found = True
+                break
+    
+    if not pic_found:
+        body_lower = body.lower()
+        for key, value in pic_mapping.items():
+            if key in body_lower:
+                result["pic_recruiter"] = value["name"]
+                result["kode_pic"] = value["code"]
+                result["kode_bu"] = value["bu"]
+                pic_found = True
+                break
+    
+    alasan_lower = result["alasan"].lower()
+    if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
+        result["category"] = "REPLACEMENT"
+    elif "penambahan" in alasan_lower or "jabatan baru" in alasan_lower or "new" in alasan_lower:
+        result["category"] = "NEW"
+    else:
+        result["category"] = "REPLACEMENT"
+    
+    bu_mapping = get_bu_mapping()
+    bu_lower = result["business_unit"].lower()
+    for key, value in bu_mapping.items():
+        if key.lower() in bu_lower or value["nama"].lower() in bu_lower:
+            result["business_unit"] = value["nama"]
+            result["kode_bu"] = key
+            break
+    
+    if not result["kode_bu"] and result["kode_pic"]:
+        for key, value in pic_mapping.items():
+            if value["code"] == result["kode_pic"]:
+                result["kode_bu"] = value["bu"]
+                break
+    
+    if result["kode_bu"]:
+        bu_map = {
+            "CORP": "Corporate",
+            "MP": "Commercial MP",
+            "CMD": "Commercial CMD",
+            "JESS": "Commercial JESS",
+            "MS": "Commercial MS"
+        }
+        result["direktorat"] = bu_map.get(result["kode_bu"], "")
+    
+    if result["kode_pic"]:
+        date_code = datetime.now().strftime("%d%m%y")
+        posisi_code = ""
+        if result["posisi"]:
+            posisi_code = re.sub(r'[^A-Za-z]', '', result["posisi"])[:4].upper()
+        result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
+    
+    return result
