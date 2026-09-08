@@ -238,3 +238,9 @@ def hash_file(file_data: bytes) -> str:
 
 def sanitize_filename(filename: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
+
+@st.cache_data(ttl=60)  
+def login_user_cached(db, username, password):
+    """Cached version of login_user"""
+    from core.auth import login_user
+    return login_user(db, username, password)
