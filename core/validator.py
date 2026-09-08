@@ -23,12 +23,10 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
     if not kode_pic or not kode_angka or not fptk_date_kode:
         return ""
     
-    # Ambil angka dari kode_angka (hapus huruf)
     angka_part = re.sub(r'[^0-9]', '', str(kode_angka))
     if not angka_part:
         angka_part = "001"
     
-    # Handle date - bisa Excel serial number atau datetime
     if hasattr(fptk_date_kode, 'strftime'):
         date_code = fptk_date_kode.strftime("%d%m%y")
     elif isinstance(fptk_date_kode, (int, float)):
@@ -76,6 +74,8 @@ def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]
                 base = re.sub(r'\s*kebutuhan\s*', '', base, flags=re.IGNORECASE)
                 base = re.sub(r'\s*ta\s*', '', base, flags=re.IGNORECASE)
                 all_possible.append(base)
+                base_no_space = re.sub(r'[\s_]', '', base)
+                all_possible.append(base_no_space)
             
             all_possible = list(set(all_possible))
             
@@ -88,12 +88,23 @@ def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]
                         idx = df_cols_lower.index(col)
                         found = df_cols[idx]
                         break
-                    if pattern in col_norm or col_norm in pattern:
-                        ratio = get_similarity_ratio(col_norm, pattern)
-                        if ratio > 0.7:
+                    if pattern in col_norm:
+                        ratio = len(pattern) / len(col_norm)
+                        if ratio > 0.5:
                             idx = df_cols_lower.index(col)
                             found = df_cols[idx]
                             break
+                    if col_norm in pattern:
+                        ratio = len(col_norm) / len(pattern)
+                        if ratio > 0.5:
+                            idx = df_cols_lower.index(col)
+                            found = df_cols[idx]
+                            break
+                    ratio = get_similarity_ratio(col_norm, pattern)
+                    if ratio > 0.6:
+                        idx = df_cols_lower.index(col)
+                        found = df_cols[idx]
+                        break
                 if found:
                     break
         
@@ -666,46 +677,62 @@ def validate_db_sourcing_file(
         return False, errors
     
     required_mappings = {
-        "kode_unik": ["Kode Unik", "Kode UNIK", "Unique Code", "Kode Unik (copy value dari FPTK)"],
-        "nama": ["Nama", "Nama Kandidat", "Candidate Name", "Nama Lengkap"],
-        "sourcing_date": ["Sourcing Date", "Tanggal Sourcing", "Tanggal Input", "Date"],
+        "kode_unik": [
+            "Kode Unik", "Kode UNIK", "Unique Code", 
+            "Kode Unik (copy value dari FPTK)",
+            "KodeUnik", "KODE UNIK", "UNIK",
+            "KODE", "ID FPTK", "FPTK ID",
+        ],
+        "nama": [
+            "Nama", "Nama Kandidat", "Candidate Name", 
+            "Nama Lengkap", "NAMA", "NAMA KANDIDAT",
+            "Nama Pelamar", "Nama Calon",
+        ],
+        "sourcing_date": [
+            "Sourcing Date", "Tanggal Sourcing", "Tanggal Input", 
+            "Date", "SOURCING DATE", "TANGGAL SOURCING",
+            "TGL SOURCING", "TANGGAL", "TGL",
+            "Tanggal Masuk", "Tanggal Sourcing Kandidat",
+        ],
     }
     
     optional_mappings = {
-        "posisi": ["Posisi", "Position", "Jabatan"],
+        "posisi": ["Posisi", "Position", "Jabatan", "Posisi Dilamar"],
         "model_rekrutmen": [
             "Model Rekrutmen", "Model", "Model Recruitment", 
             "Recruitment Model", "Kode Model", "Model Sourcing",
+            "Jenis Rekrutmen", "Metode Rekrutmen",
         ],
         "sumber_sourcing": [
             "Sumber Sourcing", "Source", "Sumber", 
             "Sumber Kandidat", "Sumber Rekrutmen",
+            "Sumber", "Sumber Data",
         ],
-        "rekruter": ["Rekruter", "Recruiter", "PIC Recruiter", "PIC", "PIC Rekruter"],
-        "nomor_hp": ["Nomor HP", "No HP", "Phone", "Telepon", "No Telepon"],
-        "email": ["Email", "Email Address", "Alamat Email"],
-        "domisili": ["Domisili", "Domicile", "Kota Domisili"],
-        "jenjang_pendidikan": ["Jenjang Pendidikan", "Education Level", "Pendidikan"],
-        "jurusan": ["Jurusan", "Major", "Program Studi"],
-        "tahun_lulus": ["Tahun Lulus", "Graduation Year", "Tahun"],
-        "ipk": ["IPK", "GPA", "Nilai"],
+        "rekruter": ["Rekruter", "Recruiter", "PIC Recruiter", "PIC", "PIC Rekruter", "Nama Rekruter"],
+        "nomor_hp": ["Nomor HP", "No HP", "Phone", "Telepon", "No Telepon", "HP", "WhatsApp"],
+        "email": ["Email", "Email Address", "Alamat Email", "E-mail"],
+        "domisili": ["Domisili", "Domicile", "Kota Domisili", "Alamat"],
+        "jenjang_pendidikan": ["Jenjang Pendidikan", "Education Level", "Pendidikan", "Pendidikan Terakhir"],
+        "jurusan": ["Jurusan", "Major", "Program Studi", "Jurusan Kuliah"],
+        "tahun_lulus": ["Tahun Lulus", "Graduation Year", "Tahun", "Tahun Lulus Kuliah"],
+        "ipk": ["IPK", "GPA", "Nilai", "IPK/Nilai"],
         "university_tier": ["University Tier", "Univ Tier", "Tier Universitas"],
         "ipk_tier": ["IPK Tier", "GPA Tier", "Tier IPK"],
-        "nama_universitas_top10": ["Nama Universitas/Sekolah (TOP 10)", "Universitas", "Nama Universitas"],
+        "nama_universitas_top10": ["Nama Universitas/Sekolah (TOP 10)", "Universitas", "Nama Universitas", "Universitas/Sekolah"],
         "nama_universitas_lainnya": ["Nama Universitas/Sekolah Lainnya", "Universitas Lainnya"],
-        "last_position": ["Last Position", "Posisi Terakhir", "Posisi Sebelumnya"],
-        "last_company": ["Last Company", "Company Terakhir", "Perusahaan Sebelumnya"],
-        "last_tenure": ["Last Tenure", "Lama Bekerja"],
-        "total_tenure": ["Total Tenure", "Total Pengalaman"],
-        "pernah_di_fmcg": ["Pernah di FMCG?", "FMCG", "Pengalaman FMCG"],
+        "last_position": ["Last Position", "Posisi Terakhir", "Posisi Sebelumnya", "Posisi Terakhir"],
+        "last_company": ["Last Company", "Company Terakhir", "Perusahaan Sebelumnya", "Perusahaan Terakhir"],
+        "last_tenure": ["Last Tenure", "Lama Bekerja", "Tenure"],
+        "total_tenure": ["Total Tenure", "Total Pengalaman", "Total Bekerja"],
+        "pernah_di_fmcg": ["Pernah di FMCG?", "FMCG", "Pengalaman FMCG", "FMCG Experience"],
         "sourcing_freelance": ["Sourcing Freelance", "Freelance"],
         "sourcing_hr": ["Sourcing HR", "HR Sourcing"],
-        "shortlist_cv": ["Shortlist CV", "Shortlist"],
-        "psikotes": ["Psikotes", "Psychotest"],
-        "hr_interview": ["HR Interview", "Interview HR"],
-        "user_interview": ["User Interview", "Interview User"],
-        "offering": ["Offering", "Offering Date"],
-        "day1": ["Day 1", "Day1"],
+        "shortlist_cv": ["Shortlist CV", "Shortlist", "CV Shortlist"],
+        "psikotes": ["Psikotes", "Psychotest", "Tes Psikologi"],
+        "hr_interview": ["HR Interview", "Interview HR", "Interview HRD"],
+        "user_interview": ["User Interview", "Interview User", "Interview User/Manager"],
+        "offering": ["Offering", "Offering Date", "Tanggal Offering"],
+        "day1": ["Day 1", "Day1", "Hari Pertama"],
     }
     
     all_mappings = {**required_mappings, **optional_mappings}
@@ -723,7 +750,7 @@ def validate_db_sourcing_file(
             "value": "",
             "error": f"Kolom wajib hilang: {', '.join(missing_columns)}",
             "expected": f"Kolom wajib: {', '.join(required_mappings.keys())}",
-            "example": "Periksa header file DB Sourcing"
+            "example": f"Periksa header file DB Sourcing. Kolom yang ditemukan: {list(df.columns)}"
         })
         return False, errors
     
@@ -901,7 +928,6 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
-    # HANYA WARNING → TETAP VALID
     return True, errors
 
 
