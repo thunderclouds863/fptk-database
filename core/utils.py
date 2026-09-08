@@ -19,44 +19,30 @@ def normalize_text(value) -> str:
     return s
 
 def parse_date_dmy(value):
-    """
-    Parse tanggal dengan berbagai format, return date object.
-    Support: string (dd/mm/yyyy), datetime, Timestamp, Excel serial number
-    """
     if pd.isna(value) or value is None:
         return None
     
-    # Jika sudah date object
     if isinstance(value, date):
         return value
     
-    # Jika sudah datetime object, konversi ke date
     if isinstance(value, datetime):
         return value.date()
     
-    # Jika sudah pandas Timestamp
     if isinstance(value, pd.Timestamp):
         return value.date()
     
-    # Jika numeric (Excel serial date)
     if isinstance(value, (int, float)):
         try:
-            # Excel serial date mulai dari 1900-01-01
-            # Excel salah menganggap 1900 adalah tahun kabisat, jadi base = 1899-12-30
             base = datetime(1899, 12, 30).date()
             return base + timedelta(days=float(value))
         except:
             pass
     
-    # Jika string
     if isinstance(value, str):
         s = str(value).strip()
-        
-        # Hapus timestamp jika ada (YYYY-MM-DD HH:MM:SS)
         if ' ' in s:
             s = s.split(' ')[0]
         
-        # Coba berbagai format
         for fmt in ['%d/%m/%Y', '%d-%m-%Y', '%d.%m.%Y', '%Y-%m-%d', '%Y/%m/%d']:
             try:
                 return datetime.strptime(s, fmt).date()
@@ -82,10 +68,6 @@ def safe_float(value, default=0.0):
         return default
 
 def safe_string(value, default=''):
-    """
-    Safely convert value to string, return default if invalid.
-    This handles NaN, None, and other edge cases.
-    """
     if value is None:
         return default
     if isinstance(value, float) and math.isnan(value):
@@ -99,12 +81,6 @@ def safe_string(value, default=''):
     return str(value).strip()
 
 def safe_boolean_char(value):
-    """
-    Convert various boolean representations to 'V'/'X' or None.
-    V = Valid/True, X = Invalid/False
-    
-    This is CRITICAL for preventing 'V' from being inserted into numeric columns.
-    """
     if value is None:
         return None
     if isinstance(value, bool):
@@ -125,7 +101,6 @@ def safe_boolean_char(value):
     return None
 
 def safe_date(value):
-    """Safely convert to date, return None if invalid"""
     if value is None:
         return None
     if isinstance(value, float) and math.isnan(value):
@@ -141,18 +116,13 @@ def safe_date(value):
     return None
 
 def sanitize_date_value(val):
-    """Konversi nan/NaT ke None untuk SQLAlchemy, return date object"""
     return safe_date(val)
 
 # ============================================================
-# FUNGSI SLA - MIRIP VBA
+# FUNGSI SLA
 # ============================================================
 
 def calculate_sla_days(level_number: int) -> int:
-    """
-    Hitung SLA days berdasarkan Level Number.
-    VBA: Level 1-3 = 30, Level 4 = 45, Level 5 = 60
-    """
     if level_number <= 3:
         return 30
     elif level_number == 4:
@@ -163,9 +133,7 @@ def calculate_sla_days(level_number: int) -> int:
         return 30
 
 def calculate_deadline_sla(fptk_date_real, sla_days: int):
-    """Hitung Deadline SLA = FPTK Date Real + SLA Days, return date"""
     if fptk_date_real and sla_days > 0:
-        # Pastikan fptk_date_real adalah date object
         if isinstance(fptk_date_real, datetime):
             fptk_date_real = fptk_date_real.date()
         elif isinstance(fptk_date_real, pd.Timestamp):
@@ -176,44 +144,27 @@ def calculate_deadline_sla(fptk_date_real, sla_days: int):
     return None
 
 def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
-    """
-    Hitung Detail SLA berdasarkan Status, Deadline, dan Offering Date.
-    Mirip VBA CalculateSLAStatusFPTK
-    
-    Rules:
-    - Status OP + deadline < today → "OP Tidak Lulus SLA"
-    - Status OP + deadline >= today → "OP Belum Lewat SLA"
-    - Status Closed + deadline < offering → "Closed Tidak Lulus SLA"
-    - Status Closed + deadline >= offering → "Closed Lulus SLA"
-    - Status Cancel → "Cancel FPTK"
-    - Fallback: OP Tidak Lulus SLA / OP Belum Lewat SLA
-    """
-    # Parse dates jika string atau datetime
     deadline_sla = _ensure_date(deadline_sla)
     offering_date = _ensure_date(offering_date)
     
     today = date.today()
     status_lower = status.lower() if status else ""
     
-    # CASE 1: OP / OPEN
     if status_lower in ["op", "open"]:
         if deadline_sla and deadline_sla < today:
             return "OP Tidak Lulus SLA"
         else:
             return "OP Belum Lewat SLA"
     
-    # CASE 2: CLOSED / CLOSE
     elif status_lower in ["closed", "close"]:
         if deadline_sla and offering_date and deadline_sla < offering_date:
             return "Closed Tidak Lulus SLA"
         else:
             return "Closed Lulus SLA"
     
-    # CASE 3: CANCEL / CANCELLED
     elif status_lower in ["cancel", "cancelled", "cancel fptk"]:
         return "Cancel FPTK"
     
-    # CASE 4: FALLBACK (jika status tidak dikenal)
     else:
         if deadline_sla and deadline_sla < today:
             return "OP Tidak Lulus SLA"
@@ -221,10 +172,6 @@ def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
             return "OP Belum Lewat SLA"
             
 def determine_category_fptk(alasan: str) -> str:
-    """
-    Tentukan Category FPTK dari Alasan Permintaan FPTK
-    Mirip VBA F9_DetermineCategoryFPTK
-    """
     alasan_lower = alasan.lower() if alasan else ""
     
     if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
@@ -235,30 +182,24 @@ def determine_category_fptk(alasan: str) -> str:
         return "REPLACEMENT"
         
 def _ensure_date(value):
-    """Pastikan value adalah date object, konversi dari datetime jika perlu"""
     if value is None or pd.isna(value):
         return None
     
-    # Jika sudah date
     if isinstance(value, date):
         return value
     
-    # Jika datetime, konversi ke date
     if isinstance(value, datetime):
         return value.date()
     
-    # Jika pandas Timestamp
     if isinstance(value, pd.Timestamp):
         return value.date()
     
-    # Jika string, coba parse
     if isinstance(value, str):
         return parse_date_dmy(value)
     
     return None
 
 def get_sla_option_list() -> list:
-    """Daftar pilihan Detail SLA untuk dropdown (mirip VBA)"""
     return [
         "OP Belum Lewat SLA",
         "OP Tidak Lulus SLA",
@@ -268,7 +209,6 @@ def get_sla_option_list() -> list:
     ]
 
 def is_valid_detail_sla(value: str) -> bool:
-    """Cek apakah Detail SLA valid"""
     valid_options = [
         "OP Belum Lewat SLA",
         "OP Tidak Lulus SLA",
@@ -279,17 +219,10 @@ def is_valid_detail_sla(value: str) -> bool:
     return value in valid_options
 
 def calculate_filter_kategorisasi(posisi: str, level_number: int) -> str:
-    """
-    Hitung Filter Kategorisasi FPTK
-    PRIORITY: CLAP FGDP > Level
-    """
     posisi_lower = posisi.lower() if posisi else ""
     
-    # PRIORITY 1: CLAP FGDP (Cimory/Fresh)
     if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
         return 'CLAP FGDP'
-    
-    # PRIORITY 2: Level based
     elif level_number in [1, 2]:
         return 'Level 1-2'
     elif level_number == 3:
@@ -300,7 +233,6 @@ def calculate_filter_kategorisasi(posisi: str, level_number: int) -> str:
         return ''
 
 def parse_phone(value) -> str:
-    """Bersihkan nomor telepon (hanya angka dan +)"""
     if pd.isna(value) or value is None:
         return ""
     s = str(value).strip()
@@ -308,7 +240,6 @@ def parse_phone(value) -> str:
     return s
 
 def is_valid_email(value) -> bool:
-    """Cek apakah email valid"""
     if pd.isna(value) or value is None:
         return False
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
@@ -319,15 +250,9 @@ def is_valid_email(value) -> bool:
 # ============================================================
 
 def get_position_details(db, posisi: str, direktorat: str = None):
-    """
-    Cari detail position dari DB Kode Posisi berdasarkan posisi (case-insensitive).
-    Prioritaskan yang match dengan direktorat.
-    Returns: dict dengan kunci: kode, position, location, business_unit, division_chris, department_chris, user_manager, indirect_user, directorate, year
-    """
     if not posisi:
         return None
     
-    # Import disini untuk menghindari circular import
     from core.models import DBKodePosisi
     from sqlalchemy import func
     
@@ -335,14 +260,12 @@ def get_position_details(db, posisi: str, direktorat: str = None):
         func.lower(DBKodePosisi.position) == func.lower(posisi.strip())
     )
     
-    # Coba cari yang match direktorat dulu
     result = None
     if direktorat:
         result = query.filter(
             func.lower(DBKodePosisi.directorate) == func.lower(direktorat.strip())
         ).first()
     
-    # Kalau tidak ada, ambil yang pertama
     if not result:
         result = query.first()
     
@@ -364,23 +287,17 @@ def get_position_details(db, posisi: str, direktorat: str = None):
 def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit: str = None, 
                           location: str = None, division: str = None, department: str = None,
                           user_manager: str = None, indirect_user: str = None, kode: str = None):
-    """
-    Tambah posisi baru ke DB Kode Posisi.
-    Kalau sudah ada, update.
-    """
     if not posisi:
         return None
     
     from core.models import DBKodePosisi
     from sqlalchemy import func
     
-    # Cek existing
     existing = db.query(DBKodePosisi).filter(
         func.lower(DBKodePosisi.position) == func.lower(posisi.strip())
     ).first()
     
     if existing:
-        # Update existing
         if direktorat:
             existing.directorate = direktorat
         if business_unit:
@@ -401,7 +318,6 @@ def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit
         db.refresh(existing)
         return existing
     
-    # Insert baru
     new_entry = DBKodePosisi(
         kode=kode or "",
         position=posisi.strip(),
