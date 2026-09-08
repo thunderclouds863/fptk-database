@@ -18,7 +18,8 @@ from core.utils import (
     get_sla_option_list,
     calculate_filter_kategorisasi,
     get_position_details,
-    add_to_db_kode_posisi
+    add_to_db_kode_posisi,
+    parse_excel_serial_date
 )
 from core.utils import determine_category_fptk
 from core.template_manager import (
@@ -80,9 +81,96 @@ ALL_BU_CODES = sorted(BU_CODE_MAPPING.keys())
 
 LEVEL_OPTIONS = []
 for num in range(1, 6):
-    for letter in ['A', 'B']:
+    for letter in ['A', 'B', 'C', 'D', 'E']:
         LEVEL_OPTIONS.append(f"{num}{letter}")
 
+# ============================================================
+# FUNGSI GENERATE KODE UNIK & KODE ANGKA (DIPERBAIKI)
+# ============================================================
+
+def generate_kode_unik(kode_pic, posisi, fptk_date):
+    """
+    Generate Kode Unik dari Kode PIC + Posisi (4 huruf pertama) + Tanggal (DDMMYY)
+    Format: CORPLex156090326
+    """
+    if not kode_pic or not posisi or not fptk_date:
+        if kode_pic and fptk_date:
+            date_code = fptk_date.strftime("%d%m%y")
+            return f"{kode_pic}XXXX{date_code}"
+        return ""
+    
+    # Format tanggal: DDMMYY (contoh: 090326 untuk 9 Maret 2026)
+    date_code = fptk_date.strftime("%d%m%y")  # 09/03/2026 → 090326
+    
+    # Ambil 4 huruf pertama dari posisi (tanpa spasi)
+    posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
+    if not posisi_code:
+        posisi_code = "XXXX"
+    
+    return f"{kode_pic}{posisi_code}{date_code}"
+
+def generate_kode_angka(db, posisi, kode_pic):
+    """Generate Kode Angka dengan auto-increment, format: [KodePIC][3 digit angka]"""
+    if not posisi or not kode_pic:
+        return f"{kode_pic}001" if kode_pic else "ADM001"
+    
+    last_entry = db.query(FPTK).filter(
+        FPTK.posisi == posisi,
+        FPTK.kode_pic == kode_pic
+    ).order_by(FPTK.id.desc()).first()
+    
+    if last_entry and last_entry.kode_angka:
+        last_angka = re.sub(r'[^0-9]', '', last_entry.kode_angka)
+        if last_angka and last_angka.isdigit():
+            new_number = int(last_angka) + 1
+            return f"{kode_pic}{str(new_number).zfill(3)}"
+    
+    return f"{kode_pic}001"
+
+def get_last_fptk_date_kode(db, posisi, kode_pic):
+    last_entry = db.query(FPTK).filter(
+        FPTK.posisi == posisi,
+        FPTK.kode_pic == kode_pic
+    ).order_by(FPTK.fptk_date_kode.desc()).first()
+    if last_entry and last_entry.fptk_date_kode:
+        return last_entry.fptk_date_kode
+    return None
+
+def check_duplicate(db, kode_unik, posisi):
+    if not kode_unik:
+        return None
+    return db.query(FPTK).filter(
+        FPTK.kode_unik == kode_unik,
+        FPTK.posisi == posisi
+    ).first()
+
+# ============================================================
+# FUNGSI AUTO-FILL DB KODE POSISI
+# ============================================================
+
+def get_position_details_cached(db, posisi, direktorat=None):
+    if not posisi:
+        return None
+    cache_key = f"pos_{posisi.strip().lower()}_{direktorat.strip().lower() if direktorat else ''}"
+    if "position_cache" not in st.session_state:
+        st.session_state.position_cache = {}
+    if cache_key in st.session_state.position_cache:
+        return st.session_state.position_cache[cache_key]
+    result = get_position_details(db, posisi, direktorat)
+    st.session_state.position_cache[cache_key] = result
+    return result
+
+def add_position_to_master(db, posisi, direktorat=None, business_unit=None, location=None,
+                           division=None, department=None, user_manager=None, indirect_user=None, kode=None):
+    if not posisi:
+        return None
+    result = add_to_db_kode_posisi(
+        db, posisi, direktorat, business_unit, location,
+        division, department, user_manager, indirect_user, kode
+    )
+    if "position_cache" in st.session_state:
+        st.session_state.position_cache = {}
+    return result
 
 # ============================================================
 # FUNGSI DETAIL SLA OTOMATIS
@@ -120,49 +208,10 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
     
     return "OP Belum Lewat SLA"
 
-
 def sanitize_value(value):
     if value == "" or value == " ":
         return None
     return value
-
-
-# ============================================================
-# AUTO-FILL FUNCTIONS (DB Kode Posisi)
-# ============================================================
-
-def get_position_details_cached(db, posisi, direktorat=None):
-    """Wrapper dengan cache session biar ga query terus"""
-    if not posisi:
-        return None
-    
-    cache_key = f"pos_{posisi.strip().lower()}_{direktorat.strip().lower() if direktorat else ''}"
-    if "position_cache" not in st.session_state:
-        st.session_state.position_cache = {}
-    
-    if cache_key in st.session_state.position_cache:
-        return st.session_state.position_cache[cache_key]
-    
-    result = get_position_details(db, posisi, direktorat)
-    st.session_state.position_cache[cache_key] = result
-    return result
-
-
-def add_position_to_master(db, posisi, direktorat=None, business_unit=None, location=None,
-                           division=None, department=None, user_manager=None, indirect_user=None, kode=None):
-    """Tambahkan posisi ke DB Kode Posisi dan update cache"""
-    if not posisi:
-        return None
-    
-    result = add_to_db_kode_posisi(
-        db, posisi, direktorat, business_unit, location,
-        division, department, user_manager, indirect_user, kode
-    )
-    # Clear cache
-    if "position_cache" in st.session_state:
-        st.session_state.position_cache = {}
-    return result
-
 
 # ============================================================
 # FUNGSI GET MASTER OPTIONS (CACHE)
@@ -172,171 +221,64 @@ def add_position_to_master(db, posisi, direktorat=None, business_unit=None, loca
 def get_master_options(_db):
     try:
         master_records = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
-        
-        bu_options = sorted(set([m.bu for m in master_records if m.bu]))
-        alasan_options = sorted(set([m.alasan for m in master_records if m.alasan]))
-        category_options = sorted(set([m.category_fptk for m in master_records if m.category_fptk]))
-        filter_options = sorted(set([m.filter_fptk for m in master_records if m.filter_fptk]))
-        status_options = ["OP", "Closed", "Cancel"]
-        lokasi_onboarding_options = sorted(set([m.lokasi_onboarding for m in master_records if m.lokasi_onboarding]))
-        detail_sla_options = sorted(set([m.detail_sla for m in master_records if m.detail_sla]))
-        keterangan_0_options = sorted(set([m.keterangan_0 for m in master_records if m.keterangan_0]))
-        keterangan_1_options = sorted(set([m.keterangan_1 for m in master_records if m.keterangan_1]))
-        keterangan_cancel_options = sorted(set([m.keterangan_cancel for m in master_records if m.keterangan_cancel]))
-        direktorat_options = sorted(set([m.nama_direktorat for m in master_records if m.nama_direktorat]))
-        model_options = sorted(set([m.model for m in master_records if m.model]))
-        sumber_options = sorted(set([m.sumber_sourcing for m in master_records if m.sumber_sourcing]))
-        jenjang_options = sorted(set([m.jenjang_pendidikan for m in master_records if m.jenjang_pendidikan]))
-        univ_options = sorted(set([m.nama_universitas_top10 for m in master_records if m.nama_universitas_top10]))
-        jurusan_options = sorted(set([m.jurusan for m in master_records if m.jurusan]))
-        univ_tier_options = sorted(set([m.university_tier for m in master_records if m.university_tier]))
-        ipk_tier_options = sorted(set([m.ipk_tier for m in master_records if m.ipk_tier]))
-        kode_pic_options = sorted(set([m.kode_pic for m in master_records if m.kode_pic]))
-        
         return {
-            'bu_options': bu_options,
-            'alasan_options': alasan_options,
-            'category_options': category_options,
-            'filter_options': filter_options,
-            'status_options': status_options,
-            'lokasi_onboarding_options': lokasi_onboarding_options,
-            'detail_sla_options': detail_sla_options,
-            'keterangan_0_options': keterangan_0_options,
-            'keterangan_1_options': keterangan_1_options,
-            'keterangan_cancel_options': keterangan_cancel_options,
-            'direktorat_options': direktorat_options,
-            'model_options': model_options,
-            'sumber_options': sumber_options,
-            'jenjang_options': jenjang_options,
-            'univ_options': univ_options,
-            'jurusan_options': jurusan_options,
-            'univ_tier_options': univ_tier_options,
-            'ipk_tier_options': ipk_tier_options,
-            'kode_pic_options': kode_pic_options
-        }
-    except Exception as e:
-        return {
-            'bu_options': [],
-            'alasan_options': [],
-            'category_options': [],
-            'filter_options': [],
+            'bu_options': sorted(set([m.bu for m in master_records if m.bu])),
+            'alasan_options': sorted(set([m.alasan for m in master_records if m.alasan])),
+            'category_options': sorted(set([m.category_fptk for m in master_records if m.category_fptk])),
+            'filter_options': sorted(set([m.filter_fptk for m in master_records if m.filter_fptk])),
             'status_options': ["OP", "Closed", "Cancel"],
-            'lokasi_onboarding_options': [],
-            'detail_sla_options': [],
-            'keterangan_0_options': [],
-            'keterangan_1_options': [],
-            'keterangan_cancel_options': [],
-            'direktorat_options': [],
-            'model_options': [],
-            'sumber_options': [],
-            'jenjang_options': [],
-            'univ_options': [],
-            'jurusan_options': [],
-            'univ_tier_options': [],
-            'ipk_tier_options': [],
-            'kode_pic_options': []
+            'lokasi_onboarding_options': sorted(set([m.lokasi_onboarding for m in master_records if m.lokasi_onboarding])),
+            'detail_sla_options': sorted(set([m.detail_sla for m in master_records if m.detail_sla])),
+            'keterangan_0_options': sorted(set([m.keterangan_0 for m in master_records if m.keterangan_0])),
+            'keterangan_1_options': sorted(set([m.keterangan_1 for m in master_records if m.keterangan_1])),
+            'keterangan_cancel_options': sorted(set([m.keterangan_cancel for m in master_records if m.keterangan_cancel])),
+            'direktorat_options': sorted(set([m.nama_direktorat for m in master_records if m.nama_direktorat])),
+            'model_options': sorted(set([m.model for m in master_records if m.model])),
+            'sumber_options': sorted(set([m.sumber_sourcing for m in master_records if m.sumber_sourcing])),
+            'jenjang_options': sorted(set([m.jenjang_pendidikan for m in master_records if m.jenjang_pendidikan])),
+            'univ_options': sorted(set([m.nama_universitas_top10 for m in master_records if m.nama_universitas_top10])),
+            'jurusan_options': sorted(set([m.jurusan for m in master_records if m.jurusan])),
+            'univ_tier_options': sorted(set([m.university_tier for m in master_records if m.university_tier])),
+            'ipk_tier_options': sorted(set([m.ipk_tier for m in master_records if m.ipk_tier])),
+            'kode_pic_options': sorted(set([m.kode_pic for m in master_records if m.kode_pic]))
         }
-
+    except Exception:
+        return {
+            'bu_options': [], 'alasan_options': [], 'category_options': [],
+            'filter_options': [], 'status_options': ["OP", "Closed", "Cancel"],
+            'lokasi_onboarding_options': [], 'detail_sla_options': [],
+            'keterangan_0_options': [], 'keterangan_1_options': [],
+            'keterangan_cancel_options': [], 'direktorat_options': [],
+            'model_options': [], 'sumber_options': [], 'jenjang_options': [],
+            'univ_options': [], 'jurusan_options': [], 'univ_tier_options': [],
+            'ipk_tier_options': [], 'kode_pic_options': []
+        }
 
 @st.cache_data(ttl=3600)
 def get_pic_mapping():
     return PIC_MAPPING.copy()
 
-
 @st.cache_data(ttl=3600)
 def get_bu_mapping():
     return BU_CODE_MAPPING.copy()
-
 
 @st.cache_data(ttl=3600)
 def get_level_options():
     return LEVEL_OPTIONS.copy()
 
-
-@st.cache_data(ttl=3600)
-def get_pic_names_by_bu():
-    return PIC_NAMES_BY_BU.copy()
-
-
 @st.cache_data(ttl=3600)
 def get_all_pic_names():
     return ALL_PIC_NAMES.copy()
-
 
 @st.cache_data(ttl=3600)
 def get_all_bu_codes():
     return ALL_BU_CODES.copy()
 
-
 # ============================================================
-# FUNGSI GENERATE KODE UNIK & KODE ANGKA
+# COMPILE WITH PROGRESS
 # ============================================================
-
-def generate_kode_angka(db, posisi, kode_pic):
-    """
-    Generate Kode Angka dengan auto-increment dari angka terakhir
-    Format: [KodePIC][AngkaAutoIncrement]
-    Contoh: ADM001, ADM002, dst.
-    """
-    if not posisi or not kode_pic:
-        return f"{kode_pic}001" if kode_pic else "ADM001"
-    
-    # Cari angka terakhir untuk posisi dan kode_pic yang sama
-    last_entry = db.query(FPTK).filter(
-        FPTK.posisi == posisi,
-        FPTK.kode_pic == kode_pic
-    ).order_by(FPTK.id.desc()).first()
-    
-    if last_entry and last_entry.kode_angka:
-        # Ambil angka dari kode_angka (format: [KodePIC][Angka])
-        last_angka = re.sub(r'[^0-9]', '', last_entry.kode_angka)
-        if last_angka and last_angka.isdigit():
-            new_number = int(last_angka) + 1
-            return f"{kode_pic}{str(new_number).zfill(3)}"
-    
-    # Jika belum ada, mulai dari 001
-    return f"{kode_pic}001"
-
-
-def generate_kode_unik(kode_pic, posisi, fptk_date):
-    """Generate Kode Unik dari Kode PIC + Posisi + Tanggal"""
-    if not kode_pic or not posisi or not fptk_date:
-        if kode_pic and fptk_date:
-            date_code = fptk_date.strftime("%d%m%y")
-            return f"{kode_pic}XXXX{date_code}"
-        return ""
-    
-    date_code = fptk_date.strftime("%d%m%y")
-    posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
-    if not posisi_code:
-        posisi_code = "XXXX"
-    return f"{kode_pic}{posisi_code}{date_code}"
-
-
-def get_last_fptk_date_kode(db, posisi, kode_pic):
-    """Mendapatkan fptk_date_kode terakhir untuk posisi dan kode_pic"""
-    last_entry = db.query(FPTK).filter(
-        FPTK.posisi == posisi,
-        FPTK.kode_pic == kode_pic
-    ).order_by(FPTK.fptk_date_kode.desc()).first()
-    
-    if last_entry and last_entry.fptk_date_kode:
-        return last_entry.fptk_date_kode
-    return None
-
-
-def check_duplicate(db, kode_unik, posisi):
-    """Cek apakah kombinasi kode_unik + posisi sudah ada"""
-    if not kode_unik:
-        return None
-    return db.query(FPTK).filter(
-        FPTK.kode_unik == kode_unik,
-        FPTK.posisi == posisi
-    ).first()
-
 
 def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placeholder, status_placeholder):
-    """Compile file dengan progress bar"""
     status_placeholder.info("📋 Step 1/5: Validasi struktur file...")
     progress_placeholder.progress(10, text="Validasi file...")
     time.sleep(0.3)
@@ -425,9 +367,130 @@ def compile_with_progress(file, df, _db, user, cycle, is_sto, progress_placehold
     
     return True, result
 
+# ============================================================
+# FUNGSI PARSE EMAIL
+# ============================================================
+
+def parse_email_body(body: str, bu_options: list, alasan_options: list, category_options: list, direktorat_options: list) -> dict:
+    result = {
+        "posisi": "", "alasan": "", "business_unit": "", "divisi": "", "department": "",
+        "level_fptk": "1A", "level_number": 1, "lokasi_kerja": "", "lokasi_hr": "",
+        "status_karyawan": "", "vacancy": 1, "pic_email": "", "pic_recruiter": "",
+        "kode_pic": "", "kode_bu": "", "category": "", "direktorat": "",
+        "nama_kandidat": "", "user_manager": "", "indirect_user": "",
+        "fptk_date": datetime.now(), "kode_unik": "", "remark": ""
+    }
+    
+    if not body:
+        return result
+    
+    text = body.replace('\r\n', '\n').replace('\r', '\n')
+    lines = text.split('\n')
+    
+    def find_field(field_names):
+        for i, line in enumerate(lines):
+            clean_line = line.strip()
+            for name in field_names:
+                if name.lower() in clean_line.lower():
+                    if ':' in clean_line:
+                        value = clean_line.split(':', 1)[1].strip()
+                        if value:
+                            return value
+                    if i + 1 < len(lines):
+                        next_line = lines[i + 1].strip()
+                        if next_line and not any(k in next_line.lower() for k in ["nama", "posisi", "alasan", "email"]):
+                            return next_line
+        return ""
+    
+    result["posisi"] = find_field(["Nama Jabatan Yang Dicari", "Jabatan Yang Dicari", "Position", "Posisi"])
+    result["alasan"] = find_field(["Alasan Permintaan FPTK", "Alasan FPTK"])
+    result["business_unit"] = find_field(["PT/Business Unit", "Business Unit", "PT / Business Unit"])
+    result["divisi"] = find_field(["Divisi"])
+    result["department"] = find_field(["Department", "Departemen"])
+    result["level_fptk"] = find_field(["Level Posisi", "Level FPTK", "Level"])
+    result["lokasi_kerja"] = find_field(["Lokasi Kerja"])
+    result["lokasi_hr"] = find_field(["Lokasi HR", "HR Location"])
+    result["status_karyawan"] = find_field(["Status Karyawan"])
+    result["vacancy"] = safe_int(find_field(["Jumlah Posisi Yang Dicari", "Jumlah Posisi", "Vacancy"])) or 1
+    result["pic_email"] = find_field(["Email PIC Rekruter", "PIC Rekruter", "Email PIC Recruiter"])
+    
+    if result["level_fptk"]:
+        match = re.search(r'(\d+)', result["level_fptk"])
+        if match:
+            result["level_number"] = int(match.group(1))
+            level_num = result["level_number"]
+            if 1 <= level_num <= 5:
+                result["level_fptk"] = f"{level_num}A"
+    else:
+        result["level_fptk"] = "1A"
+        result["level_number"] = 1
+    
+    pic_mapping = get_pic_mapping()
+    pic_found = False
+    
+    if result["pic_email"]:
+        email_lower = result["pic_email"].lower()
+        for key, value in pic_mapping.items():
+            if key in email_lower:
+                result["pic_recruiter"] = value["name"]
+                result["kode_pic"] = value["code"]
+                result["kode_bu"] = value["bu"]
+                pic_found = True
+                break
+    
+    if not pic_found:
+        body_lower = body.lower()
+        for key, value in pic_mapping.items():
+            if key in body_lower:
+                result["pic_recruiter"] = value["name"]
+                result["kode_pic"] = value["code"]
+                result["kode_bu"] = value["bu"]
+                pic_found = True
+                break
+    
+    alasan_lower = result["alasan"].lower()
+    if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
+        result["category"] = "REPLACEMENT"
+    elif "penambahan" in alasan_lower or "jabatan baru" in alasan_lower or "new" in alasan_lower:
+        result["category"] = "NEW"
+    else:
+        result["category"] = "REPLACEMENT"
+    
+    bu_mapping = get_bu_mapping()
+    bu_lower = result["business_unit"].lower()
+    for key, value in bu_mapping.items():
+        if key.lower() in bu_lower or value["nama"].lower() in bu_lower:
+            result["business_unit"] = value["nama"]
+            result["kode_bu"] = key
+            break
+    
+    if not result["kode_bu"] and result["kode_pic"]:
+        for key, value in pic_mapping.items():
+            if value["code"] == result["kode_pic"]:
+                result["kode_bu"] = value["bu"]
+                break
+    
+    if result["kode_bu"]:
+        bu_map = {
+            "CORP": "Corporate",
+            "MP": "Commercial MP",
+            "CMD": "Commercial CMD",
+            "JESS": "Commercial JESS",
+            "MS": "Commercial MS"
+        }
+        result["direktorat"] = bu_map.get(result["kode_bu"], "")
+    
+    if result["kode_pic"]:
+        date_code = datetime.now().strftime("%d%m%y")
+        posisi_code = ""
+        if result["posisi"]:
+            posisi_code = re.sub(r'[^A-Za-z]', '', result["posisi"])[:4].upper()
+        result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
+    
+    return result
 
 # ============================================================
-# FUNGSI UTAMA
+# FUNGSI UTAMA show_upload_compile()
 # ============================================================
 
 def show_upload_compile():
@@ -465,6 +528,7 @@ def show_upload_compile():
     univ_tier_options = master_options['univ_tier_options']
     ipk_tier_options = master_options['ipk_tier_options']
     kode_pic_options = master_options['kode_pic_options']
+    level_options = get_level_options()
 
     # ============================================================
     # ADMIN TEMPLATE MANAGEMENT
@@ -473,13 +537,7 @@ def show_upload_compile():
     if is_admin(db):
         st.markdown("---")
         st.subheader("⚙️ Admin - Template Excel")
-    
-        template_file = st.file_uploader(
-            "Upload Template Excel",
-            type=["xlsx"],
-            key="admin_template_upload"
-        )
-    
+        template_file = st.file_uploader("Upload Template Excel", type=["xlsx"], key="admin_template_upload")
         if template_file:
             if st.button("💾 Simpan Template", key="save_template_btn"):
                 save_template(db, template_file, user.id)
@@ -510,7 +568,6 @@ def show_upload_compile():
         st.subheader("📁 Upload File Excel")
         
         active_template = get_active_template(db)
-        
         if active_template:
             template_bytes = get_template_bytes(active_template)
             st.download_button(
@@ -556,7 +613,6 @@ def show_upload_compile():
                         
                         if header_row is None:
                             st.error(f"❌ {file.name}: Header tidak ditemukan")
-                            st.info(f"📌 Pastikan sheet pertama (FPTK) memiliki kolom: Kode Unik, Posisi, Kode PIC, FPTK Date (Real), Business Unit, Direktorat, Level FPTK, Vacancy, Status")
                             error_count += 1
                             continue
                         
@@ -591,7 +647,6 @@ def show_upload_compile():
                                     error_msg = err.get("error", "")
                                     expected = err.get("expected", "")
                                     st.markdown(f"- **Row {row}** - {field}: `{value}` → {error_msg} (Expected: {expected})")
-                            
                             error_count += 1
                             continue
                         
@@ -646,7 +701,6 @@ def show_upload_compile():
         try:
             if db.is_active:
                 db.rollback()
-            
             logs = db.query(UploadLog).filter(
                 UploadLog.user_id == user.id,
                 UploadLog.cycle_id == cycle.id
@@ -668,14 +722,13 @@ def show_upload_compile():
             st.info("📭 Silakan upload file terlebih dahulu")
     
     # ============================================================
-    # TAB 2: INPUT MANUAL FPTK (DENGAN AUTO-FILL DB KODE POSISI)
+    # TAB 2: INPUT MANUAL FPTK
     # ============================================================
     
     with tab2:
         st.subheader("📝 Input FPTK Manual")
         st.caption("Input satu per satu. PIC otomatis dari user yang login.")
         
-        # Inisialisasi session state untuk auto-fill
         if "manual_posisi" not in st.session_state:
             st.session_state.manual_posisi = ""
         if "manual_direktorat" not in st.session_state:
@@ -684,7 +737,6 @@ def show_upload_compile():
             st.session_state.manual_position_data = {}
         
         pic_mapping = get_pic_mapping()
-        level_options = get_level_options()
                 
         user_pic_name = user.pic_recruiter or user.display_name or user.username
         user_pic_code = user.kode_pic or ""
@@ -704,7 +756,6 @@ def show_upload_compile():
                     user_pic_bu = val["bu"]
                     break
         
-        # JIKA ADMIN, PAKAI "ADM"
         if is_admin(db) and not user_pic_code:
             user_pic_code = "ADM"
             user_pic_bu = "CORP"
@@ -718,56 +769,29 @@ def show_upload_compile():
             col1, col2 = st.columns(2)
             
             with col1:
-                kode_pic = st.text_input(
-                    "Kode PIC",
-                    value=user_pic_code,
-                    disabled=True,
-                    help="Otomatis dari PIC yang login"
-                )
+                kode_pic = st.text_input("Kode PIC", value=user_pic_code, disabled=True)
                 
                 if is_admin(db):
-                    kode_unik = st.text_input(
-                        "Kode Unik",
-                        value="",
-                        placeholder="Admin: isi manual atau biarkan auto-generate",
-                        help="Admin bisa isi kode unik manual. Kosongkan untuk auto-generate."
-                    )
+                    kode_unik = st.text_input("Kode Unik", value="", placeholder="Admin: isi manual atau biarkan auto-generate")
                 else:
-                    kode_unik = st.text_input(
-                        "Kode Unik",
-                        value="",
-                        placeholder="Akan di-generate otomatis",
-                        disabled=True,
-                        help="Auto-generate dari Kode PIC + Posisi + Tanggal"
-                    )
+                    kode_unik = st.text_input("Kode Unik", value="", placeholder="Akan di-generate otomatis", disabled=True)
                 
-                posisi = st.text_input(
-                    "Posisi *",
-                    value=st.session_state.manual_posisi,
-                    key="manual_posisi_input",
-                    help="Masukkan posisi. Data divisi, department, user, dll akan auto-fill dari DB Kode Posisi"
-                )
+                posisi = st.text_input("Posisi *", value=st.session_state.manual_posisi, key="manual_posisi_input")
                 
-                # Direktorat input
                 default_direktorat = st.session_state.manual_direktorat
                 direktorat = st.selectbox(
                     "Direktorat *",
                     [""] + direktorat_options,
                     index=(direktorat_options.index(default_direktorat) + 1) if default_direktorat in direktorat_options else 0,
-                    key="manual_direktorat_input",
-                    help="Pilih direktorat. Data akan auto-fill dari DB Kode Posisi"
+                    key="manual_direktorat_input"
                 )
                 
-                # --- AUTO-FILL LOGIC ---
-                # Cek apakah posisi atau direktorat berubah
                 current_posisi = st.session_state.manual_posisi
                 current_direktorat = st.session_state.manual_direktorat
                 
-                # Update session state
                 if current_posisi != posisi or current_direktorat != direktorat:
                     st.session_state.manual_posisi = posisi
                     st.session_state.manual_direktorat = direktorat
-                    
                     if posisi:
                         position_data = get_position_details_cached(db, posisi, direktorat)
                         if position_data:
@@ -776,7 +800,6 @@ def show_upload_compile():
                         else:
                             st.session_state.manual_position_data = {}
                 
-                # Gunakan data dari position_data (baik dari cache maupun query)
                 position_data = st.session_state.manual_position_data
                 if position_data:
                     st.success(f"✅ Data posisi ditemukan di master: **{position_data.get('position')}**")
@@ -786,7 +809,6 @@ def show_upload_compile():
                     st.warning(f"⚠️ Posisi '{posisi}' belum ada di DB Kode Posisi")
                     st.caption("📌 Data akan otomatis ditambahkan ke master saat FPTK disimpan.")
                 
-                # Set nilai default dari position_data (bisa di-overwrite user)
                 default_bu = position_data.get("business_unit", "") if position_data else ""
                 default_divisi = position_data.get("division_chris", "") if position_data else ""
                 default_department = position_data.get("department_chris", "") if position_data else ""
@@ -808,7 +830,7 @@ def show_upload_compile():
                 level_fptk = st.selectbox("Level FPTK *", level_options, index=0)
                 
                 if level_fptk:
-                    match = re.search(r'(\d+)', level_fptk)
+                    match = re.search(r'^(\d+)', level_fptk)
                     level_number = int(match.group(1)) if match else 1
                 else:
                     level_number = 1
@@ -821,13 +843,7 @@ def show_upload_compile():
                 else:
                     st.text_input("Category FPTK (auto)", value="", disabled=True)
                 
-                pic_recruiter = st.text_input(
-                    "PIC Recruiter *",
-                    value=user_pic_name,
-                    disabled=True,
-                    help="Otomatis dari PIC yang login"
-                )
-                
+                pic_recruiter = st.text_input("PIC Recruiter *", value=user_pic_name, disabled=True)
                 vacancy = st.number_input("Vacancy *", min_value=1, value=1)
                 status = st.selectbox("Status *", status_options)
                 
@@ -907,7 +923,6 @@ def show_upload_compile():
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # CEK DUPLIKAT
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
@@ -971,9 +986,6 @@ def show_upload_compile():
                         if db.is_active:
                             db.rollback()
                         
-                        # ============================================================
-                        # ADD / UPDATE POSITION TO DB KODE POSISI (AUTO-FILL MASTER)
-                        # ============================================================
                         if posisi:
                             add_position_to_master(
                                 db,
@@ -1113,7 +1125,6 @@ def show_upload_compile():
                             st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
                             st.balloons()
                             st.cache_data.clear()
-                            # Clear session state agar form reset
                             st.session_state.manual_posisi = ""
                             st.session_state.manual_direktorat = ""
                             st.session_state.manual_position_data = {}
@@ -1126,7 +1137,7 @@ def show_upload_compile():
                         db.rollback()
     
     # ============================================================
-    # TAB 3: PASTE EMAIL BODY (DENGAN AUTO-FILL DB KODE POSISI)
+    # TAB 3: PASTE EMAIL BODY
     # ============================================================
     
     with tab3:
@@ -1136,12 +1147,7 @@ def show_upload_compile():
         if "parsed_email_data" not in st.session_state:
             st.session_state.parsed_email_data = {}
         
-        email_body = st.text_area(
-            "Paste Email Body di sini",
-            height=200,
-            placeholder="Copy paste isi email permintaan FPTK...",
-            key="email_body_input"
-        )
+        email_body = st.text_area("Paste Email Body di sini", height=200, placeholder="Copy paste isi email permintaan FPTK...", key="email_body_input")
         
         col1, col2 = st.columns([1, 5])
         with col1:
@@ -1153,7 +1159,6 @@ def show_upload_compile():
             with st.spinner("Memproses email..."):
                 parsed_data = parse_email_body(email_body, bu_options, alasan_options, category_options, direktorat_options)
                 st.session_state.parsed_email_data = parsed_data
-                
                 if parsed_data.get("posisi"):
                     st.success("✅ Email berhasil diparse! Data sudah terisi di form.")
                     st.rerun()
@@ -1168,23 +1173,18 @@ def show_upload_compile():
         
         if not parsed_data.get("pic_recruiter"):
             pic_mapping = get_pic_mapping()
-            
             for key, val in pic_mapping.items():
                 if val["name"].lower() == user_pic_name.lower():
                     user_pic_code = val["code"]
                     break
-            
             if not user_pic_code:
                 for key, val in pic_mapping.items():
                     if key == user.username.lower():
                         user_pic_code = val["code"]
                         break
-            
-            # JIKA ADMIN, PAKAI "ADM"
             if is_admin(db) and not user_pic_code:
                 user_pic_code = "ADM"
                 user_pic_name = "Admin"
-            
             parsed_data["pic_recruiter"] = user_pic_name or user.username
             parsed_data["kode_pic"] = user_pic_code or "ADM"
         
@@ -1195,37 +1195,15 @@ def show_upload_compile():
             col1, col2 = st.columns(2)
             
             with col1:
-                kode_pic = st.text_input(
-                    "Kode PIC",
-                    value=parsed_data.get("kode_pic", user_pic_code),
-                    disabled=True,
-                    help="Otomatis dari PIC yang login"
-                )
+                kode_pic = st.text_input("Kode PIC", value=parsed_data.get("kode_pic", user_pic_code), disabled=True)
                 
                 if is_admin(db):
-                    kode_unik = st.text_input(
-                        "Kode Unik",
-                        value=parsed_data.get("kode_unik", ""),
-                        placeholder="Admin: isi manual atau biarkan auto-generate",
-                        help="Admin bisa isi kode unik manual. Kosongkan untuk auto-generate."
-                    )
+                    kode_unik = st.text_input("Kode Unik", value=parsed_data.get("kode_unik", ""), placeholder="Admin: isi manual atau biarkan auto-generate")
                 else:
-                    kode_unik = st.text_input(
-                        "Kode Unik",
-                        value=parsed_data.get("kode_unik", ""),
-                        placeholder="Akan di-generate otomatis",
-                        disabled=True,
-                        help="Auto-generate dari Kode PIC + Posisi + Tanggal"
-                    )
+                    kode_unik = st.text_input("Kode Unik", value=parsed_data.get("kode_unik", ""), placeholder="Akan di-generate otomatis", disabled=True)
                 
-                posisi = st.text_input(
-                    "Posisi *",
-                    value=parsed_data.get("posisi", ""),
-                    key="email_posisi_input",
-                    help="Masukkan posisi. Data divisi, department, user, dll akan auto-fill dari DB Kode Posisi"
-                )
+                posisi = st.text_input("Posisi *", value=parsed_data.get("posisi", ""), key="email_posisi_input")
                 
-                # Direktorat
                 default_direktorat = parsed_data.get("direktorat", "")
                 direktorat = st.selectbox(
                     "Direktorat *",
@@ -1234,7 +1212,6 @@ def show_upload_compile():
                     key="email_direktorat_input"
                 )
                 
-                # --- AUTO-FILL LOGIC UNTUK EMAIL TAB ---
                 if posisi:
                     position_data = get_position_details_cached(db, posisi, direktorat)
                     if position_data:
@@ -1274,23 +1251,15 @@ def show_upload_compile():
                 department = st.text_input("Department *", value=default_department_email)
             
             with col2:
-                fptk_date = st.date_input(
-                    "FPTK Date (Real) *",
-                    parsed_data.get("fptk_date", datetime.now())
-                )
-                
-                level_options = get_level_options()
-                default_level = parsed_data.get("level_fptk", "1A")
-                if default_level not in level_options:
-                    default_level = "1A"
+                fptk_date = st.date_input("FPTK Date (Real) *", parsed_data.get("fptk_date", datetime.now()))
                 level_fptk = st.selectbox(
                     "Level FPTK *",
                     level_options,
-                    index=level_options.index(default_level) if default_level in level_options else 0
+                    index=level_options.index(parsed_data.get("level_fptk", "1A")) if parsed_data.get("level_fptk", "1A") in level_options else 0
                 )
                 
                 if level_fptk:
-                    match = re.search(r'(\d+)', level_fptk)
+                    match = re.search(r'^(\d+)', level_fptk)
                     level_number = int(match.group(1)) if match else 1
                 else:
                     level_number = 1
@@ -1310,19 +1279,8 @@ def show_upload_compile():
                     index=(category_options.index(default_category) + 1) if default_category in category_options else 0
                 )
                 
-                pic_recruiter = st.text_input(
-                    "PIC Recruiter *",
-                    value=parsed_data.get("pic_recruiter", user_pic_name),
-                    disabled=True,
-                    help="Otomatis dari PIC yang login"
-                )
-                
-                vacancy = st.number_input(
-                    "Vacancy *",
-                    min_value=1,
-                    value=parsed_data.get("vacancy", 1)
-                )
-                
+                pic_recruiter = st.text_input("PIC Recruiter *", value=parsed_data.get("pic_recruiter", user_pic_name), disabled=True)
+                vacancy = st.number_input("Vacancy *", min_value=1, value=parsed_data.get("vacancy", 1))
                 status = st.selectbox(
                     "Status *",
                     status_options,
@@ -1398,20 +1356,17 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
             
-            # GENERATE KODE UNIK
             if not kode_unik and kode_pic and posisi and fptk_date:
                 kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
                 if not kode_unik:
                     errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
             
-            # GENERATE KODE ANGKA
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
             
             if errors:
                 for err in errors:
                     st.error(f"❌ {err}")
             else:
-                # CEK DUPLIKAT
                 should_continue = True
                 fptk_date_kode_used = fptk_date
                 kode_unik_used = kode_unik
@@ -1493,9 +1448,6 @@ def show_upload_compile():
                         if db.is_active:
                             db.rollback()
                         
-                        # ============================================================
-                        # ADD / UPDATE POSITION TO DB KODE POSISI (AUTO-FILL MASTER)
-                        # ============================================================
                         if posisi:
                             add_position_to_master(
                                 db,
@@ -1573,143 +1525,3 @@ def show_upload_compile():
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
                         db.rollback()
-
-
-# ============================================================
-# FUNGSI PARSE EMAIL
-# ============================================================
-
-def parse_email_body(body: str, bu_options: list, alasan_options: list, category_options: list, direktorat_options: list) -> dict:
-    result = {
-        "posisi": "",
-        "alasan": "",
-        "business_unit": "",
-        "divisi": "",
-        "department": "",
-        "level_fptk": "1A",
-        "level_number": 1,
-        "lokasi_kerja": "",
-        "lokasi_hr": "",
-        "status_karyawan": "",
-        "vacancy": 1,
-        "pic_email": "",
-        "pic_recruiter": "",
-        "kode_pic": "",
-        "kode_bu": "",
-        "category": "",
-        "direktorat": "",
-        "nama_kandidat": "",
-        "user_manager": "",
-        "indirect_user": "",
-        "fptk_date": datetime.now(),
-        "kode_unik": "",
-        "remark": ""
-    }
-    
-    if not body:
-        return result
-    
-    text = body.replace('\r\n', '\n').replace('\r', '\n')
-    lines = text.split('\n')
-    
-    def find_field(field_names):
-        for i, line in enumerate(lines):
-            clean_line = line.strip()
-            for name in field_names:
-                if name.lower() in clean_line.lower():
-                    if ':' in clean_line:
-                        value = clean_line.split(':', 1)[1].strip()
-                        if value:
-                            return value
-                    if i + 1 < len(lines):
-                        next_line = lines[i + 1].strip()
-                        if next_line and not any(k in next_line.lower() for k in ["nama", "posisi", "alasan", "email"]):
-                            return next_line
-        return ""
-    
-    result["posisi"] = find_field(["Nama Jabatan Yang Dicari", "Jabatan Yang Dicari", "Position", "Posisi"])
-    result["alasan"] = find_field(["Alasan Permintaan FPTK", "Alasan FPTK"])
-    result["business_unit"] = find_field(["PT/Business Unit", "Business Unit", "PT / Business Unit"])
-    result["divisi"] = find_field(["Divisi"])
-    result["department"] = find_field(["Department", "Departemen"])
-    result["level_fptk"] = find_field(["Level Posisi", "Level FPTK", "Level"])
-    result["lokasi_kerja"] = find_field(["Lokasi Kerja"])
-    result["lokasi_hr"] = find_field(["Lokasi HR", "HR Location"])
-    result["status_karyawan"] = find_field(["Status Karyawan"])
-    result["vacancy"] = safe_int(find_field(["Jumlah Posisi Yang Dicari", "Jumlah Posisi", "Vacancy"])) or 1
-    result["pic_email"] = find_field(["Email PIC Rekruter", "PIC Rekruter", "Email PIC Recruiter"])
-    
-    if result["level_fptk"]:
-        match = re.search(r'(\d+)', result["level_fptk"])
-        if match:
-            result["level_number"] = int(match.group(1))
-            level_num = result["level_number"]
-            if 1 <= level_num <= 5:
-                result["level_fptk"] = f"{level_num}A"
-    else:
-        result["level_fptk"] = "1A"
-        result["level_number"] = 1
-    
-    pic_mapping = get_pic_mapping()
-    pic_found = False
-    
-    if result["pic_email"]:
-        email_lower = result["pic_email"].lower()
-        for key, value in pic_mapping.items():
-            if key in email_lower:
-                result["pic_recruiter"] = value["name"]
-                result["kode_pic"] = value["code"]
-                result["kode_bu"] = value["bu"]
-                pic_found = True
-                break
-    
-    if not pic_found:
-        body_lower = body.lower()
-        for key, value in pic_mapping.items():
-            if key in body_lower:
-                result["pic_recruiter"] = value["name"]
-                result["kode_pic"] = value["code"]
-                result["kode_bu"] = value["bu"]
-                pic_found = True
-                break
-    
-    alasan_lower = result["alasan"].lower()
-    if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
-        result["category"] = "REPLACEMENT"
-    elif "penambahan" in alasan_lower or "jabatan baru" in alasan_lower or "new" in alasan_lower:
-        result["category"] = "NEW"
-    else:
-        result["category"] = "REPLACEMENT"
-    
-    bu_mapping = get_bu_mapping()
-    bu_lower = result["business_unit"].lower()
-    for key, value in bu_mapping.items():
-        if key.lower() in bu_lower or value["nama"].lower() in bu_lower:
-            result["business_unit"] = value["nama"]
-            result["kode_bu"] = key
-            break
-    
-    if not result["kode_bu"] and result["kode_pic"]:
-        for key, value in pic_mapping.items():
-            if value["code"] == result["kode_pic"]:
-                result["kode_bu"] = value["bu"]
-                break
-    
-    if result["kode_bu"]:
-        bu_map = {
-            "CORP": "Corporate",
-            "MP": "Commercial MP",
-            "CMD": "Commercial CMD",
-            "JESS": "Commercial JESS",
-            "MS": "Commercial MS"
-        }
-        result["direktorat"] = bu_map.get(result["kode_bu"], "")
-    
-    if result["kode_pic"]:
-        date_code = datetime.now().strftime("%d%m%y")
-        posisi_code = ""
-        if result["posisi"]:
-            posisi_code = re.sub(r'[^A-Za-z]', '', result["posisi"])[:4].upper()
-        result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
-    
-    return result
