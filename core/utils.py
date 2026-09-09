@@ -119,6 +119,59 @@ def sanitize_date_value(val):
     return safe_date(val)
 
 # ============================================================
+# FUNGSI GET_SINGLE_VALUE - DIPERBAIKI
+# ============================================================
+
+def get_single_value(value):
+    """
+    Helper untuk mendapatkan nilai tunggal dari berbagai tipe data.
+    - Jika pd.Series, ambil nilai pertama
+    - Jika pd.DataFrame, ambil nilai pertama
+    - Jika list/tuple, ambil nilai pertama
+    - Jika None/NaN, return None
+    """
+    # Handle None
+    if value is None:
+        return None
+    
+    # Handle pandas Series
+    if isinstance(value, pd.Series):
+        if len(value) > 0:
+            val = value.iloc[0]
+            if pd.isna(val):
+                return None
+            return val
+        return None
+    
+    # Handle pandas DataFrame
+    if isinstance(value, pd.DataFrame):
+        if not value.empty:
+            val = value.iloc[0, 0] if value.shape[1] > 0 else None
+            if pd.isna(val):
+                return None
+            return val
+        return None
+    
+    # Handle list/tuple
+    if isinstance(value, (list, tuple)):
+        if len(value) > 0:
+            val = value[0]
+            if pd.isna(val):
+                return None
+            return val
+        return None
+    
+    # Handle NaN (pandas)
+    try:
+        if pd.isna(value):
+            return None
+    except:
+        # Jika pd.isna gagal, lanjutkan
+        pass
+    
+    return value
+
+# ============================================================
 # FUNGSI SLA
 # ============================================================
 
@@ -334,13 +387,3 @@ def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit
     db.commit()
     db.refresh(new_entry)
     return new_entry
-
-def get_single_value(value):
-    """
-    Helper untuk mendapatkan nilai tunggal dari pandas Series
-    """
-    if value is None:
-        return None
-    if isinstance(value, pd.Series):
-        return value.iloc[0] if len(value) > 0 else None
-    return value
