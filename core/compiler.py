@@ -482,3 +482,4 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             "errors": [str(e)],
             "warnings": warnings
         }
+      
