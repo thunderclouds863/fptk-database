@@ -461,7 +461,7 @@ def show_upload_compile():
                             continue
                         
                         # ============================================================
-                        # COMPILE FPTK (pake core/compiler.py)
+                        # COMPILE FPTK
                         # ============================================================
                         progress_placeholder.progress(20, text=f"Compile FPTK...")
                         file_hash = hashlib.sha256(file.getvalue()).hexdigest()
@@ -486,7 +486,71 @@ def show_upload_compile():
                             continue
                         
                         # ============================================================
-                        # COMPILE DB SOURCING (pake core/compiler.py)
+                        # COMPILE DB SOURCING (TAMBAHKAN INI!)
+                        # ============================================================
+                        try:
+                            with pd.ExcelFile(file) as xls:
+                                if "DB Sourcing" in xls.sheet_names:
+                                    progress_placeholder.progress(60, text=f"Compile DB Sourcing...")
+                                    dbs_df = pd.read_excel(file, sheet_name="DB Sourcing", header=0)
+                                    dbs_df = clean_dataframe(dbs_df)
+                                    
+                                    if dbs_df is not None and not dbs_df.empty:
+                                        # Validasi DB Sourcing
+                                        dbs_validated, dbs_errors = validate_db_sourcing_file(dbs_df, db, user.id)
+                                        
+                                        dbs_warnings = [e for e in dbs_errors if e.get("warning") == True]
+                                        dbs_real_errors = [e for e in dbs_errors if e.get("warning") != True and e.get("field") != "SUMMARY"]
+                                        
+                                        if dbs_warnings:
+                                            st.warning(f"⚠️ {file.name}: DB Sourcing - {len(dbs_warnings)} warning")
+                                            with st.expander(f"⚠️ DB Sourcing Warning Detail ({len(dbs_warnings)})", expanded=False):
+                                                for err in dbs_warnings:
+                                                    row = err.get("row", "?")
+                                                    field = err.get("field", "Unknown")
+                                                    value = err.get("value", "")
+                                                    error_msg = err.get("error", "")
+                                                    st.markdown(f"- **Row {row}** - {field}: `{value}` → {error_msg}")
+                                        
+                                        if dbs_real_errors:
+                                            st.warning(f"⚠️ {file.name}: DB Sourcing - {len(dbs_real_errors)} error (data mungkin tetap tersimpan)")
+                                            with st.expander(f"⚠️ DB Sourcing Error Detail ({len(dbs_real_errors)})", expanded=True):
+                                                for err in dbs_real_errors:
+                                                    if err.get("field") == "SUMMARY":
+                                                        st.warning(f"📌 {err.get('error', '')}")
+                                                        continue
+                                                    row = err.get("row", "?")
+                                                    field = err.get("field", "Unknown")
+                                                    value = err.get("value", "")
+                                                    error_msg = err.get("error", "")
+                                                    st.markdown(f"- **Row {row}** - {field}: `{value}` → {error_msg}")
+                                        
+                                        # Compile DB Sourcing (tetap jalankan meskipun ada warning)
+                                        if dbs_validated or not dbs_real_errors:
+                                            dbs_result = compile_db_sourcing(
+                                                db=db,
+                                                df=dbs_df,
+                                                user_id=user.id,
+                                                cycle_id=cycle.id,
+                                                file_name=file_name,
+                                                file_hash=file_hash
+                                            )
+                                            if dbs_result["success"]:
+                                                progress_placeholder.progress(75, text=f"✅ DB Sourcing: {dbs_result.get('imported', 0)} rows")
+                                                status_placeholder.info(f"✅ DB Sourcing: {dbs_result.get('imported', 0)} rows")
+                                            else:
+                                                st.warning(f"⚠️ {file.name}: DB Sourcing compile: {dbs_result.get('errors', [])}")
+                                        else:
+                                            st.warning(f"⚠️ {file.name}: DB Sourcing tidak di-compile karena error kritis")
+                                    else:
+                                        st.info(f"📭 {file.name}: DB Sourcing sheet kosong")
+                                else:
+                                    st.info(f"📭 {file.name}: DB Sourcing sheet tidak ditemukan")
+                        except Exception as e:
+                            st.warning(f"⚠️ {file.name}: DB Sourcing error: {str(e)}")
+                        
+                        # ============================================================
+                        # COMPILE DB KODE POSISI
                         # ============================================================
                         try:
                             with pd.ExcelFile(file) as xls:
