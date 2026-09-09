@@ -446,3 +446,37 @@ def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit
     db.commit()
     db.refresh(new_entry)
     return new_entry
+def normalize_boolean_to_vx(value):
+    """
+    Normalisasi nilai boolean ke 'V' atau 'X' saja.
+    - 'V' untuk LOLOS / Ya / True / Y / 1
+    - 'X' untuk TIDAK LULUS / Tidak / False / N / 0
+    - None untuk yang lain
+    """
+    if value is None:
+        return None
+    
+    if isinstance(value, bool):
+        return 'V' if value else 'X'
+    
+    if isinstance(value, (int, float)):
+        return 'V' if value else 'X'
+    
+    if isinstance(value, str):
+        v = value.strip().upper()
+        # Mapping ke V
+        if v in ['V', 'Y', 'YA', 'YES', 'TRUE', '1', 'LOLOS', 'LULUS']:
+            return 'V'
+        # Mapping ke X
+        if v in ['X', 'N', 'NO', 'FALSE', '0', 'TIDAK', 'GAGAL']:
+            return 'X'
+        # Fallback: ambil huruf pertama
+        if len(v) > 0:
+            first = v[0]
+            if first in ['V', 'Y']:
+                return 'V'
+            if first in ['X', 'N']:
+                return 'X'
+        return None
+    
+    return None
