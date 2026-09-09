@@ -4,7 +4,7 @@ from datetime import datetime, date, timedelta
 from typing import Tuple, List, Dict, Any, Optional
 
 from core.models import FPTK, DBSourcing, DBKodePosisi
-from core.utils import parse_date_dmy, safe_int, normalize_key, is_valid_email
+from core.utils import parse_date_dmy, safe_int, normalize_key, is_valid_email, get_single_value
 
 
 # ============================================================
@@ -43,7 +43,7 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
 
 
 # ============================================================
-# HELPER: GET SINGLE VALUE (SAFE)
+# HELPER: GET SINGLE VALUE (SAFE) - DIPERBAIKI
 # ============================================================
 
 def get_single_value_safe(value):
@@ -54,6 +54,7 @@ def get_single_value_safe(value):
     - Jika list/tuple, ambil nilai pertama
     - Jika None/NaN, return None
     """
+    # Handle None
     if value is None:
         return None
     
@@ -85,15 +86,14 @@ def get_single_value_safe(value):
         return None
     
     # Handle NaN
-    if pd.isna(value):
-        return None
+    try:
+        if pd.isna(value):
+            return None
+    except:
+        # Jika pd.isna gagal (misal karena value bukan scalar)
+        pass
     
     return value
-
-
-def get_single_value(value):
-    """Alias untuk get_single_value_safe"""
-    return get_single_value_safe(value)
 
 
 # ============================================================
@@ -195,8 +195,15 @@ def _is_valid_date(value) -> bool:
     # Get single value first
     value = get_single_value_safe(value)
     
-    if value is None or pd.isna(value):
+    if value is None:
         return False
+    
+    # Handle pandas Series/DataFrame case
+    try:
+        if pd.isna(value):
+            return False
+    except:
+        pass
     
     if isinstance(value, (datetime, pd.Timestamp, date)):
         return True
@@ -230,8 +237,15 @@ def parse_excel_date(value):
     """Parse Excel serial number menjadi date, atau parse string date"""
     value = get_single_value_safe(value)
     
-    if value is None or pd.isna(value):
+    if value is None:
         return None
+    
+    # Handle pandas Series/DataFrame case
+    try:
+        if pd.isna(value):
+            return None
+    except:
+        pass
     
     if isinstance(value, (datetime, pd.Timestamp, date)):
         return value.date() if hasattr(value, 'date') else value
@@ -256,8 +270,15 @@ def safe_level_fptk_from_string(value):
     """Ambil level_fptk dari string. VALID: 1A-5C"""
     value = get_single_value_safe(value)
     
-    if value is None or pd.isna(value):
+    if value is None:
         return None
+    
+    # Handle pandas Series/DataFrame case
+    try:
+        if pd.isna(value):
+            return None
+    except:
+        pass
     
     value_str = str(value).strip().upper()
     
@@ -286,8 +307,15 @@ def safe_level_number_from_string(value):
     """Ambil angka dari level_number"""
     value = get_single_value_safe(value)
     
-    if value is None or pd.isna(value):
+    if value is None:
         return None
+    
+    # Handle pandas Series/DataFrame case
+    try:
+        if pd.isna(value):
+            return None
+    except:
+        pass
     
     if isinstance(value, (int, float)):
         try:
@@ -717,7 +745,7 @@ def validate_fptk_file(
 
 
 # ============================================================
-# VALIDATE DB SOURCING FILE (DIPERBAIKI)
+# VALIDATE DB SOURCING FILE - DIPERBAIKI
 # ============================================================
 
 def validate_db_sourcing_file(
