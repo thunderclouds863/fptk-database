@@ -107,8 +107,15 @@ def safe_int_value(value, default=None):
     return default
 
 
+# ============================================================
+# GET BOOLEAN VALUE - DIPERBAIKI UNTUK MAX LENGTH 1
+# ============================================================
+
 def get_boolean_value(val):
-    """Convert to 'V' or 'X' or None."""
+    """
+    Convert to 'V' or 'X' or None.
+    Always returns a single character or None.
+    """
     if val is None:
         return None
     if isinstance(val, float) and math.isnan(val):
@@ -119,11 +126,28 @@ def get_boolean_value(val):
         return 'V' if val else 'X'
     if isinstance(val, str):
         v = val.strip().upper()
-        if v in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
+        # If string is longer than 1 character
+        if len(v) > 1:
+            # Check for boolean-like strings
+            if v in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
+                return 'V'
+            if v in ['X', 'N', 'NO', 'FALSE', '0']:
+                return 'X'
+            # Check first character
+            first_char = v[0]
+            if first_char in ['V', 'Y']:
+                return 'V'
+            if first_char in ['X', 'N']:
+                return 'X'
+            return None
+        # Single character
+        if v in ['V', 'Y']:
             return 'V'
-        if v in ['X', 'N', 'NO', 'FALSE', '0']:
+        if v in ['X', 'N']:
             return 'X'
         return None
+    if isinstance(val, pd.Series):
+        return get_boolean_value(val.iloc[0]) if len(val) > 0 else None
     return None
 
 
@@ -441,7 +465,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
 
 
 # ============================================================
-# COMPILE DB SOURCING - DIPERBAIKI DENGAN NaT HANDLING
+# COMPILE DB SOURCING - DIPERBAIKI DENGAN NaT HANDLING DAN BOOLEAN TRUNCATION
 # ============================================================
 
 def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
@@ -450,6 +474,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
     Compile DB Sourcing dari uploaded file.
     - TETAP SIMPAN data meskipun ada warning
     - NaT otomatis diganti dengan None atau date.today()
+    - Boolean fields di-truncate ke 1 karakter
     """
     from core.validator import validate_db_sourcing_file
     
@@ -462,11 +487,10 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
         db.rollback()
     
     # ============================================================
-    # VALIDASI - TAPI TIDAK LANGSUNG RETURN
+    # VALIDASI
     # ============================================================
     valid_rows, val_errors = validate_db_sourcing_file(df, db, user_id)
     
-    # Pisahkan warning dan error kritis
     critical_errors = []
     for err in val_errors:
         if err.get("warning", False):
@@ -503,31 +527,26 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
         nama = safe_string_for_db(row.get('nama', ''), max_length=255)
         
         # ============================================================
-        # PERBAIKAN: SOURCING DATE - DETEKSI NaT SECARA MANUAL
+        # SOURCING DATE - DETEKSI NaT
         # ============================================================
         sourcing_date_raw = row.get('sourcing_date')
         
-        # CEK NaT SECARA MANUAL
         is_nat = False
         if sourcing_date_raw is not None:
-            # Cek dengan pd.isna
             try:
                 if pd.isna(sourcing_date_raw):
                     is_nat = True
             except:
                 pass
             
-            # Cek class name
             if hasattr(sourcing_date_raw, '__class__'):
                 class_name = str(sourcing_date_raw.__class__)
                 if 'NaT' in class_name or 'nat' in class_name.lower():
                     is_nat = True
             
-            # Cek string
             if isinstance(sourcing_date_raw, str) and sourcing_date_raw.upper() == 'NAT':
                 is_nat = True
         
-        # Jika NaT, None, atau kosong → pakai tanggal hari ini
         if is_nat or sourcing_date_raw is None:
             sourcing_date = datetime.now().date()
             warnings.append({
@@ -538,7 +557,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 "error": f"Sourcing Date NaT/kosong, otomatis diisi {sourcing_date.strftime('%d/%m/%Y')}"
             })
         else:
-            # Coba parse
             try:
                 parsed = safe_date(sourcing_date_raw)
                 if parsed:
@@ -563,7 +581,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 })
         
         # ============================================================
-        # CEK KODE UNIK
+        # KODE UNIK
         # ============================================================
         if not kode_unik:
             kode_unik = f"UNKNOWN_{datetime.now().strftime('%Y%m%d%H%M%S')}_{idx}"
@@ -598,7 +616,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             tahun_lulus_val = safe_int_value(row.get('tahun_lulus'))
             ipk_val = safe_numeric_value(row.get('ipk'))
             
-            # String fields
+            # String fields dengan max_length yang sesuai
             posisi_val = safe_string_for_db(row.get('posisi'), max_length=255)
             model_rekrutmen_val = safe_string_for_db(row.get('model_rekrutmen'), max_length=100)
             rekruter_val = safe_string_for_db(row.get('rekruter'), max_length=100)
@@ -618,9 +636,11 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             last_tenure_val = safe_string_for_db(row.get('last_tenure'), max_length=50)
             total_tenure_val = safe_string_for_db(row.get('total_tenure'), max_length=50)
             pernah_di_fmcg_val = safe_string_for_db(row.get('pernah_di_fmcg'), max_length=10)
-            sourcing_freelance_val = safe_string_for_db(row.get('sourcing_freelance'), max_length=3)
             
-            # Boolean fields
+            # ============================================================
+            # BOOLEAN FIELDS - PAKAI get_boolean_value (sudah di-truncate ke 1 char)
+            # ============================================================
+            sourcing_freelance_val = get_boolean_value(row.get('sourcing_freelance'))
             sourcing_hr_val = get_boolean_value(row.get('sourcing_hr'))
             shortlist_cv_val = get_boolean_value(row.get('shortlist_cv'))
             psikotes_val = get_boolean_value(row.get('psikotes'))
@@ -628,9 +648,14 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             user_interview_val = get_boolean_value(row.get('user_interview'))
             offering_val = get_boolean_value(row.get('offering'))
             day1_val = get_boolean_value(row.get('day1'))
+            technical_test_case_study_val = get_boolean_value(row.get('technical_test_case_study'))
+            market_visit_val = get_boolean_value(row.get('market_visit'))
+            panel_interview_val = get_boolean_value(row.get('panel_interview'))
+            reference_check_val = get_boolean_value(row.get('reference_check'))
+            mcu_val = get_boolean_value(row.get('mcu'))
             
             # ============================================================
-            # DATE FIELDS - PAKAI safe_date_fallback
+            # DATE FIELDS
             # ============================================================
             tanggal_sourcing_freelance = safe_date_fallback(row.get('tanggal_sourcing_freelance'))
             tanggal_sourcing = safe_date_fallback(row.get('tanggal_sourcing'))
@@ -665,23 +690,18 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             disc_val = safe_string_for_db(row.get('disc'), max_length=20)
             
             # Technical test
-            technical_test_case_study_val = get_boolean_value(row.get('technical_test_case_study'))
             detail_keterangan_technical_test = safe_string_for_db(row.get('detail_keterangan_technical_test'), max_length=500)
             
             # Market visit
-            market_visit_val = get_boolean_value(row.get('market_visit'))
             detail_market_visit = safe_string_for_db(row.get('detail_market_visit'), max_length=500)
             
             # Panel interview
-            panel_interview_val = get_boolean_value(row.get('panel_interview'))
             detail_keterangan_panel_interview = safe_string_for_db(row.get('detail_keterangan_panel_interview'), max_length=500)
             
             # Reference check
-            reference_check_val = get_boolean_value(row.get('reference_check'))
             detail_keterangan_reference_check = safe_string_for_db(row.get('detail_keterangan_reference_check'), max_length=500)
             
             # MCU
-            mcu_val = get_boolean_value(row.get('mcu'))
             detail_keterangan_mcu = safe_string_for_db(row.get('detail_keterangan_mcu'), max_length=500)
             
             # Blacklist
