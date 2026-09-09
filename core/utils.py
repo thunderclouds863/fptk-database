@@ -138,8 +138,11 @@ def get_single_value(value):
     if isinstance(value, pd.Series):
         if len(value) > 0:
             val = value.iloc[0]
-            if pd.isna(val):
-                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except:
+                pass
             return val
         return None
     
@@ -147,8 +150,11 @@ def get_single_value(value):
     if isinstance(value, pd.DataFrame):
         if not value.empty:
             val = value.iloc[0, 0] if value.shape[1] > 0 else None
-            if pd.isna(val):
-                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except:
+                pass
             return val
         return None
     
@@ -156,17 +162,20 @@ def get_single_value(value):
     if isinstance(value, (list, tuple)):
         if len(value) > 0:
             val = value[0]
-            if pd.isna(val):
-                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except:
+                pass
             return val
         return None
     
-    # Handle NaN (pandas)
+    # Handle NaN (pandas) - dengan try/except untuk menghindari error
     try:
         if pd.isna(value):
             return None
     except:
-        # Jika pd.isna gagal, lanjutkan
+        # Jika pd.isna gagal (misal karena value bukan scalar), lanjutkan
         pass
     
     return value
@@ -235,8 +244,14 @@ def determine_category_fptk(alasan: str) -> str:
         return "REPLACEMENT"
         
 def _ensure_date(value):
-    if value is None or pd.isna(value):
+    if value is None:
         return None
+    
+    try:
+        if pd.isna(value):
+            return None
+    except:
+        pass
     
     if isinstance(value, date):
         return value
