@@ -62,8 +62,11 @@ def get_single_value_safe(value):
     if isinstance(value, pd.Series):
         if len(value) > 0:
             val = value.iloc[0]
-            if pd.isna(val):
-                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except:
+                pass
             return val
         return None
     
@@ -71,8 +74,11 @@ def get_single_value_safe(value):
     if isinstance(value, pd.DataFrame):
         if not value.empty:
             val = value.iloc[0, 0] if value.shape[1] > 0 else None
-            if pd.isna(val):
-                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except:
+                pass
             return val
         return None
     
@@ -80,17 +86,19 @@ def get_single_value_safe(value):
     if isinstance(value, (list, tuple)):
         if len(value) > 0:
             val = value[0]
-            if pd.isna(val):
-                return None
+            try:
+                if pd.isna(val):
+                    return None
+            except:
+                pass
             return val
         return None
     
-    # Handle NaN
+    # Handle NaN (pandas) - dengan try/except
     try:
         if pd.isna(value):
             return None
     except:
-        # Jika pd.isna gagal (misal karena value bukan scalar)
         pass
     
     return value
@@ -198,7 +206,6 @@ def _is_valid_date(value) -> bool:
     if value is None:
         return False
     
-    # Handle pandas Series/DataFrame case
     try:
         if pd.isna(value):
             return False
@@ -240,7 +247,6 @@ def parse_excel_date(value):
     if value is None:
         return None
     
-    # Handle pandas Series/DataFrame case
     try:
         if pd.isna(value):
             return None
@@ -273,7 +279,6 @@ def safe_level_fptk_from_string(value):
     if value is None:
         return None
     
-    # Handle pandas Series/DataFrame case
     try:
         if pd.isna(value):
             return None
@@ -310,7 +315,6 @@ def safe_level_number_from_string(value):
     if value is None:
         return None
     
-    # Handle pandas Series/DataFrame case
     try:
         if pd.isna(value):
             return None
@@ -745,7 +749,7 @@ def validate_fptk_file(
 
 
 # ============================================================
-# VALIDATE DB SOURCING FILE - DIPERBAIKI
+# VALIDATE DB SOURCING FILE - DIPERBAIKI DENGAN WARNING UNTUK SOURCING DATE
 # ============================================================
 
 def validate_db_sourcing_file(
@@ -756,7 +760,7 @@ def validate_db_sourcing_file(
     """
     Validasi file DB Sourcing
     - Kode Unik BOLEH kosong (warning)
-    - Kode Unik TIDAK HARUS ada di FPTK
+    - Sourcing Date: WARNING (bukan error) jika kosong
     - TIDAK ADA CEK DUPLIKAT Kode Unik
     """
     errors = []
@@ -858,9 +862,12 @@ def validate_db_sourcing_file(
             df.rename(columns={col: rename_map[col]}, inplace=True)
     
     valid_models = ["Model 1", "Model 2", "Model 3", "Model 4"]
+    
+    # TAMBAHKAN "Google Form RWC" KE DAFTAR VALID SUMBER
     valid_sumber = [
         "Jobstreet", "LinkedIn", "Google Form", 
-        "Referensi User", "Referensi Karyawan", "Campus Hiring"
+        "Referensi User", "Referensi Karyawan", "Campus Hiring",
+        "Google Form RWC"  # ← TAMBAHKAN INI
     ]
     valid_sumber_lower = [s.lower() for s in valid_sumber]
     
@@ -879,8 +886,6 @@ def validate_db_sourcing_file(
                 "error": "Kode Unik kosong, data tetap akan disimpan",
                 "expected": "Kode Unik yang terdaftar di FPTK (opsional)"
             })
-        # ✅ TIDAK ADA CEK DUPLIKAT
-        # ✅ TIDAK ADA CEK FPTK
         
         # NAMA - ERROR (WAJIB)
         nama = get_single_value(row.get("nama"))
@@ -893,21 +898,23 @@ def validate_db_sourcing_file(
                 "expected": "Nama kandidat"
             })
         
-        # SOURCING DATE - ERROR (WAJIB)
+        # SOURCING DATE - UBAH DARI ERROR MENJADI WARNING
         sourcing_date = get_single_value(row.get("sourcing_date"))
         if sourcing_date is None or pd.isna(sourcing_date) or str(sourcing_date).strip() == "":
             row_errors.append({
                 "row": row_num,
                 "field": "Sourcing Date",
                 "value": sourcing_date,
-                "error": "Sourcing Date tidak boleh kosong",
-                "expected": "Format tanggal yang valid"
+                "warning": True,  # ← WARNING, BUKAN ERROR
+                "error": "Sourcing Date kosong, data tetap akan disimpan",
+                "expected": "Format tanggal yang valid (opsional)"
             })
         elif not _is_valid_date(sourcing_date):
             row_errors.append({
                 "row": row_num,
                 "field": "Sourcing Date",
                 "value": sourcing_date,
+                "warning": True,  # ← WARNING, BUKAN ERROR
                 "error": f"Format Sourcing Date '{sourcing_date}' tidak valid",
                 "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
             })
