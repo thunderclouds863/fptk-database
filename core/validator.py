@@ -141,7 +141,6 @@ def _is_valid_date(value) -> bool:
     if pd.isna(value):
         return False
     
-    # PERBAIKAN: Handle jika value adalah pandas Series
     if isinstance(value, pd.Series):
         if len(value) > 0:
             value = value.iloc[0]
@@ -181,7 +180,6 @@ def parse_excel_date(value):
     if pd.isna(value):
         return None
     
-    # PERBAIKAN: Handle jika value adalah pandas Series
     if isinstance(value, pd.Series):
         if len(value) > 0:
             value = value.iloc[0]
@@ -212,7 +210,6 @@ def safe_level_fptk_from_string(value):
     if value is None or pd.isna(value):
         return None
     
-    # PERBAIKAN: Handle jika value adalah pandas Series
     if isinstance(value, pd.Series):
         if len(value) > 0:
             value = value.iloc[0]
@@ -247,7 +244,6 @@ def safe_level_number_from_string(value):
     if value is None or pd.isna(value):
         return None
     
-    # PERBAIKAN: Handle jika value adalah pandas Series
     if isinstance(value, pd.Series):
         if len(value) > 0:
             value = value.iloc[0]
@@ -384,7 +380,6 @@ def validate_fptk_file(
     for idx, row in df.iterrows():
         row_num = idx + 2
 
-        # PERBAIKAN: Ambil nilai tunggal dari setiap kolom
         kode_angka = get_single_value(row.get("kode_angka"))
         kode_pic = get_single_value(row.get("kode_pic"))
         fptk_date = get_single_value(row.get("fptk_date_real"))
@@ -473,7 +468,6 @@ def validate_fptk_file(
                 df.at[idx, 'fptk_date_kode'] = parsed_kode
                 fptk_date_kode = parsed_kode
         
-        # KODE UNIK - TIDAK VALIDASI FORMAT, HANYA CEK DUPLIKAT
         if pd.isna(kode_unik) or str(kode_unik).strip() == "":
             if kode_pic and kode_angka and fptk_date_kode:
                 kode_unik_baru = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
@@ -538,7 +532,6 @@ def validate_fptk_file(
                 "expected": "Nama Direktorat yang valid"
             })
         
-        # LEVEL FPTK - SUPPORT A/B/C
         if pd.isna(level) or str(level).strip() == "":
             errors.append({
                 "row": row_num,
@@ -694,7 +687,7 @@ def validate_fptk_file(
 
 
 # ============================================================
-# VALIDATE DB SOURCING FILE (DIPERBAIKI)
+# VALIDATE DB SOURCING FILE
 # ============================================================
 
 def validate_db_sourcing_file(
@@ -720,9 +713,6 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
-    # ============================================================
-    # REQUIRED COLUMNS MAPPING (DIPERLUAS)
-    # ============================================================
     required_mappings = {
         "kode_unik": [
             "Kode Unik", "Kode UNIK", "Unique Code", 
@@ -782,9 +772,6 @@ def validate_db_sourcing_file(
         "day1": ["Day 1", "Day1", "Hari Pertama"],
     }
     
-    # ============================================================
-    # FIND COLUMN MAPPING
-    # ============================================================
     all_mappings = {**required_mappings, **optional_mappings}
     column_mapping = find_column_mapping(df, all_mappings)
     
@@ -804,7 +791,6 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
-    # Rename columns
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
@@ -820,11 +806,9 @@ def validate_db_sourcing_file(
     ]
     valid_sumber_lower = [s.lower() for s in valid_sumber]
     
-    # ============================================================
-    # VALIDATE EACH ROW
-    # ============================================================
     for idx, row in df.iterrows():
-        row_num = idx + 2        row_errors = []
+        row_num = idx + 2
+        row_errors = []
         
         # KODE UNIK - TIDAK ADA CEK FPTK, hanya warning jika kosong
         kode_unik = row.get("kode_unik")
@@ -833,7 +817,7 @@ def validate_db_sourcing_file(
                 "row": row_num,
                 "field": "Kode Unik",
                 "value": kode_unik,
-                "warning": True,  # ⚠️ WARNING, BUKAN ERROR
+                "warning": True,
                 "error": "Kode Unik kosong, data tetap akan disimpan",
                 "expected": "Kode Unik yang terdaftar di FPTK (opsional)"
             })
@@ -953,9 +937,6 @@ def validate_db_sourcing_file(
         
         errors.extend(row_errors)
     
-    # ============================================================
-    # PISAHKAN WARNING DAN CRITICAL ERRORS
-    # ============================================================
     warnings = [e for e in errors if e.get("warning", False)]
     critical_errors = [e for e in errors if not e.get("warning", False)]
     
@@ -968,7 +949,6 @@ def validate_db_sourcing_file(
         if warning_count > 0:
             summary_msg += f" (plus {warning_count} warning)"
         
-        # Hapus SUMMARY lama jika ada
         errors = [e for e in errors if e.get("field") != "SUMMARY"]
         errors.insert(0, {
             "row": 0,
@@ -979,12 +959,11 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
-    # ✅ Jika hanya ada warning, tetap return True
     return True, warnings
 
 
 # ============================================================
-# VALIDATE DB KODE POSISI FILE (DIPERBAIKI)
+# VALIDATE DB KODE POSISI FILE
 # ============================================================
 
 def validate_db_kode_posisi_file(
@@ -1005,14 +984,11 @@ def validate_db_kode_posisi_file(
         })
         return False, errors
     
-    # ============================================================
-    # REQUIRED COLUMNS MAPPING (DIPERLUAS)
-    # ============================================================
     required_mappings = {
         "position": ["POSITION", "Position", "Posisi"],
         "kode": [
             "KODE", "Kode", "Kode Angka",
-            "Kode Angka (tidak pakai tanda petik ')",  # TAMBAHKAN
+            "Kode Angka (tidak pakai tanda petik ')",
             "KODE ANGKA", "ID", "Kode ID"
         ],
     }
@@ -1028,9 +1004,6 @@ def validate_db_kode_posisi_file(
         "year": ["YEAR", "Year", "Tahun"],
     }
     
-    # ============================================================
-    # FIND COLUMN MAPPING
-    # ============================================================
     all_mappings = {**required_mappings, **optional_mappings}
     column_mapping = find_column_mapping(df, all_mappings)
     
@@ -1050,7 +1023,6 @@ def validate_db_kode_posisi_file(
         })
         return False, errors
     
-    # Rename columns
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
@@ -1059,9 +1031,6 @@ def validate_db_kode_posisi_file(
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
     
-    # ============================================================
-    # VALIDATE EACH ROW
-    # ============================================================
     for idx, row in df.iterrows():
         row_num = idx + 2
         
@@ -1098,3 +1067,4 @@ def validate_db_kode_posisi_file(
         return False, errors
     
     return True, []
+    
