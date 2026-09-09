@@ -635,24 +635,36 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             last_company_val = safe_string_for_db(row.get('last_company'), max_length=255)
             last_tenure_val = safe_string_for_db(row.get('last_tenure'), max_length=50)
             total_tenure_val = safe_string_for_db(row.get('total_tenure'), max_length=50)
-            pernah_di_fmcg_val = safe_string_for_db(row.get('pernah_di_fmcg'), max_length=10)
+            raw_fmcg = row.get('pernah_di_fmcg')
+            if raw_fmcg and isinstance(raw_fmcg, str):
+                v = raw_fmcg.strip().upper()
+                if v in ['YA', 'Y', 'YES', 'TRUE', '1']:
+                    pernah_di_fmcg_val = 'Ya'
+                elif v in ['TIDAK', 'N', 'NO', 'FALSE', '0']:
+                    pernah_di_fmcg_val = 'Tidak'
+                else:
+                    pernah_di_fmcg_val = safe_string_for_db(raw_fmcg, max_length=50)
+            else:
+                pernah_di_fmcg_val = safe_string_for_db(raw_fmcg, max_length=50)
             
             # ============================================================
             # BOOLEAN FIELDS - PAKAI get_boolean_value (sudah di-truncate ke 1 char)
             # ============================================================
-            sourcing_freelance_val = get_boolean_value(row.get('sourcing_freelance'))
-            sourcing_hr_val = get_boolean_value(row.get('sourcing_hr'))
-            shortlist_cv_val = get_boolean_value(row.get('shortlist_cv'))
-            psikotes_val = get_boolean_value(row.get('psikotes'))
-            hr_interview_val = get_boolean_value(row.get('hr_interview'))
-            user_interview_val = get_boolean_value(row.get('user_interview'))
-            offering_val = get_boolean_value(row.get('offering'))
-            day1_val = get_boolean_value(row.get('day1'))
-            technical_test_case_study_val = get_boolean_value(row.get('technical_test_case_study'))
-            market_visit_val = get_boolean_value(row.get('market_visit'))
-            panel_interview_val = get_boolean_value(row.get('panel_interview'))
-            reference_check_val = get_boolean_value(row.get('reference_check'))
-            mcu_val = get_boolean_value(row.get('mcu'))
+            from core.utils import normalize_boolean_to_vx
+            
+            sourcing_freelance_val = normalize_boolean_to_vx(row.get('sourcing_freelance'))
+            sourcing_hr_val = normalize_boolean_to_vx(row.get('sourcing_hr'))
+            shortlist_cv_val = normalize_boolean_to_vx(row.get('shortlist_cv'))
+            psikotes_val = normalize_boolean_to_vx(row.get('psikotes'))
+            hr_interview_val = normalize_boolean_to_vx(row.get('hr_interview'))
+            user_interview_val = normalize_boolean_to_vx(row.get('user_interview'))
+            offering_val = normalize_boolean_to_vx(row.get('offering'))
+            day1_val = normalize_boolean_to_vx(row.get('day1'))
+            technical_test_case_study_val = normalize_boolean_to_vx(row.get('technical_test_case_study'))
+            market_visit_val = normalize_boolean_to_vx(row.get('market_visit'))
+            panel_interview_val = normalize_boolean_to_vx(row.get('panel_interview'))
+            reference_check_val = normalize_boolean_to_vx(row.get('reference_check'))
+            mcu_val = normalize_boolean_to_vx(row.get('mcu'))
             
             # ============================================================
             # DATE FIELDS
