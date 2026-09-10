@@ -467,22 +467,57 @@ def show_upload_compile():
                         file_hash = hashlib.sha256(file.getvalue()).hexdigest()
                         file_name = sanitize_filename(file.name)
                         
-                        fptk_result = compile_fptk(
-                            db=db,
-                            rows_or_df=df,
-                            user_id=user.id,
-                            cycle_id=cycle.id,
-                            file_name=file_name,
-                            file_bytes=file.getvalue(),
-                            is_sto=is_sto
-                        )
+                        result = compile_fptk(db, df, user.id, cycle.id, file_name, file_bytes, is_sto)
                         
-                        if fptk_result["success"]:
-                            progress_placeholder.progress(40, text=f"✅ FPTK: {fptk_result.get('imported',0)} imported, {fptk_result.get('updated',0)} updated")
-                            status_placeholder.info(f"✅ FPTK: {fptk_result.get('imported',0)} imported, {fptk_result.get('updated',0)} updated")
+                        if result.get("success"):
+                            imported = result.get("imported", 0)
+                            updated = result.get("updated", 0)
+                            st.success(f"✅ {file.name}: Berhasil diproses (Imported: {imported}, Updated: {updated})")
+                        
                         else:
-                            st.error(f"❌ {file.name}: FPTK compile gagal: {fptk_result.get('errors', [])}")
-                            error_count += 1
+                            # Cek tipe rejection
+                            rejection_type = result.get("rejection_type", "")
+                            errors = result.get("errors", [])
+                            
+                            if rejection_type == "DUPLICATE":
+                                # Pesan khusus untuk duplikat
+                                dup_count = result.get("duplicate_count", 0)
+                                
+                                st.error(f"📛 **File `{file.name}` DITOLAK**")
+                                st.warning(
+                                    f"File ini punya **{dup_count} baris duplikat** — "
+                                    f"artinya ada 2 baris atau lebih dengan **Kode Unik + Posisi yang sama**.\n\n"
+                                    f"**Cara benerin:**\n"
+                                    f"1. Buka file Excel-nya\n"
+                                    f"2. Cari baris yang Kode Unik + Posisinya sama (biasanya di-copy 2x)\n"
+                                    f"3. Hapus salah satu\n"
+                                    f"4. Upload ulang file-nya"
+                                )
+                                
+                                # Detail duplikat dalam expander
+                                with st.expander("🔍 Lihat detail baris yang duplikat"):
+                                    dup_details = result.get("duplicate_details", [])
+                                    for i, dup in enumerate(dup_details[:50], 1):
+                                        st.markdown(
+                                            f"**{i}.** Kode Unik: `{dup['kode_unik']}`  \n"
+                                            f"     Posisi: {dup['posisi']}  \n"
+                                            f"     Baris ke-{dup['first_row']} dan ke-{dup['duplicate_row']}"
+                                        )
+                                    if len(dup_details) > 50:
+                                        st.caption(f"... dan {len(dup_details) - 50} duplikat lainnya")
+                            
+                            else:
+                                # Error umum (bukan duplikat) → pesan generik
+                                st.error(f"📛 **File `{file.name}` DITOLAK**")
+                                st.warning(
+                                    "File ini tidak bisa diproses. Silakan periksa kembali isinya."
+                                )
+                                
+                                with st.expander("🔍 Detail Teknis (untuk admin)"):
+                                    for err in errors[:20]:
+                                        st.code(err)
+                            
+                            total_errors += 1
                             continue
                         
                         # ============================================================
