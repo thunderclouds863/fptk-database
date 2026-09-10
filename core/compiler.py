@@ -1,5 +1,3 @@
-# core/compiler.py
-
 import pandas as pd
 import math
 import re
@@ -212,6 +210,29 @@ def _get_kode_bu(kode_pic):
         return 'HO'
     return None
 
+def translate_error_to_friendly(error_msg: str) -> str:
+    """Terjemahkan error teknis ke bahasa manusia."""
+    error_lower = str(error_msg).lower()
+    
+    if "duplicate key" in error_lower or "cardinality" in error_lower:
+        return "Ada data duplikat di file. Cek baris dengan Kode Unik + Posisi yang sama."
+    
+    if "not null constraint" in error_lower or "null value in column" in error_lower:
+        return "Ada kolom wajib yang kosong. Cek kembali kolom yang bertanda * (wajib)."
+    
+    if "value too long" in error_lower or "string data right truncation" in error_lower:
+        return "Ada teks yang terlalu panjang di salah satu kolom. Persingkat teksnya."
+    
+    if "invalid input syntax" in error_lower and "date" in error_lower:
+        return "Ada format tanggal yang salah. Pastikan format DD/MM/YYYY (contoh: 15/02/2026)."
+    
+    if "check constraint" in error_lower:
+        return "Ada nilai yang tidak sesuai aturan. Cek kolom Status (OP/Closed/Cancel) dan FPTK Availability (V/X)."
+    
+    if "foreign key" in error_lower:
+        return "Data referensi tidak ditemukan. Pastikan Kode Unik sudah ada di FPTK."
+    
+    return "Terjadi kesalahan saat memproses file. Hubungi admin jika masalah berlanjut."
 
 # ============================================================
 # COMPILE FPTK - BULK UPSERT (SELF-CONTAINED)
