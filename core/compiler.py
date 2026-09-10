@@ -787,7 +787,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             
             if no_val is None or no_val < 0:
                 no_val = imported + updated + 1
-            elif no_val > 2147483647:  # INTEGER max PostgreSQL
+            elif no_val > 2147483647: 
                 no_val = imported + updated + 1
                 warnings.append({
                     "row": row_num,
@@ -803,7 +803,41 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 if tahun_lulus_val < 1900 or tahun_lulus_val > 2100:
                     tahun_lulus_val = None
             
-            ipk_val = safe_numeric_value(row.get('ipk'))
+            ipk_raw = row.get('ipk')
+            ipk_val = safe_numeric_value(ipk_raw)
+            
+            if ipk_val is not None:
+                if ipk_val < 0:
+                    # Negatif, invalid
+                    ipk_val = None
+                    warnings.append({
+                        "row": row_num,
+                        "field": "IPK",
+                        "value": ipk_raw,
+                        "warning": True,
+                        "error": f"IPK {ipk_raw} negatif, di-set None"
+                    })
+                elif ipk_val > 4 and ipk_val <= 100:
+                    # Kemungkinan format persen (0-100) → konversi ke GPA (0-4)
+                    original = ipk_val
+                    ipk_val = round(ipk_val / 25, 2)
+                    warnings.append({
+                        "row": row_num,
+                        "field": "IPK",
+                        "value": ipk_raw,
+                        "warning": True,
+                        "error": f"IPK {original} terdeteksi sebagai persen, dikonversi ke GPA: {ipk_val}"
+                    })
+                elif ipk_val > 100:
+                    # Di atas 100, invalid
+                    ipk_val = None
+                    warnings.append({
+                        "row": row_num,
+                        "field": "IPK",
+                        "value": ipk_raw,
+                        "warning": True,
+                        "error": f"IPK {ipk_raw} tidak valid (> 100), di-set None"
+                    })
             
             # String fields dengan max_length yang sesuai
             posisi_val = safe_string_for_db(row.get('posisi'), max_length=255)
