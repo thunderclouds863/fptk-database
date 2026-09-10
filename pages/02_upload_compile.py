@@ -467,21 +467,20 @@ def show_upload_compile():
                         progress_placeholder.progress(20, text=f"Compile FPTK...")
                         file_hash = hashlib.sha256(file.getvalue()).hexdigest()
                         file_name = sanitize_filename(file.name)
+                        file_bytes = file.getvalue()   # ✅ FIX: define file_bytes
                         
                         result = compile_fptk(db, df, user.id, cycle.id, file_name, file_bytes, is_sto)
+                        
+                        rejection_type = result.get("rejection_type", "")   # ✅ FIX: pindah ke sini
                         
                         if result.get("success"):
                             imported = result.get("imported", 0)
                             updated = result.get("updated", 0)
                             st.success(f"✅ {file.name}: Berhasil diproses (Imported: {imported}, Updated: {updated})")
-                        
-                        rejection_type = result.get("rejection_type", "")
-
                         else:
                             errors = result.get("errors", [])
                             
                             if rejection_type == "DUPLICATE":
-                                # Kasus duplikat - pesan custom
                                 dup_count = result.get("duplicate_count", 0)
                                 st.error(f"📛 **File `{file.name}` DITOLAK**")
                                 st.warning(
@@ -501,28 +500,24 @@ def show_upload_compile():
                                             f"     Posisi: {dup['posisi']}  \n"
                                             f"     Baris ke-{dup['first_row']} dan ke-{dup['duplicate_row']}"
                                         )
-                            
                             else:
-                                # ✅ DI SINI PAKAI translate_error_to_friendly
                                 st.error(f"📛 **File `{file.name}` DITOLAK**")
                                 
-                                # Terjemahkan error pertama ke bahasa manusia
                                 if errors:
                                     friendly_msg = translate_error_to_friendly(str(errors[0]))
                                     st.warning(friendly_msg)
                                 else:
                                     st.warning("File tidak bisa diproses. Cek kembali isinya.")
                                 
-                                # Detail teknis disembunyikan (admin only)
                                 with st.expander("🔍 Detail Teknis (untuk admin)"):
                                     for err in errors[:20]:
                                         st.code(str(err))
                             
-                            total_errors += 1
+                            error_count += 1   # ✅ FIX: ganti total_errors → error_count
                             continue
                         
                         # ============================================================
-                        # COMPILE DB SOURCING (TAMBAHKAN INI!)
+                        # COMPILE DB SOURCING
                         # ============================================================
                         try:
                             with pd.ExcelFile(file) as xls:
@@ -532,7 +527,6 @@ def show_upload_compile():
                                     dbs_df = clean_dataframe(dbs_df)
                                     
                                     if dbs_df is not None and not dbs_df.empty:
-                                        # Validasi DB Sourcing
                                         dbs_validated, dbs_errors = validate_db_sourcing_file(dbs_df, db, user.id)
                                         
                                         dbs_warnings = [e for e in dbs_errors if e.get("warning") == True]
@@ -561,7 +555,6 @@ def show_upload_compile():
                                                     error_msg = err.get("error", "")
                                                     st.markdown(f"- **Row {row}** - {field}: `{value}` → {error_msg}")
                                         
-                                        # Compile DB Sourcing (tetap jalankan meskipun ada warning)
                                         if dbs_validated or not dbs_real_errors:
                                             dbs_result = compile_db_sourcing(
                                                 db=db,
@@ -1610,4 +1603,3 @@ def parse_email_body(body: str, bu_options: list, alasan_options: list, category
         result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
     
     return result
-
