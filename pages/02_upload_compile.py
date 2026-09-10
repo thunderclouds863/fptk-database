@@ -1610,3 +1610,4 @@ def parse_email_body(body: str, bu_options: list, alasan_options: list, category
         result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
     
     return result
+
