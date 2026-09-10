@@ -6,6 +6,7 @@ import datetime
 import hashlib
 import re
 
+
 # ============================================================
 # BU CODE MAPPING
 # ============================================================
@@ -18,6 +19,26 @@ BU_CODE_MAPPING = {
 }
 
 
+# ============================================================
+# HELPER: INVALIDATE FILTER CACHE
+# ============================================================
+
+def invalidate_filter_cache():
+    """
+    Helper untuk invalidate cache filter options.
+    Dipanggil setiap ada perubahan user / master dropdown.
+    """
+    try:
+        from core.utils import get_filter_options_from_db
+        get_filter_options_from_db.clear()
+    except Exception:
+        pass
+
+
+# ============================================================
+# PASSWORD FUNCTIONS
+# ============================================================
+
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
@@ -26,6 +47,10 @@ def hash_password(password: str) -> str:
 def verify_password(password: str, password_hash: str) -> bool:
     return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
 
+
+# ============================================================
+# AUTHENTICATION
+# ============================================================
 
 def authenticate_user(db: Session, username: str, password: str):
     user = db.query(User).filter(User.username == username).first()
@@ -53,6 +78,17 @@ def login_user(db: Session, username: str, password: str):
     return None
 
 
+@st.cache_data(ttl=60)
+def login_user_cached(db, username, password):
+    """Cached version of login_user"""
+    from core.auth import login_user
+    return login_user(db, username, password)
+
+
+# ============================================================
+# KODE PIC GENERATOR
+# ============================================================
+
 def generate_kode_pic(business_unit: str, pic_name: str) -> str:
     """
     Generate Kode PIC dari BU dan Nama PIC
@@ -66,7 +102,11 @@ def generate_kode_pic(business_unit: str, pic_name: str) -> str:
     return f"{business_unit}{name_code}"
 
 
-def create_user(db: Session, username: str, password: str, role: str = "user", 
+# ============================================================
+# USER CRUD
+# ============================================================
+
+def create_user(db: Session, username: str, password: str, role: str = "user",
                 pic_recruiter: str = None, display_name: str = None,
                 business_unit: str = None, kode_pic: str = None):
     if db.query(User).filter(User.username == username).first():
@@ -85,6 +125,12 @@ def create_user(db: Session, username: str, password: str, role: str = "user",
     db.add(user)
     db.commit()
     db.refresh(user)
+
+    # ============================================================
+    # INVALIDATE FILTER CACHE (PIC baru harus muncul di filter)
+    # ============================================================
+    invalidate_filter_cache()
+
     return user
 
 
@@ -98,6 +144,10 @@ def reset_password(db: Session, user_id: int, new_password: str):
     db.commit()
     return True
 
+
+# ============================================================
+# INIT DEFAULT USERS
+# ============================================================
 
 def init_default_users(db: Session):
     """Create 25+ PIC users + 1 Admin + 1 IT if not exist"""
@@ -119,31 +169,31 @@ def init_default_users(db: Session):
         ("yeremia", "Yeremia", "Yeremia", "CORP", "CORPYer"),
         ("zwei", "Zwei", "Zwei", "CORP", "CORPZwei"),
         ("desi", "Desi", "Desi", "CORP", "CORPDesi"),
-        
+
         # ===== MP (Macroprima Panganutama) =====
         ("pauline", "Pauline", "Pauline", "MP", "MPPau"),
         ("ratih", "Ratih", "Ratih", "MP", "MPRat"),
         ("achmad", "Achmad", "Achmad", "MP", "MPAch"),
         ("kasanah", "Kasanah", "Kasanah", "MP", "MPKas"),
         ("alma", "Alma", "Alma", "MP", "MPAlm"),
-        
+
         # ===== CMD (Cisarua Mountain Dairy) =====
         ("salwa", "Salwa", "Salwa", "CMD", "CMDSal"),
         ("elsi", "Elsi", "Elsi", "CMD", "CMDEls"),
         ("wahyu", "Wahyu", "Wahyu", "CMD", "CMDWah"),
-        
+
         # ===== JESS (Java Egg Specialities) =====
         ("riska", "Riska", "Riska", "JESS", "JESSRis"),
         ("fiscall", "Fiscall", "Fiscall", "JESS", "JESSFis"),
-        
+
         # ===== MS (Macrosentra Niagaboga) =====
         ("leo", "Leo", "Leo", "MS", "MSLeo"),
     ]
-    
+
     for username, display_name, pic_name, bu, kode in pic_users:
         if not db.query(User).filter(User.username == username).first():
             create_user(db, username, "password123", "user", pic_name, display_name, bu, kode)
-    
+
     # ===== ADMIN =====
     if not db.query(User).filter(User.username == "admin").first():
         admin = User(
@@ -158,12 +208,33 @@ def init_default_users(db: Session):
         db.add(admin)
         db.commit()
 
+    # ===== IT (View-Only) =====
+    if not db.query(User).filter(User.username == "it").first():
+        it_user = User(
+            username="it",
+            password_hash=hash_password("it12345"),
+            role="it",
+            display_name="IT Support",
+            pic_recruiter="IT",
+            business_unit="CORP",
+            kode_pic="IT001"
+        )
+        db.add(it_user)
+        db.commit()
+
+    # Invalidate cache setelah seed
+    invalidate_filter_cache()
+
+
+# ============================================================
+# INIT MASTER DROPDOWN
+# ============================================================
 
 def init_master_dropdown(db: Session):
     """Seed default master data jika kosong"""
     if db.query(MasterDropdown).count() > 0:
         return  # sudah ada data
-    
+
     default_data = [
         {"kode_pic": "CORPPau", "bu": "PT CISARUA MOUNTAIN DAIRY, TBK", "alasan": "Karyawan Lama Keluar", "category_fptk": "NEW", "pic_recruiter": "Pauline", "filter_fptk": "CLAP FGDP", "status": "OP", "lokasi_onboarding": "HO Meruya", "detail_sla": "OP belum lewat SLA", "keterangan_0": "Area minim sumber daya", "keterangan_1": "Kandidat hasil referensi User", "keterangan_cancel": "Keterangan FPTK tidak sesuai kebutuhan", "nama_direktorat": "CEO Office", "model": "Model 1", "sumber_sourcing": "Jobstreet", "jenjang_pendidikan": "SMA/SMK", "nama_universitas_top10": "Universitas Indonesia", "jurusan": "IPA", "university_tier": "Top 3 PTN", "ipk_tier": "Lebih dari 3,5"},
         {"kode_pic": "CORPKar", "bu": "PT MACROSENTRA NIAGABOGA", "alasan": "Penambahan Personil", "category_fptk": "REPLACEMENT", "pic_recruiter": "Karin", "filter_fptk": "Level 1-2", "status": "Closed", "lokasi_onboarding": "Semarang", "detail_sla": "OP tidak lulus SLA", "keterangan_0": "User tidak responsif", "keterangan_1": "Talent pool besar", "keterangan_cancel": "FPTK diisi dengan karyawan mutasi/promosi", "nama_direktorat": "CEO, Corsec, & Investor Relation", "model": "Model 2", "sumber_sourcing": "LinkedIn", "jenjang_pendidikan": "D3", "nama_universitas_top10": "Universitas Gadjah Mada", "jurusan": "IPS", "university_tier": "Top 10 PTN", "ipk_tier": "Lebih dari 3,2"},
@@ -185,13 +256,20 @@ def init_master_dropdown(db: Session):
         {"kode_pic": "MSLeo", "bu": "", "alasan": "", "category_fptk": "", "pic_recruiter": "Leo", "filter_fptk": "", "status": "", "lokasi_onboarding": "", "detail_sla": "", "keterangan_0": "", "keterangan_1": "", "keterangan_cancel": "", "nama_direktorat": "", "model": "", "sumber_sourcing": "", "jenjang_pendidikan": "", "nama_universitas_top10": "Lainnya", "jurusan": "Bisnis Digital", "university_tier": "", "ipk_tier": ""},
         {"kode_pic": "JESSFis", "bu": "", "alasan": "", "category_fptk": "", "pic_recruiter": "Fiscall", "filter_fptk": "", "status": "", "lokasi_onboarding": "", "detail_sla": "", "keterangan_0": "", "keterangan_1": "", "keterangan_cancel": "", "nama_direktorat": "", "model": "", "sumber_sourcing": "", "jenjang_pendidikan": "", "nama_universitas_top10": "Lainnya", "jurusan": "Bisnis Internasional", "university_tier": "", "ipk_tier": ""},
     ]
-    
+
     for data in default_data:
         master = MasterDropdown(**data)
         db.add(master)
-    
+
     db.commit()
 
+    # Invalidate cache setelah seed master dropdown
+    invalidate_filter_cache()
+
+
+# ============================================================
+# CURRENT USER & ROLE HELPERS
+# ============================================================
 
 def get_current_user(db: Session):
     """Ambil user yang sedang login dari session state"""
@@ -217,7 +295,7 @@ def is_editor(db: Session) -> bool:
     user = get_current_user(db)
     if not user:
         return False
-    return user.role in ["admin", "user"] 
+    return user.role in ["admin", "user"]
 
 
 def can_edit_data(db: Session) -> bool:
@@ -232,15 +310,13 @@ def login_required():
         st.stop()
 
 
+# ============================================================
+# UTILITY FUNCTIONS
+# ============================================================
+
 def hash_file(file_data: bytes) -> str:
     return hashlib.sha256(file_data).hexdigest()
 
 
 def sanitize_filename(filename: str) -> str:
     return re.sub(r'[^a-zA-Z0-9_.-]', '_', filename)
-
-@st.cache_data(ttl=60)  
-def login_user_cached(db, username, password):
-    """Cached version of login_user"""
-    from core.auth import login_user
-    return login_user(db, username, password)
