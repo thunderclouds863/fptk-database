@@ -4,7 +4,11 @@ import re
 from sqlalchemy.orm import Session
 from core.database import get_db
 from core.models import User, FPTK, DBSourcing, UploadLog, UploadStatus, AuditLog, Evidence
-from core.auth import get_current_user, is_admin, is_it, create_user, reset_password, hash_password
+from core.auth import (
+    get_current_user, is_admin, is_it, create_user, reset_password,
+    hash_password, invalidate_filter_cache
+)
+from core.utils import get_filter_options_from_db
 from datetime import datetime
 
 
@@ -31,9 +35,24 @@ def generate_kode_pic(business_unit: str, pic_name: str) -> str:
     """
     if not business_unit or not pic_name:
         return ""
-    # Ambil 3 huruf pertama dari nama (hapus spasi, karakter aneh)
     name_code = re.sub(r'[^A-Za-z]', '', pic_name)[:3].capitalize()
     return f"{business_unit}{name_code}"
+
+
+# ============================================================
+# HELPER: REFRESH FILTER SETELAH PERUBAHAN USER
+# ============================================================
+
+def refresh_filter_cache():
+    """Clear cache filter options supaya PIC baru muncul."""
+    try:
+        get_filter_options_from_db.clear()
+    except Exception:
+        pass
+    try:
+        invalidate_filter_cache()
+    except Exception:
+        pass
 
 
 # ============================================================
@@ -42,7 +61,7 @@ def generate_kode_pic(business_unit: str, pic_name: str) -> str:
 @st.dialog("⚠️ HAPUS USER PERMANEN")
 def confirm_delete_user(user_id: int, username: str):
     st.error(f"⚠️ **PERINGATAN!** Anda akan menghapus user **{username}** secara **PERMANEN**!")
-    
+
     st.markdown("""
     ### Data yang akan ikut terhapus:
     - ✅ Semua FPTK milik user ini
@@ -51,14 +70,14 @@ def confirm_delete_user(user_id: int, username: str):
     - ✅ Semua Upload Logs milik user ini
     - ✅ Semua Audit Logs milik user ini
     """)
-    
+
     st.warning("⚠️ **TINDAKAN INI TIDAK DAPAT DIBATALKAN!**")
-    
+
     confirm_username = st.text_input(
         f"Ketik username **{username}** untuk konfirmasi:",
         placeholder=f"Ketik {username} di sini"
     )
-    
+
     col1, col2 = st.columns(2)
     with col1:
         if st.button("🗑️ Ya, Hapus Permanen", type="primary", use_container_width=True):
@@ -67,38 +86,31 @@ def confirm_delete_user(user_id: int, username: str):
                 try:
                     admin_count = db.query(User).filter(User.role == "admin").count()
                     user_check = db.query(User).filter(User.id == user_id).first()
-                    
+
                     if user_check.role == "admin" and admin_count <= 1:
                         st.error("❌ Tidak bisa menghapus admin terakhir!")
                         db.close()
                         st.stop()
-                    
+
                     # Hapus semua data terkait
-                    fptk_count = db.query(FPTK).filter(FPTK.source_user_id == user_id).count()
                     db.query(FPTK).filter(FPTK.source_user_id == user_id).delete(synchronize_session=False)
-                    
-                    sourcing_count = db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).count()
                     db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).delete(synchronize_session=False)
-                    
-                    log_count = db.query(UploadLog).filter(UploadLog.user_id == user_id).count()
                     db.query(UploadLog).filter(UploadLog.user_id == user_id).delete(synchronize_session=False)
-                    
-                    status_count = db.query(UploadStatus).filter(UploadStatus.user_id == user_id).count()
                     db.query(UploadStatus).filter(UploadStatus.user_id == user_id).delete(synchronize_session=False)
-                    
-                    audit_count = db.query(AuditLog).filter(AuditLog.user_id == user_id).count()
                     db.query(AuditLog).filter(AuditLog.user_id == user_id).delete(synchronize_session=False)
-                    
+
                     db.delete(user_check)
                     db.commit()
-                    
+
                     # ============================================================
-                    # CLEAR CACHE + RERUN UNTUK REFRESH INSTAN
+                    # REFRESH FILTER CACHE (PIC yang dihapus hilang dari filter)
                     # ============================================================
+                    refresh_filter_cache()
                     st.cache_data.clear()
+
                     st.success(f"✅ User **{username}** berhasil dihapus permanen!")
                     st.rerun()
-                    
+
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")
                     db.rollback()
@@ -106,7 +118,7 @@ def confirm_delete_user(user_id: int, username: str):
                     db.close()
             else:
                 st.error(f"❌ Username tidak cocok! Ketik **{username}** dengan benar.")
-    
+
     with col2:
         if st.button("❌ Batal", use_container_width=True):
             st.cache_data.clear()
@@ -131,7 +143,13 @@ def confirm_deactivate_user(user_id: int, username: str):
                     user.username = f"inactive_{user.username}_{datetime.now().strftime('%Y%m%d')}"
                     user.password_hash = "DISABLED"
                     db.commit()
+
+                    # ============================================================
+                    # REFRESH FILTER CACHE
+                    # ============================================================
+                    refresh_filter_cache()
                     st.cache_data.clear()
+
                     st.success(f"✅ User '{username}' berhasil dinonaktifkan!")
                     st.rerun()
                 else:
@@ -146,6 +164,7 @@ def confirm_deactivate_user(user_id: int, username: str):
         if st.button("❌ Batal", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
+
 
 # ============================================================
 # DIALOG AKTIFKAN USER
@@ -174,7 +193,13 @@ def confirm_activate_user(user_id: int, username: str):
                         user.username = original
                     user.password_hash = hash_password("password123")
                     db.commit()
+
+                    # ============================================================
+                    # REFRESH FILTER CACHE (PIC kembali muncul di filter)
+                    # ============================================================
+                    refresh_filter_cache()
                     st.cache_data.clear()
+
                     st.success(f"✅ User '{username}' berhasil diaktifkan! Password: **password123**")
                     st.rerun()
                 else:
@@ -205,12 +230,10 @@ def edit_user_dialog(user_id: int):
 
     is_active = not user.username.startswith("inactive_")
 
-    # Current values
     current_bu = user.business_unit or "CORP"
     current_kode = user.kode_pic or ""
     current_pic = user.pic_recruiter or user.display_name or ""
 
-    # Cari index BU
     bu_index = 0
     for i, b in enumerate(BU_OPTIONS):
         if b["value"] == current_bu:
@@ -225,9 +248,6 @@ def edit_user_dialog(user_id: int):
             new_display = st.text_input("Display Name", value=user.display_name or "")
             new_pic = st.text_input("PIC Recruiter *", value=current_pic)
         with col2:
-            # ============================================================
-            # ROLE DROPDOWN - SUPPORT "it"
-            # ============================================================
             role_options = ["user", "admin", "it"]
             current_role_index = role_options.index(user.role) if user.role in role_options else 0
             new_role = st.selectbox("Role", role_options, index=current_role_index)
@@ -240,7 +260,6 @@ def edit_user_dialog(user_id: int):
 
         col1, col2 = st.columns(2)
         with col1:
-            # BU dropdown
             selected_bu_label = st.selectbox(
                 "Business Unit *",
                 [b["label"] for b in BU_OPTIONS],
@@ -249,21 +268,18 @@ def edit_user_dialog(user_id: int):
             new_bu = [b["value"] for b in BU_OPTIONS if b["label"] == selected_bu_label][0]
 
         with col2:
-            # Kode PIC - admin bisa override manual
             manual_kode = st.text_input(
                 "Kode PIC (kosongkan untuk auto-generate)",
                 value=current_kode,
                 placeholder="Biarkan kosong untuk auto dari BU + Nama"
             )
 
-        # Auto-generate preview
         if not manual_kode and new_pic and new_bu:
             auto_kode = generate_kode_pic(new_bu, new_pic)
             st.info(f"📋 Preview Kode PIC otomatis: **{auto_kode}**")
         elif manual_kode:
             st.info(f"📋 Kode PIC manual: **{manual_kode}**")
 
-        # Info role
         if new_role == "it":
             st.info("🔍 Role **IT** = View-Only Admin (bisa lihat semua menu admin tapi TIDAK bisa upload/edit/aksi apa pun)")
         elif new_role == "admin":
@@ -287,14 +303,12 @@ def edit_user_dialog(user_id: int):
                 st.stop()
 
             try:
-                # Cek duplikat username
                 if new_username != user.username:
                     existing = db.query(User).filter(User.username == new_username).first()
                     if existing and existing.id != user_id:
                         st.error(f"Username '{new_username}' sudah digunakan!")
                         st.stop()
 
-                # Tentukan Kode PIC final
                 final_kode = manual_kode.strip() if manual_kode else None
                 if not final_kode and new_pic and new_bu:
                     final_kode = generate_kode_pic(new_bu, new_pic)
@@ -311,7 +325,13 @@ def edit_user_dialog(user_id: int):
                     user.password_hash = hash_password(new_password)
 
                 db.commit()
+
+                # ============================================================
+                # REFRESH FILTER CACHE (PIC yang diubah langsung update di filter)
+                # ============================================================
+                refresh_filter_cache()
                 st.cache_data.clear()
+
                 st.success(f"✅ User '{new_username}' berhasil diupdate!")
                 st.rerun()
             except Exception as e:
@@ -444,7 +464,6 @@ def show_user_management():
                         confirm_activate_user(selected_id, selected_data.username)
 
             with col4:
-                # Tombol HAPUS - tersedia untuk semua user (aktif maupun nonaktif)
                 if st.button("🗑️ Hapus", use_container_width=True, type="secondary"):
                     confirm_delete_user(selected_id, selected_data.username)
 
@@ -454,7 +473,6 @@ def show_user_management():
                 else:
                     st.error("⛔ Nonaktif")
 
-            # Tampilkan detail BU & Kode PIC user yang dipilih
             with st.expander("📋 Detail User Terpilih", expanded=True):
                 col1, col2 = st.columns(2)
                 with col1:
@@ -486,7 +504,6 @@ def show_user_management():
                 new_display = st.text_input("Display Name *", placeholder="Nama tampilan")
                 new_pic_name = st.text_input("PIC Recruiter *", placeholder="Nama PIC (contoh: Pauline)")
             with col2:
-                # Pilih BU
                 selected_bu_label = st.selectbox(
                     "Business Unit *",
                     [b["label"] for b in BU_OPTIONS],
@@ -494,14 +511,12 @@ def show_user_management():
                 )
                 new_bu = [b["value"] for b in BU_OPTIONS if b["label"] == selected_bu_label][0]
 
-                # Auto-generate preview kode PIC
                 if new_pic_name and new_bu:
                     auto_kode = generate_kode_pic(new_bu, new_pic_name)
                     st.text_input("Preview Kode PIC (auto)", value=auto_kode, disabled=True)
                 else:
                     st.text_input("Preview Kode PIC (auto)", value="", disabled=True, placeholder="Isi BU dan PIC")
 
-            # Info role
             if new_role == "it":
                 st.info("🔍 Role **IT** = View-Only Admin (bisa lihat semua menu admin tapi TIDAK bisa upload/edit/aksi apa pun)")
             elif new_role == "admin":
@@ -524,7 +539,6 @@ def show_user_management():
                     for err in errors:
                         st.error(f"❌ {err}")
                 else:
-                    # Auto-generate kode PIC
                     auto_kode = generate_kode_pic(new_bu, new_pic_name)
                     result = create_user(
                         db,
@@ -537,6 +551,12 @@ def show_user_management():
                         auto_kode
                     )
                     if result:
+                        # ============================================================
+                        # REFRESH FILTER CACHE (PIC baru langsung muncul di filter)
+                        # ============================================================
+                        refresh_filter_cache()
+                        st.cache_data.clear()
+
                         st.success(f"✅ User '{new_username}' berhasil dibuat! Kode PIC: {auto_kode}")
                         st.rerun()
                     else:
@@ -558,7 +578,6 @@ def show_user_management():
         user_count = len([u for u in users if u.role == "user"])
         it_count = len([u for u in users if u.role == "it"])
         active_count = len([u for u in users if not u.username.startswith("inactive_")])
-        # Statistik per BU
         bu_stats = {}
         for u in users:
             bu = u.business_unit or "Unknown"
@@ -574,7 +593,6 @@ def show_user_management():
     col4.metric("IT", it_count)
     col5.metric("Aktif", active_count)
 
-    # Statistik per BU
     if bu_stats:
         st.markdown("**Distribusi User per Business Unit:**")
         bu_df = pd.DataFrame([{"BU": k, "Jumlah": v} for k, v in bu_stats.items()])
