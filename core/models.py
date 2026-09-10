@@ -104,7 +104,11 @@ class FPTK(Base):
     lokasi_hr = Column(String(100))
     status_karyawan = Column(String(50))
     kode_bu = Column(String(20), index=True)
-    fptk_availability = Column(String(1), CheckConstraint("fptk_availability IN ('Y', 'N')"))
+    fptk_availability = Column(
+        String(1),
+        CheckConstraint("fptk_availability IN ('V', 'X', 'Y', 'N')"),
+        nullable=True
+    )
     remark = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_updated_at = Column(TIMESTAMP)
