@@ -4,6 +4,7 @@ import pandas as pd
 import math
 import re
 import hashlib
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, date
 from core.models import (
