@@ -2,6 +2,7 @@ import pandas as pd
 import math
 import re
 import hashlib
+import logging
 from sqlalchemy.orm import Session
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from datetime import datetime, timedelta, date
@@ -210,6 +211,7 @@ def _get_kode_bu(kode_pic):
         return 'HO'
     return None
 
+
 def translate_error_to_friendly(error_msg: str) -> str:
     """Terjemahkan error teknis ke bahasa manusia."""
     error_lower = str(error_msg).lower()
@@ -233,6 +235,7 @@ def translate_error_to_friendly(error_msg: str) -> str:
         return "Data referensi tidak ditemukan. Pastikan Kode Unik sudah ada di FPTK."
     
     return "Terjadi kesalahan saat memproses file. Hubungi admin jika masalah berlanjut."
+
 
 # ============================================================
 # COMPILE FPTK - BULK UPSERT (SELF-CONTAINED)
@@ -575,8 +578,9 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             "errors": [error_msg]
         }
 
+
 # ============================================================
-# COMPILE DB SOURCING - DIPERBAIKI DENGAN NaT HANDLING DAN BOOLEAN TRUNCATION
+# COMPILE DB SOURCING - DIPERBAIKI
 # ============================================================
 
 def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
@@ -586,6 +590,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
     - TETAP SIMPAN data meskipun ada warning
     - NaT otomatis diganti dengan None atau date.today()
     - Boolean fields di-truncate ke 1 karakter
+    - Kolom sudah di-rename oleh validator in-place
     """
     from core.validator import validate_db_sourcing_file
     
@@ -598,7 +603,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
         db.rollback()
     
     # ============================================================
-    # VALIDASI
+    # VALIDASI (validator rename kolom df IN-PLACE)
     # ============================================================
     valid_rows, val_errors = validate_db_sourcing_file(df, db, user_id)
     
@@ -628,9 +633,61 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             "warnings": warnings
         }
     
-    if isinstance(valid_rows, pd.DataFrame):
-        df = valid_rows.copy()
+    # ============================================================
+    # ✅ FIX: PASTIKAN kolom yang dibutuhkan SUDAH ADA
+    # Validator sudah rename in-place, tapi kita double-check
+    # ============================================================
     
+    # Cek kolom 'kode_unik'
+    if 'kode_unik' not in df.columns:
+        for col in df.columns:
+            col_str = str(col).strip().lower()
+            if col_str in ['kode unik', 'kode_unik', 'kodeunik', 'unique code',
+                          'kode unik (copy value dari fptk)']:
+                df.rename(columns={col: 'kode_unik'}, inplace=True)
+                break
+    
+    # Cek kolom 'nama'
+    if 'nama' not in df.columns:
+        for col in df.columns:
+            col_str = str(col).strip().lower()
+            if col_str in ['nama', 'nama kandidat', 'name', 'nama lengkap',
+                          'candidate name', 'nama pelamar']:
+                df.rename(columns={col: 'nama'}, inplace=True)
+                break
+    
+    # Cek kolom 'sourcing_date'
+    if 'sourcing_date' not in df.columns:
+        for col in df.columns:
+            col_str = str(col).strip().lower()
+            if col_str in ['sourcing date', 'sourcing_date', 'tanggal sourcing',
+                          'tanggal input', 'tgl sourcing']:
+                df.rename(columns={col: 'sourcing_date'}, inplace=True)
+                break
+    
+    # Debug log
+    logging.warning(f"[DB Sourcing Compile] Kolom yang tersedia: {list(df.columns)}")
+    
+    # Kalau 'kode_unik' masih tidak ada, langsung gagalkan dengan pesan jelas
+    if 'kode_unik' not in df.columns:
+        db.rollback()
+        error_msg = (
+            f"❌ Kolom 'Kode Unik' TIDAK DITEMUKAN di file DB Sourcing!\n\n"
+            f"Kolom yang ada: {list(df.columns)}\n\n"
+            f"Pastikan file DB Sourcing Anda memiliki kolom bernama 'Kode Unik'."
+        )
+        logging.error(error_msg)
+        return {
+            "success": False,
+            "imported": 0,
+            "updated": 0,
+            "errors": [error_msg],
+            "warnings": warnings
+        }
+    
+    # ============================================================
+    # LOOP ROWS
+    # ============================================================
     for idx, row in df.iterrows():
         row_num = idx + 2
         
@@ -692,7 +749,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 })
         
         # ============================================================
-        # KODE UNIK
+        # KODE UNIK - FALLBACK kalau kosong
         # ============================================================
         if not kode_unik:
             kode_unik = f"UNKNOWN_{datetime.now().strftime('%Y%m%d%H%M%S')}_{idx}"
@@ -759,7 +816,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 pernah_di_fmcg_val = safe_string_for_db(raw_fmcg, max_length=50)
             
             # ============================================================
-            # BOOLEAN FIELDS - PAKAI get_boolean_value (sudah di-truncate ke 1 char)
+            # BOOLEAN FIELDS
             # ============================================================
             from core.utils import normalize_boolean_to_vx
             
