@@ -247,10 +247,12 @@ def safe_date_fallback(value):
 # COMPILE FPTK
 # ============================================================
 
-def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
-                 file_name: str, file_bytes: bytes, is_sto: bool = False):
+def compile_fptk_bulk_chunked(db: Session, rows_or_df, user_id: int, cycle_id: int,
+                               file_name: str, file_bytes: bytes, is_sto: bool = False,
+                               chunk_size: int = 500):
     """
-    Compile FPTK dari rows (list of dict) atau DataFrame.
+    Compile FPTK dengan BULK UPSERT + CHUNKING.
+    Cocok untuk file dengan 5000+ row.
     """
     if isinstance(rows_or_df, list):
         df = pd.DataFrame(rows_or_df)
@@ -259,210 +261,159 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
 
     file_hash = hashlib.sha256(file_bytes).hexdigest() if file_bytes else ""
 
-    imported = 0
-    updated = 0
-    skipped = 0
-    errors = []
-
     if df.empty:
-        return {"success": False, "imported": 0, "updated": 0, "skipped": 0, "errors": ["Tidak ada data valid"]}
+        return {"success": False, "imported": 0, "updated": 0, "skipped": 0,
+                "errors": ["Tidak ada data valid"]}
+
+    # ============================================================
+    # PREPARE ALL ROWS
+    # ============================================================
+    rows_to_upsert = []
+    skipped = 0
 
     for idx, row in df.iterrows():
-        row_num = idx + 2
-
-        kode_unik = safe_string_for_db(row.get('kode_unik', ''), max_length=100)
-        posisi = safe_string_for_db(row.get('posisi', ''), max_length=500)
-        status = safe_string_for_db(row.get('status', ''), max_length=50)
-
-        fptk_date_real = safe_date(row.get('fptk_date_real'))
-        offering_date = safe_date(row.get('offering_date'))
-        fptk_cancel_date = safe_date(row.get('fptk_cancel_date'))
-        deadline_sla_input = safe_date(row.get('deadline_sla'))
-
-        if not kode_unik or not posisi:
-            skipped += 1
-            continue
-
-        existing = db.query(FPTK).filter(
-            FPTK.kode_unik == kode_unik,
-            FPTK.posisi == posisi
-        ).first()
-
-        raw_level_number = row.get('level_number')
-        level_num = safe_level_number(raw_level_number)
-        
-        if level_num == 1:
-            raw_level_fptk = row.get('level_fptk')
-            if raw_level_fptk:
-                match = re.search(r'(\d+)', str(raw_level_fptk))
-                if match:
-                    num = int(match.group(1))
-                    if 1 <= num <= 5:
-                        level_num = num
-
-        raw_level_fptk = row.get('level_fptk')
-        level_fptk = safe_level_fptk(raw_level_fptk)
-        
-        if level_fptk == "1A" and level_num > 1:
-            level_fptk = f"{level_num}A"
-
-        sla_days = calculate_sla_days(level_num)
-
-        if fptk_date_real:
-            if isinstance(fptk_date_real, date):
-                deadline_sla = fptk_date_real + timedelta(days=sla_days)
-            elif isinstance(fptk_date_real, datetime):
-                deadline_sla = fptk_date_real.date() + timedelta(days=sla_days)
-            else:
-                deadline_sla = deadline_sla_input
-        else:
-            deadline_sla = deadline_sla_input
-
-        if deadline_sla and isinstance(deadline_sla, datetime):
-            deadline_sla = deadline_sla.date()
-        if offering_date and isinstance(offering_date, datetime):
-            offering_date = offering_date.date()
-        if fptk_cancel_date and isinstance(fptk_cancel_date, datetime):
-            fptk_cancel_date = fptk_cancel_date.date()
-        if fptk_date_real and isinstance(fptk_date_real, datetime):
-            fptk_date_real = fptk_date_real.date()
-
-        detail_sla = calculate_detail_sla(
-            status=status,
-            deadline_sla=deadline_sla,
-            offering_date=offering_date
+        row_data = _prepare_fptk_row_data(
+            row=row, user_id=user_id, cycle_id=cycle_id,
+            file_name=file_name, file_hash=file_hash, is_sto=is_sto,
         )
+        if row_data:
+            rows_to_upsert.append(row_data)
+        else:
+            skipped += 1
 
-        week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
-        month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
-        kode_bu = safe_string_for_db(row.get('kode_pic', ''), max_length=50)[:4] if row.get('kode_pic') else ''
+    if not rows_to_upsert:
+        return {"success": False, "imported": 0, "updated": 0, "skipped": skipped,
+                "errors": ["Tidak ada row valid untuk di-compile"]}
 
-        filter_kat = safe_string_for_db(row.get('filter_kategorisasi_fptk', ''), max_length=100)
-        
-        posisi_lower = posisi.lower()
-        if not filter_kat:
-            if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
-                filter_kat = 'CLAP FGDP'
-            elif level_num in [1, 2]:
-                filter_kat = 'Level 1-2'
-            elif level_num == 3:
-                filter_kat = 'Level 3'
-            elif level_num == 4:
-                filter_kat = 'Level 4'
+    # ============================================================
+    # DETEKSI IMPORTED vs UPDATED (1x query)
+    # ============================================================
+    keys_in_file = [(r['kode_unik'], r['posisi']) for r in rows_to_upsert]
 
-        avail = get_boolean_value(row.get('fptk_availability', ''))
+    existing_records = db.query(FPTK.kode_unik, FPTK.posisi).filter(
+        FPTK.kode_unik.in_([k for k, p in keys_in_file])
+    ).all()
 
-        jumlah_sla = safe_int_value(row.get('jumlah_sla'), sla_days)
-        vacancy = safe_int_value(row.get('vacancy'), 1)
-        level_number = int(level_num) if level_num else 1
+    existing_keys = {(r.kode_unik, r.posisi) for r in existing_records}
 
-        if existing:
-            existing.kode_pic = safe_string_for_db(row.get('kode_pic'), max_length=50)
-            existing.fptk_date_real = fptk_date_real
-            existing.fptk_date_kode = fptk_date_real
-            existing.posisi = posisi
-            existing.business_unit = safe_string_for_db(row.get('business_unit'), max_length=100)
-            existing.direktorat = safe_string_for_db(row.get('direktorat'), max_length=100)
-            existing.divisi = safe_string_for_db(row.get('divisi'), max_length=100)
-            existing.department = safe_string_for_db(row.get('department'), max_length=100)
-            existing.level_fptk = level_fptk
-            existing.level_number = level_number
-            existing.alasan_permintaan_fptk = safe_string_for_db(row.get('alasan_permintaan_fptk'), max_length=200)
-            existing.category_fptk = safe_string_for_db(row.get('category_fptk'), max_length=100)
-            existing.pic_recruiter = safe_string_for_db(row.get('pic_recruiter'), max_length=100)
-            existing.vacancy = vacancy
-            existing.status = status
-            existing.offering_date = offering_date
-            existing.fptk_cancel_date = fptk_cancel_date
-            existing.jumlah_sla = jumlah_sla
-            existing.deadline_sla = deadline_sla
-            existing.detail_sla = detail_sla
-            existing.week_fptk_date = week_num
-            existing.month_fptk_date = month_name
-            existing.kode_bu = kode_bu
-            existing.filter_kategorisasi_fptk = filter_kat
-            existing.fptk_availability = avail
-            existing.is_sto = is_sto
-            existing.last_updated_at = datetime.now()
-            existing.last_compile_action = "UPDATE"
-            existing.source_user_id = user_id
-            existing.source_cycle_id = cycle_id
-            existing.source_file = safe_string_for_db(file_name, max_length=255)
-            existing.source_file_hash = file_hash
-            existing.is_sto = is_sto
+    imported = 0
+    updated = 0
+    for r in rows_to_upsert:
+        key = (r['kode_unik'], r['posisi'])
+        if key in existing_keys:
             updated += 1
         else:
-            kode_angka = row.get('kode_angka')
-            if pd.isna(kode_angka) or not kode_angka:
-                kode_angka = (safe_string_for_db(row.get('kode_pic', ''), max_length=50)[:4] + str(vacancy))
-
-            new_fptk = FPTK(
-                kode_unik=kode_unik,
-                posisi=posisi,
-                kode_pic=safe_string_for_db(row.get('kode_pic'), max_length=50),
-                fptk_date_real=fptk_date_real,
-                fptk_date_kode=fptk_date_real,
-                kode_angka=safe_string_for_db(kode_angka, max_length=50),
-                business_unit=safe_string_for_db(row.get('business_unit'), max_length=100),
-                direktorat=safe_string_for_db(row.get('direktorat'), max_length=100),
-                divisi=safe_string_for_db(row.get('divisi'), max_length=100),
-                department=safe_string_for_db(row.get('department'), max_length=100),
-                level_fptk=level_fptk,
-                level_number=level_number,
-                alasan_permintaan_fptk=safe_string_for_db(row.get('alasan_permintaan_fptk'), max_length=200),
-                category_fptk=safe_string_for_db(row.get('category_fptk'), max_length=100),
-                pic_recruiter=safe_string_for_db(row.get('pic_recruiter'), max_length=100),
-                filter_kategorisasi_fptk=filter_kat,
-                vacancy=vacancy,
-                status=status,
-                offering_date=offering_date,
-                fptk_cancel_date=fptk_cancel_date,
-                jumlah_sla=jumlah_sla,
-                deadline_sla=deadline_sla,
-                detail_sla=detail_sla,
-                week_fptk_date=week_num,
-                month_fptk_date=month_name,
-                kode_bu=kode_bu,
-                fptk_availability=avail,
-                source_user_id=user_id,
-                source_cycle_id=cycle_id,
-                source_file=safe_string_for_db(file_name, max_length=255),
-                source_file_hash=file_hash,
-                is_sto=is_sto,
-                created_at=datetime.now(),
-                last_compile_action="INSERT"
-            )
-            db.add(new_fptk)
             imported += 1
 
+    # ============================================================
+    # BULK UPSERT PER CHUNK
+    # ============================================================
+    now = datetime.now()
+    for r in rows_to_upsert:
+        r['created_at'] = now
+        r['last_updated_at'] = now
+        r['last_compile_action'] = 'UPSERT'
+
     try:
+        total_chunks = (len(rows_to_upsert) + chunk_size - 1) // chunk_size
+
+        for i in range(0, len(rows_to_upsert), chunk_size):
+            chunk = rows_to_upsert[i:i + chunk_size]
+            chunk_num = (i // chunk_size) + 1
+
+            stmt = pg_insert(FPTK).values(chunk)
+            stmt = stmt.on_conflict_do_update(
+                index_elements=['kode_unik', 'posisi'],
+                set_={
+                    'kode_pic': stmt.excluded.kode_pic,
+                    'fptk_date_real': stmt.excluded.fptk_date_real,
+                    'fptk_date_kode': stmt.excluded.fptk_date_kode,
+                    'kode_angka': stmt.excluded.kode_angka,
+                    'business_unit': stmt.excluded.business_unit,
+                    'direktorat': stmt.excluded.direktorat,
+                    'divisi': stmt.excluded.divisi,
+                    'department': stmt.excluded.department,
+                    'level_fptk': stmt.excluded.level_fptk,
+                    'level_number': stmt.excluded.level_number,
+                    'alasan_permintaan_fptk': stmt.excluded.alasan_permintaan_fptk,
+                    'category_fptk': stmt.excluded.category_fptk,
+                    'pic_recruiter': stmt.excluded.pic_recruiter,
+                    'filter_kategorisasi_fptk': stmt.excluded.filter_kategorisasi_fptk,
+                    'vacancy': stmt.excluded.vacancy,
+                    'status': stmt.excluded.status,
+                    'offering_date': stmt.excluded.offering_date,
+                    'fptk_cancel_date': stmt.excluded.fptk_cancel_date,
+                    'jumlah_sla': stmt.excluded.jumlah_sla,
+                    'deadline_sla': stmt.excluded.deadline_sla,
+                    'detail_sla': stmt.excluded.detail_sla,
+                    'week_fptk_date': stmt.excluded.week_fptk_date,
+                    'month_fptk_date': stmt.excluded.month_fptk_date,
+                    'kode_bu': stmt.excluded.kode_bu,
+                    'fptk_availability': stmt.excluded.fptk_availability,
+                    'source_user_id': stmt.excluded.source_user_id,
+                    'source_cycle_id': stmt.excluded.source_cycle_id,
+                    'source_file': stmt.excluded.source_file,
+                    'source_file_hash': stmt.excluded.source_file_hash,
+                    'is_sto': stmt.excluded.is_sto,
+                    'last_updated_at': now,
+                    'last_compile_action': 'UPDATE',
+                }
+            )
+
+            db.execute(stmt)
+            db.flush()  # Flush per chunk biar memory aman
+
         db.commit()
+
+        # Log success
+        log = UploadLog(
+            cycle_id=cycle_id,
+            user_id=user_id,
+            file_name=safe_string_for_db(file_name, max_length=255),
+            file_size_bytes=len(file_bytes) if file_bytes else 0,
+            file_hash=file_hash,
+            status="SUCCESS",
+            record_count=imported + updated,
+            error_details=f"Imported: {imported}, Updated: {updated}, Skipped: {skipped}, Chunks: {total_chunks}"
+        )
+        db.add(log)
+        db.commit()
+
+        return {
+            "success": True,
+            "imported": imported,
+            "updated": updated,
+            "skipped": skipped,
+            "errors": []
+        }
+
     except Exception as e:
         db.rollback()
-        errors.append(str(e))
-        return {"success": False, "imported": 0, "updated": 0, "skipped": 0, "errors": [str(e)]}
+        error_msg = str(e)
 
-    log = UploadLog(
-        cycle_id=cycle_id,
-        user_id=user_id,
-        file_name=safe_string_for_db(file_name, max_length=255),
-        file_size_bytes=len(file_bytes) if file_bytes else 0,
-        file_hash=file_hash,
-        status="SUCCESS" if not errors else "PARTIAL",
-        record_count=imported + updated,
-        error_details="\n".join(errors) if errors else f"Imported: {imported}, Updated: {updated}, Skipped: {skipped}"
-    )
-    db.add(log)
-    db.commit()
+        try:
+            log = UploadLog(
+                cycle_id=cycle_id,
+                user_id=user_id,
+                file_name=safe_string_for_db(file_name, max_length=255),
+                file_size_bytes=len(file_bytes) if file_bytes else 0,
+                file_hash=file_hash,
+                status="FAILED",
+                record_count=0,
+                error_details=error_msg[:2000]
+            )
+            db.add(log)
+            db.commit()
+        except:
+            db.rollback()
 
-    return {
-        "success": True,
-        "imported": imported,
-        "updated": updated,
-        "skipped": skipped,
-        "errors": errors
-    }
-
+        return {
+            "success": False,
+            "imported": 0,
+            "updated": 0,
+            "skipped": skipped,
+            "errors": [error_msg]
+        }
 
 # ============================================================
 # COMPILE DB SOURCING - DIPERBAIKI DENGAN NaT HANDLING DAN BOOLEAN TRUNCATION
