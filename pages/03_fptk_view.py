@@ -4,55 +4,16 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from core.models import FPTK, User, MasterDropdown
 from core.auth import get_current_user, is_admin
+from core.utils import get_filter_options_from_db
 from datetime import datetime, timedelta
 import plotly.express as px
 import re
 import time
 
-# ============================================================
-#  CACHE FUNCTIONS (FIX: PAKAI _db) 
-# ============================================================
 
-@st.cache_data(ttl=3600)
-def get_master_options_fptk(_db):
-    """Mengambil semua opsi dari MasterDropdown untuk FPTK View - cache 1 jam"""
-    try:
-        master_records = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
-        
-        bu_options = sorted(set([m.bu for m in master_records if m.bu]))
-        alasan_options = sorted(set([m.alasan for m in master_records if m.alasan]))
-        category_options = sorted(set([m.category_fptk for m in master_records if m.category_fptk]))
-        filter_options = sorted(set([m.filter_fptk for m in master_records if m.filter_fptk]))
-        status_options = ["OP", "Closed", "Cancel"]
-        lokasi_onboarding_options = sorted(set([m.lokasi_onboarding for m in master_records if m.lokasi_onboarding]))
-        direktorat_options = sorted(set([m.nama_direktorat for m in master_records if m.nama_direktorat]))
-        pic_options_all = sorted(set([m.pic_recruiter for m in master_records if m.pic_recruiter]))
-        kode_pic_options = sorted(set([m.kode_pic for m in master_records if m.kode_pic]))
-        
-        return {
-            'bu_options': bu_options,
-            'alasan_options': alasan_options,
-            'category_options': category_options,
-            'filter_options': filter_options,
-            'status_options': status_options,
-            'lokasi_onboarding_options': lokasi_onboarding_options,
-            'direktorat_options': direktorat_options,
-            'pic_options_all': pic_options_all,
-            'kode_pic_options': kode_pic_options
-        }
-    except Exception as e:
-        return {
-            'bu_options': [],
-            'alasan_options': [],
-            'category_options': [],
-            'filter_options': [],
-            'status_options': ["OP", "Closed", "Cancel"],
-            'lokasi_onboarding_options': [],
-            'direktorat_options': [],
-            'pic_options_all': [],
-            'kode_pic_options': []
-        }
-
+# ============================================================
+#  CACHE FUNCTIONS
+# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_level_options_fptk():
@@ -77,26 +38,19 @@ def get_detail_sla_options():
 
 
 # ============================================================
-#  FUNGSI UPDATE SLA OTOMATIS 
+#  FUNGSI UPDATE SLA OTOMATIS
 # ============================================================
 
 def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, fptk_cancel_date, today=None):
     """
     Menghitung Detail SLA secara OTOMATIS berdasarkan tanggal sekarang.
-    - OP Belum Lewat SLA: status OP dan today <= deadline_sla
-    - OP Tidak Lulus SLA: status OP dan today > deadline_sla
-    - Closed Lulus SLA: status Closed dan offering_date <= deadline_sla
-    - Closed Tidak Lulus SLA: status Closed dan offering_date > deadline_sla
-    - Cancel FPTK: status Cancel
     """
     if today is None:
         today = datetime.now().date()
-    
-    # Jika status Cancel → selalu Cancel FPTK
+
     if status == "Cancel":
         return "Cancel FPTK"
-    
-    # Jika status Closed
+
     if status == "Closed":
         if offering_date and deadline_sla:
             if offering_date <= deadline_sla:
@@ -104,15 +58,13 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
             else:
                 return "Closed Tidak Lulus SLA"
         else:
-            # Jika offering_date atau deadline_sla tidak ada, cek berdasarkan fptk_date
             if fptk_date_real and deadline_sla:
                 if today <= deadline_sla:
                     return "OP Belum Lewat SLA"
                 else:
                     return "OP Tidak Lulus SLA"
-            return "OP Belum Lewat SLA"  # Default
-    
-    # Jika status OP
+            return "OP Belum Lewat SLA"
+
     if status == "OP":
         if deadline_sla:
             if today <= deadline_sla:
@@ -121,27 +73,21 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
                 return "OP Tidak Lulus SLA"
         else:
             return "OP Belum Lewat SLA"
-    
-    # Default
+
     return "OP Belum Lewat SLA"
 
 
 def update_all_sla_bulk(db):
-    """
-    Update SLA untuk SEMUA data FPTK yang perlu di-update.
-    Dipanggil saat halaman di-load.
-    """
+    """Update SLA untuk SEMUA data FPTK yang perlu di-update."""
     today = datetime.now().date()
     updated_count = 0
-    
+
     try:
-        # Ambil semua FPTK yang statusnya OP atau Closed
         fptk_list = db.query(FPTK).filter(
             FPTK.status.in_(["OP", "Closed", "Cancel"])
         ).all()
-        
+
         for fptk in fptk_list:
-            # Hitung ulang detail_sla
             new_detail_sla = calculate_detail_sla_auto(
                 status=fptk.status,
                 fptk_date_real=fptk.fptk_date_real,
@@ -150,13 +96,12 @@ def update_all_sla_bulk(db):
                 fptk_cancel_date=fptk.fptk_cancel_date,
                 today=today
             )
-            
-            # Update jika berbeda
+
             if fptk.detail_sla != new_detail_sla:
                 fptk.detail_sla = new_detail_sla
                 fptk.last_updated_at = datetime.now()
                 updated_count += 1
-        
+
         if updated_count > 0:
             db.commit()
             return updated_count
@@ -174,17 +119,17 @@ def update_all_sla_bulk(db):
 def show_fptk_view():
     st.title("📋 FPTK Database")
     st.markdown("Lihat semua data FPTK. Edit hanya untuk data milik PIC Anda (Admin bisa semua).")
-    
+
     db = next(get_db())
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login terlebih dahulu.")
         return
-    
+
     admin = is_admin(db)
-    
+
     # ============================================================
-    #  AUTO UPDATE SLA (SETIAP LOAD HALAMAN) 
+    #  AUTO UPDATE SLA
     # ============================================================
     with st.spinner("🔄 Memeriksa dan memperbarui SLA..."):
         updated = update_all_sla_bulk(db)
@@ -195,43 +140,63 @@ def show_fptk_view():
         else:
             st.warning("⚠️ Terjadi error saat update SLA.")
         time.sleep(0.5)
-    
+
     # ============================================================
-    # LOAD MASTER DATA DARI CACHE
+    # LOAD FILTER OPTIONS DARI DATABASE (DINAMIS)
     # ============================================================
-    with st.spinner("📋 Memuat data master..."):
-        master_options = get_master_options_fptk(db)
-    
-    bu_options = master_options['bu_options']
-    alasan_options = master_options['alasan_options']
-    category_options = master_options['category_options']
-    filter_options = master_options['filter_options']
-    status_options = master_options['status_options']
-    lokasi_onboarding_options = master_options['lokasi_onboarding_options']
-    direktorat_options = master_options['direktorat_options']
-    pic_options_all = master_options['pic_options_all']
-    kode_pic_options = master_options['kode_pic_options']
-    
+    filter_opts = get_filter_options_from_db()
+
+    # ============================================================
+    # AMBIL SEMUA OPSI FILTER
+    # ============================================================
+    # PIC Recruiter - DINAMIS dari tabel users (PASTI muncul semua PIC)
+    pic_options_all = filter_opts.get("pic_options", [])
+
+    # FALLBACK: kalau kosong, ambil dari MasterDropdown
+    if not pic_options_all:
+        try:
+            master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+            pic_options_all = sorted(set([m.pic_recruiter for m in master_records if m.pic_recruiter]))
+        except Exception:
+            pic_options_all = []
+
+    # Business Unit
+    bu_options = filter_opts.get("bu_options", [])
+
+    # Direktorat
+    direktorat_options = filter_opts.get("direktorat_options", [])
+
+    # Filter Kategorisasi
+    filter_kategorisasi_options = filter_opts.get("filter_kategorisasi_options", [])
+
+    # Status - hardcoded enum
+    status_options = ["OP", "Closed", "Cancel"]
+
+    # Level FPTK - hardcoded
     LEVEL_OPTIONS = get_level_options_fptk()
+
+    # Detail SLA - hardcoded
     detail_sla_options = get_detail_sla_options()
-    
+
     # ============================================================
     # FILTERS
     # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filter FPTK")
-        
+
         search = st.text_input("🔎 Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...")
         status_filter = st.selectbox("Status", ["Semua"] + status_options)
         pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + pic_options_all)
         bu_filter = st.selectbox("Business Unit", ["Semua"] + bu_options)
         dir_filter = st.selectbox("Direktorat", ["Semua"] + direktorat_options)
-        filter_kat_options = ["Semua", "CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"]
+
+        # Filter Kategorisasi (DINAMIS)
+        filter_kat_options = ["Semua"] + filter_kategorisasi_options
         filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options)
-        
+
         st.markdown("---")
-        
-        #  TOMBOL REFRESH SLA MANUAL 
+
+        #  TOMBOL REFRESH SLA MANUAL
         if st.button("🔄 Refresh SLA Now", use_container_width=True, type="primary"):
             with st.spinner("Memperbarui SLA..."):
                 updated = update_all_sla_bulk(db)
@@ -241,16 +206,25 @@ def show_fptk_view():
                     st.info("✅ Semua SLA sudah sesuai.")
                 time.sleep(0.5)
                 st.rerun()
-        
+
+        #  TOMBOL REFRESH FILTER OPTIONS
+        if st.button("🔄 Refresh Filter Options", use_container_width=True):
+            get_filter_options_from_db.clear()
+            st.success("✅ Filter refreshed!")
+            time.sleep(0.3)
+            st.rerun()
+
         st.markdown("---")
         if st.button("🔄 Reset Filter", use_container_width=True):
             st.rerun()
-    
+
+        st.caption("💡 Filter diambil langsung dari database")
+
     # ============================================================
     # BUILD QUERY
     # ============================================================
     query = db.query(FPTK)
-    
+
     if search:
         query = query.filter(
             (FPTK.kode_unik.ilike(f"%{search}%")) |
@@ -266,21 +240,21 @@ def show_fptk_view():
         query = query.filter(FPTK.direktorat == dir_filter)
     if filter_kat != "Semua":
         query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
-    
+
     total = query.count()
-    
+
     # ============================================================
     # METRIK CARD
     # ============================================================
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total FPTK", total)
-    
+
     if total > 0:
         df_all = pd.read_sql(query.statement, db.bind)
         op_count = len(df_all[df_all['status'] == 'OP']) if 'status' in df_all else 0
         closed_count = len(df_all[df_all['status'] == 'Closed']) if 'status' in df_all else 0
         cancel_count = len(df_all[df_all['status'] == 'Cancel']) if 'status' in df_all else 0
-        
+
         col2.metric("OP", op_count)
         col3.metric("Closed", closed_count)
         col4.metric("Cancel", cancel_count)
@@ -290,34 +264,30 @@ def show_fptk_view():
         col4.metric("Cancel", 0)
         st.info("Tidak ada data FPTK dengan filter yang dipilih.")
         return
-    
+
     st.markdown("---")
-    
+
     # ============================================================
-    # TABEL LIST FPTK (TANPA KOLOM ID)
+    # TABEL LIST FPTK
     # ============================================================
     st.markdown("### 📋 Daftar FPTK")
-    
-    # Pagination
+
     page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
     page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
     offset = (page - 1) * page_size
-    
+
     df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
-    
-    # Format tanggal
+
     if 'fptk_date_real' in df.columns:
         df['fptk_date_real'] = pd.to_datetime(df['fptk_date_real'])
         df['FPTK Date Real'] = df['fptk_date_real'].dt.strftime('%d/%m/%Y')
-    
-    # Kolom yang ditampilkan (TANPA ID)
-    display_cols = ['FPTK Date Real', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit', 
-                    'direktorat', 'status', 'filter_kategorisasi_fptk',  
+
+    display_cols = ['FPTK Date Real', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit',
+                    'direktorat', 'status', 'filter_kategorisasi_fptk',
                     'vacancy', 'level_fptk', 'jumlah_sla', 'detail_sla']
-    
-    # Filter kolom yang ada
+
     available_cols = [c for c in display_cols if c in df.columns]
-    
+
     if df.empty:
         st.info("Tidak ada data pada halaman ini.")
     else:
@@ -340,41 +310,39 @@ def show_fptk_view():
                 "detail_sla": "Detail SLA"
             }
         )
-    
+
     # ============================================================
-    # PILIH DATA UNTUK EDIT - PAKAI KODE UNIK / POSISI
+    # PILIH DATA UNTUK EDIT
     # ============================================================
     st.markdown("---")
     st.markdown("### ✏️ Pilih Data untuk Diedit")
-    
-    # Refresh data tanpa pagination untuk dropdown
+
     df_all = pd.read_sql(query.statement, db.bind)
-    
+
     if not df_all.empty:
-        # Buat list pilihan dengan format "Kode Unik | Posisi"
         select_options = {}
         for _, row in df_all.iterrows():
             kode = row.get('kode_unik', '')
             posisi = row.get('posisi', '')
             display = f"{kode} | {posisi[:50]}..." if len(posisi) > 50 else f"{kode} | {posisi}"
             select_options[display] = row.get('id')
-        
+
         selected_display = st.selectbox(
             "Pilih FPTK (Kode Unik | Posisi)",
             list(select_options.keys())
         )
-        
+
         if selected_display:
             selected_id = select_options[selected_display]
         else:
             selected_id = None
     else:
         selected_id = None
-    
+
     if not selected_id:
         st.info("Pilih data dari daftar di atas untuk diedit.")
         return
-    
+
     # ============================================================
     # LOAD DETAIL DATA
     # ============================================================
@@ -382,16 +350,15 @@ def show_fptk_view():
     if not detail:
         st.error("Data tidak ditemukan")
         return
-    
-    # Cek akses edit
+
     can_edit = admin or (detail.pic_recruiter == user.pic_recruiter)
-    
+
     # ============================================================
     # DETAIL VIEW (LENGKAP)
     # ============================================================
     st.markdown("---")
     st.markdown("### 📋 Detail FPTK")
-    
+
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"**Kode Unik:** {detail.kode_unik}")
@@ -405,7 +372,7 @@ def show_fptk_view():
         st.markdown(f"**Level FPTK:** {detail.level_fptk} (Level {detail.level_number})")
         st.markdown(f"**Alasan Permintaan FPTK:** {detail.alasan_permintaan_fptk or '-'}")
         st.markdown(f"**Category FPTK:** {detail.category_fptk or '-'}")
-    
+
     with col2:
         st.markdown(f"**Status:** {detail.status}")
         st.markdown(f"**Filter Kategorisasi:** {detail.filter_kategorisasi_fptk}")
@@ -419,11 +386,10 @@ def show_fptk_view():
         st.markdown(f"**Offering Date:** {detail.offering_date.strftime('%d/%m/%Y') if detail.offering_date else '-'}")
         st.markdown(f"**Week FPTK:** {detail.week_fptk_date or '-'}")
         st.markdown(f"**Month FPTK:** {detail.month_fptk_date or '-'}")
-    
-    # Row 3: Data Tambahan
+
     st.markdown("---")
     st.markdown("### 📝 Data Tambahan")
-    
+
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"**Nama Kandidat:** {detail.nama_kandidat or '-'}")
@@ -439,8 +405,7 @@ def show_fptk_view():
         st.markdown(f"**Kode BU:** {detail.kode_bu or '-'}")
         st.markdown(f"**FPTK Availability:** {detail.fptk_availability or '-'}")
         st.markdown(f"**Remark:** {detail.remark or '-'}")
-    
-    # Audit
+
     st.markdown("---")
     st.markdown("### 📋 Audit")
     col1, col2 = st.columns(2)
@@ -450,9 +415,9 @@ def show_fptk_view():
     with col2:
         st.markdown(f"**Source File:** {detail.source_file or '-'}")
         st.markdown(f"**Last Compile Action:** {detail.last_compile_action or '-'}")
-    
+
     # ============================================================
-    # EDIT FORM (LENGKAP)
+    # EDIT FORM
     # ============================================================
     if not can_edit:
         st.warning("⚠️ Anda hanya bisa mengedit data FPTK milik PIC Anda sendiri.")
@@ -460,23 +425,22 @@ def show_fptk_view():
         st.markdown("---")
         st.markdown("### ✏️ Edit Data FPTK")
         st.caption(f"{'Admin - Anda bisa mengedit semua field' if admin else 'Edit data milik PIC Anda'}")
-        
+
         with st.form("edit_fptk_form"):
             st.markdown("#### Data Utama")
             col1, col2, col3 = st.columns(3)
-            
+
             with col1:
                 if admin:
                     new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "")
                 else:
                     new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "", disabled=True)
-                
+
                 new_posisi = st.text_input("Posisi", value=detail.posisi or "")
-                new_pic_recruiter = st.selectbox("PIC Recruiter", pic_options_all, 
+                new_pic_recruiter = st.selectbox("PIC Recruiter", pic_options_all,
                                                  index=pic_options_all.index(detail.pic_recruiter) if detail.pic_recruiter in pic_options_all else 0)
-                new_kode_pic = st.selectbox("Kode PIC", [""] + kode_pic_options,
-                                            index=(kode_pic_options.index(detail.kode_pic) + 1) if detail.kode_pic in kode_pic_options else 0)
-            
+                new_kode_pic = st.text_input("Kode PIC", value=detail.kode_pic or "")
+
             with col2:
                 new_business_unit = st.selectbox("Business Unit", [""] + bu_options,
                                                  index=(bu_options.index(detail.business_unit) + 1) if detail.business_unit in bu_options else 0)
@@ -484,38 +448,34 @@ def show_fptk_view():
                                               index=(direktorat_options.index(detail.direktorat) + 1) if detail.direktorat in direktorat_options else 0)
                 new_divisi = st.text_input("Divisi", value=detail.divisi or "")
                 new_department = st.text_input("Department", value=detail.department or "")
-            
+
             with col3:
                 new_status = st.selectbox("Status", status_options,
                                           index=status_options.index(detail.status) if detail.status in status_options else 0)
-                
+
                 default_level = detail.level_fptk or "1A"
                 new_level_fptk = st.selectbox("Level FPTK", LEVEL_OPTIONS,
                                               index=LEVEL_OPTIONS.index(default_level) if default_level in LEVEL_OPTIONS else 0)
-                
+
                 if new_level_fptk:
                     match = re.search(r'(\d+)', new_level_fptk)
                     new_level_number = int(match.group(1)) if match else 1
                 else:
                     new_level_number = detail.level_number or 1
                 st.text_input("Level Number (auto)", value=str(new_level_number), disabled=True)
-                
+
                 new_vacancy = st.number_input("Vacancy", min_value=1, value=detail.vacancy or 1)
-            
-            # ============================================================
-            # BAGIAN SLA - OTOMATIS BERDASARKAN TANGGAL SEKARANG
-            # ============================================================
+
             st.markdown("---")
             st.markdown("#### SLA (Otomatis dihitung berdasarkan tanggal)")
-            
+
             col1, col2, col3 = st.columns(3)
             with col1:
                 new_jumlah_sla = st.number_input("Jumlah SLA (hari)", min_value=0, value=detail.jumlah_sla or 0)
             with col2:
-                new_deadline_sla = st.date_input("Deadline SLA", 
+                new_deadline_sla = st.date_input("Deadline SLA",
                                                   value=detail.deadline_sla if detail.deadline_sla else None)
             with col3:
-                #  DETAIL SLA AUTO DARI FUNGSI 
                 auto_detail_sla = calculate_detail_sla_auto(
                     status=new_status,
                     fptk_date_real=detail.fptk_date_real,
@@ -525,22 +485,20 @@ def show_fptk_view():
                 )
                 st.text_input("Detail SLA (auto)", value=auto_detail_sla, disabled=True)
                 st.caption("⚠️ Detail SLA akan dihitung otomatis saat Anda mengubah status atau tanggal")
-            
+
             st.markdown("---")
             st.markdown("#### Alasan & Category")
             col1, col2 = st.columns(2)
             with col1:
-                new_alasan = st.selectbox("Alasan Permintaan FPTK", [""] + alasan_options,
-                                          index=(alasan_options.index(detail.alasan_permintaan_fptk) + 1) if detail.alasan_permintaan_fptk in alasan_options else 0)
+                new_alasan = st.text_input("Alasan Permintaan FPTK", value=detail.alasan_permintaan_fptk or "")
             with col2:
-                new_category = st.selectbox("Category FPTK", [""] + category_options,
-                                            index=(category_options.index(detail.category_fptk) + 1) if detail.category_fptk in category_options else 0)
-            
+                new_category = st.text_input("Category FPTK", value=detail.category_fptk or "")
+
             st.markdown("---")
             st.markdown("#### Tanggal")
             col1, col2, col3 = st.columns(3)
             with col1:
-                new_fptk_date_real = st.date_input("FPTK Date Real", 
+                new_fptk_date_real = st.date_input("FPTK Date Real",
                                                    value=detail.fptk_date_real if detail.fptk_date_real else datetime.now().date())
                 new_fptk_date_kode = st.date_input("FPTK Date Kode",
                                                    value=detail.fptk_date_kode if detail.fptk_date_kode else datetime.now().date())
@@ -552,7 +510,7 @@ def show_fptk_view():
             with col3:
                 new_estimasi_join = st.date_input("Estimasi Join",
                                                   value=detail.estimasi_join if detail.estimasi_join else None)
-            
+
             st.markdown("---")
             st.markdown("#### Data Tambahan")
             col1, col2 = st.columns(2)
@@ -566,35 +524,31 @@ def show_fptk_view():
                 new_status_karyawan = st.text_input("Status Karyawan", value=detail.status_karyawan or "")
                 new_kebutuhan_laptop = st.selectbox("Kebutuhan Laptop", ["", "Ya", "Tidak"],
                                                     index=["", "Ya", "Tidak"].index(detail.kebutuhan_laptop) if detail.kebutuhan_laptop in ["", "Ya", "Tidak"] else 0)
-                new_lokasi_onboarding = st.selectbox("Lokasi Onboarding", [""] + lokasi_onboarding_options,
-                                                     index=(lokasi_onboarding_options.index(detail.lokasi_onboarding) + 1) if detail.lokasi_onboarding in lokasi_onboarding_options else 0)
+                new_lokasi_onboarding = st.text_input("Lokasi Onboarding", value=detail.lokasi_onboarding or "")
                 new_fptk_availability = st.selectbox("FPTK Availability", ["", "Y", "N"],
                                                      index=["", "Y", "N"].index(detail.fptk_availability) if detail.fptk_availability in ["", "Y", "N"] else 0)
                 new_remark = st.text_area("Remark", value=detail.remark or "")
-            
+
             st.markdown("---")
             submitted = st.form_submit_button("💾 Update FPTK", type="primary")
-        
+
         # ============================================================
         # PROSES UPDATE
         # ============================================================
         if submitted:
             try:
-                #  HITUNG ULANG SLA OTOMATIS 
                 if new_level_number <= 3:
                     sla_days = 30
                 elif new_level_number == 4:
                     sla_days = 45
                 else:
                     sla_days = 60
-                
-                # Deadline SLA berdasarkan FPTK Date Real + SLA days
+
                 if new_fptk_date_real and sla_days:
                     new_deadline_sla_calc = new_fptk_date_real + timedelta(days=sla_days)
                 else:
                     new_deadline_sla_calc = new_deadline_sla
-                
-                #  DETAIL SLA OTOMATIS 
+
                 new_detail_sla_auto = calculate_detail_sla_auto(
                     status=new_status,
                     fptk_date_real=new_fptk_date_real,
@@ -602,11 +556,10 @@ def show_fptk_view():
                     offering_date=new_offering_date,
                     fptk_cancel_date=new_fptk_cancel_date
                 )
-                
-                # Update semua field
+
                 if admin and new_kode_unik:
                     detail.kode_unik = new_kode_unik
-                
+
                 detail.posisi = new_posisi
                 detail.pic_recruiter = new_pic_recruiter
                 detail.kode_pic = new_kode_pic
@@ -635,24 +588,21 @@ def show_fptk_view():
                 detail.lokasi_onboarding = new_lokasi_onboarding
                 detail.fptk_availability = new_fptk_availability
                 detail.remark = new_remark
-                
-                #  UPDATE SLA OTOMATIS 
+
                 detail.jumlah_sla = sla_days
                 detail.deadline_sla = new_deadline_sla_calc
                 detail.detail_sla = new_detail_sla_auto
-                
-                # Update audit
+
                 detail.last_updated_at = datetime.now()
                 detail.last_compile_action = "MANUAL_EDIT"
-                
+
                 db.commit()
-                
-                # Clear cache setelah update
+
                 st.cache_data.clear()
-                
+
                 st.success(f"✅ Data FPTK berhasil diupdate! Detail SLA: {new_detail_sla_auto}")
                 st.rerun()
-                
+
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
                 db.rollback()
