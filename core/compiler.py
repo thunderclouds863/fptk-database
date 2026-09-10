@@ -778,10 +778,31 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             ).first()
             
             # ============================================================
-            # SAFE CONVERSIONS
+            # ✅ SAFE CONVERSIONS dengan SANITASI NUMERIC
             # ============================================================
-            no_val = safe_int_value(row.get('no'), imported + 1)
+            # FIX: Sanitasi 'no' — clamp ke INTEGER range (max 2,147,483,647)
+            # Ini mencegah error "integer out of range" dari PostgreSQL
+            no_raw = row.get('no')
+            no_val = safe_int_value(no_raw)
+            
+            if no_val is None or no_val < 0:
+                no_val = imported + updated + 1
+            elif no_val > 2147483647:  # INTEGER max PostgreSQL
+                no_val = imported + updated + 1
+                warnings.append({
+                    "row": row_num,
+                    "field": "No",
+                    "value": no_raw,
+                    "warning": True,
+                    "error": f"Nilai 'no' {no_raw} melebihi INTEGER max, di-replace auto-increment: {no_val}"
+                })
+            
             tahun_lulus_val = safe_int_value(row.get('tahun_lulus'))
+            # Sanitasi tahun_lulus juga (tahun tidak masuk akal)
+            if tahun_lulus_val is not None:
+                if tahun_lulus_val < 1900 or tahun_lulus_val > 2100:
+                    tahun_lulus_val = None
+            
             ipk_val = safe_numeric_value(row.get('ipk'))
             
             # String fields dengan max_length yang sesuai
