@@ -8,6 +8,7 @@ from sqlalchemy import func
 from core.database import get_db
 from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate, DBKodePosisi
 from core.auth import get_current_user, is_admin, is_editor, hash_file, sanitize_filename
+from core.compiler import compile_fptk, translate_error_to_friendly
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
 from core.validator import validate_fptk_file, validate_db_sourcing_file, validate_db_kode_posisi_file
 from core.compiler import compile_fptk, compile_db_sourcing, compile_db_kode_posisi
@@ -474,48 +475,48 @@ def show_upload_compile():
                             updated = result.get("updated", 0)
                             st.success(f"✅ {file.name}: Berhasil diproses (Imported: {imported}, Updated: {updated})")
                         
+                        rejection_type = result.get("rejection_type", "")
+
                         else:
-                            # Cek tipe rejection
-                            rejection_type = result.get("rejection_type", "")
                             errors = result.get("errors", [])
                             
                             if rejection_type == "DUPLICATE":
-                                # Pesan khusus untuk duplikat
+                                # Kasus duplikat - pesan custom
                                 dup_count = result.get("duplicate_count", 0)
-                                
                                 st.error(f"📛 **File `{file.name}` DITOLAK**")
                                 st.warning(
                                     f"File ini punya **{dup_count} baris duplikat** — "
                                     f"artinya ada 2 baris atau lebih dengan **Kode Unik + Posisi yang sama**.\n\n"
                                     f"**Cara benerin:**\n"
                                     f"1. Buka file Excel-nya\n"
-                                    f"2. Cari baris yang Kode Unik + Posisinya sama (biasanya di-copy 2x)\n"
+                                    f"2. Cari baris yang Kode Unik + Posisinya sama\n"
                                     f"3. Hapus salah satu\n"
                                     f"4. Upload ulang file-nya"
                                 )
                                 
-                                # Detail duplikat dalam expander
                                 with st.expander("🔍 Lihat detail baris yang duplikat"):
-                                    dup_details = result.get("duplicate_details", [])
-                                    for i, dup in enumerate(dup_details[:50], 1):
+                                    for i, dup in enumerate(result.get("duplicate_details", [])[:50], 1):
                                         st.markdown(
                                             f"**{i}.** Kode Unik: `{dup['kode_unik']}`  \n"
                                             f"     Posisi: {dup['posisi']}  \n"
                                             f"     Baris ke-{dup['first_row']} dan ke-{dup['duplicate_row']}"
                                         )
-                                    if len(dup_details) > 50:
-                                        st.caption(f"... dan {len(dup_details) - 50} duplikat lainnya")
                             
                             else:
-                                # Error umum (bukan duplikat) → pesan generik
+                                # ✅ DI SINI PAKAI translate_error_to_friendly
                                 st.error(f"📛 **File `{file.name}` DITOLAK**")
-                                st.warning(
-                                    "File ini tidak bisa diproses. Silakan periksa kembali isinya."
-                                )
                                 
+                                # Terjemahkan error pertama ke bahasa manusia
+                                if errors:
+                                    friendly_msg = translate_error_to_friendly(str(errors[0]))
+                                    st.warning(friendly_msg)
+                                else:
+                                    st.warning("File tidak bisa diproses. Cek kembali isinya.")
+                                
+                                # Detail teknis disembunyikan (admin only)
                                 with st.expander("🔍 Detail Teknis (untuk admin)"):
                                     for err in errors[:20]:
-                                        st.code(err)
+                                        st.code(str(err))
                             
                             total_errors += 1
                             continue
