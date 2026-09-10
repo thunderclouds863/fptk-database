@@ -43,7 +43,7 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
 
 
 # ============================================================
-# HELPER: GET SINGLE VALUE (SAFE) - DIPERBAIKI
+# HELPER: GET SINGLE VALUE (SAFE)
 # ============================================================
 
 def get_single_value_safe(value):
@@ -54,11 +54,9 @@ def get_single_value_safe(value):
     - Jika list/tuple, ambil nilai pertama
     - Jika None/NaN, return None
     """
-    # Handle None
     if value is None:
         return None
     
-    # Handle pandas Series
     if isinstance(value, pd.Series):
         if len(value) > 0:
             val = value.iloc[0]
@@ -70,7 +68,6 @@ def get_single_value_safe(value):
             return val
         return None
     
-    # Handle pandas DataFrame
     if isinstance(value, pd.DataFrame):
         if not value.empty:
             val = value.iloc[0, 0] if value.shape[1] > 0 else None
@@ -82,7 +79,6 @@ def get_single_value_safe(value):
             return val
         return None
     
-    # Handle list/tuple
     if isinstance(value, (list, tuple)):
         if len(value) > 0:
             val = value[0]
@@ -94,7 +90,6 @@ def get_single_value_safe(value):
             return val
         return None
     
-    # Handle NaN (pandas) - dengan try/except
     try:
         if pd.isna(value):
             return None
@@ -105,85 +100,19 @@ def get_single_value_safe(value):
 
 
 # ============================================================
-# HELPER: FIND COLUMN MAPPING (FUZZY)
+# HELPER: SIMILARITY RATIO
 # ============================================================
-
-def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]]) -> Dict[str, str]:
-    """Cari mapping kolom dengan fuzzy matching."""
-    df_cols = list(df.columns)
-    df_cols_lower = [normalize_key(str(c)) for c in df_cols]
-    
-    mapping = {}
-    used_cols = set()
-    
-    for field_key, possible_names in required_mappings.items():
-        found = None
-        
-        for name in possible_names:
-            norm_name = normalize_key(name)
-            if norm_name in df_cols_lower:
-                idx = df_cols_lower.index(norm_name)
-                found = df_cols[idx]
-                break
-        
-        if not found:
-            all_possible = []
-            for name in possible_names:
-                all_possible.append(normalize_key(name))
-                base = normalize_key(name)
-                base = re.sub(r'\s*\(.*?\)\s*', '', base)
-                all_possible.append(base)
-                base = re.sub(r'\s*kebutuhan\s*', '', base, flags=re.IGNORECASE)
-                base = re.sub(r'\s*ta\s*', '', base, flags=re.IGNORECASE)
-                all_possible.append(base)
-                base_no_space = re.sub(r'[\s_]', '', base)
-                all_possible.append(base_no_space)
-            
-            all_possible = list(set(all_possible))
-            
-            for col in df_cols_lower:
-                if col in used_cols:
-                    continue
-                col_norm = normalize_key(col)
-                for pattern in all_possible:
-                    if col_norm == pattern:
-                        idx = df_cols_lower.index(col)
-                        found = df_cols[idx]
-                        break
-                    if pattern in col_norm:
-                        ratio = len(pattern) / len(col_norm)
-                        if ratio > 0.5:
-                            idx = df_cols_lower.index(col)
-                            found = df_cols[idx]
-                            break
-                    if col_norm in pattern:
-                        ratio = len(col_norm) / len(pattern)
-                        if ratio > 0.5:
-                            idx = df_cols_lower.index(col)
-                            found = df_cols[idx]
-                            break
-                    ratio = get_similarity_ratio(col_norm, pattern)
-                    if ratio > 0.6:
-                        idx = df_cols_lower.index(col)
-                        found = df_cols[idx]
-                        break
-                if found:
-                    break
-        
-        if found:
-            mapping[field_key] = found
-            used_cols.add(normalize_key(found))
-    
-    return mapping
-
 
 def get_similarity_ratio(a: str, b: str) -> float:
     """Hitung similarity ratio antara dua string"""
     if not a or not b:
         return 0.0
     
-    a = a.lower()
-    b = b.lower()
+    a = a.lower().strip()
+    b = b.lower().strip()
+    
+    if a == b:
+        return 1.0
     
     if a in b or b in a:
         shorter = a if len(a) < len(b) else b
@@ -198,9 +127,147 @@ def get_similarity_ratio(a: str, b: str) -> float:
     return common / total
 
 
+# ============================================================
+# HELPER: FIND COLUMN MAPPING (FUZZY) - DIPERBAIKI
+# ============================================================
+
+def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]]) -> Dict[str, str]:
+    """
+    Cari mapping kolom dengan fuzzy matching.
+    
+    STRATEGI (BERURUTAN):
+    1. Exact match (case-insensitive, normalized)
+    2. Case-insensitive exact match pada raw string
+    3. Substring match (kolom ada di pattern atau sebaliknya)
+    4. Similarity ratio > 0.75
+    
+    PENTING: Setiap kolom hanya boleh dipakai SEKALI.
+    """
+    df_cols = list(df.columns)
+    # Simpan versi normalized dari setiap kolom
+    df_cols_norm = {col: normalize_key(str(col)) for col in df_cols}
+    
+    mapping = {}
+    used_cols = set()
+    
+    # Urutkan field_key agar field yang lebih spesifik diproses dulu
+    # (misal: 'kode_unik' sebelum 'kode')
+    priority_order = [
+        'kode_unik', 'nama', 'sourcing_date',  # DB Sourcing
+        'posisi', 'model_rekrutmen', 'sumber_sourcing', 'rekruter',
+        'kode_pic', 'kode_angka', 'fptk_date_real', 'fptk_date_kode',
+        'business_unit', 'direktorat', 'divisi', 'department',
+        'level_fptk', 'level_number', 'alasan_permintaan_fptk',
+        'category_fptk', 'pic_recruiter', 'vacancy', 'status',
+        'filter_kategorisasi_fptk', 'week_fptk_date', 'month_fptk_date',
+        'fptk_cancel_date', 'offering_date', 'jumlah_sla', 'deadline_sla',
+        'detail_sla', 'nama_kandidat', 'estimasi_join', 'kebutuhan_laptop',
+        'lokasi_onboarding', 'user_manager', 'indirect_user',
+        'lokasi_kerja', 'lokasi_hr', 'status_karyawan', 'kode_bu',
+        'fptk_availability', 'remark', 'position', 'kode',
+        'location', 'division_chris', 'department_chris',
+        'directorate', 'year',
+        'nomor_hp', 'email', 'domisili', 'jenjang_pendidikan',
+        'jurusan', 'tahun_lulus', 'ipk', 'university_tier', 'ipk_tier',
+        'nama_universitas_top10', 'nama_universitas_lainnya',
+        'last_position', 'last_company', 'last_tenure', 'total_tenure',
+        'pernah_di_fmcg', 'sourcing_freelance', 'sourcing_hr',
+        'shortlist_cv', 'psikotes', 'hr_interview', 'user_interview',
+        'offering', 'day1',
+    ]
+    
+    # Urutkan field_keys berdasarkan priority_order
+    sorted_fields = sorted(
+        required_mappings.keys(),
+        key=lambda k: priority_order.index(k) if k in priority_order else 999
+    )
+    
+    for field_key in sorted_fields:
+        possible_names = required_mappings[field_key]
+        found = None
+        
+        # ============================================================
+        # PRIORITAS 1: EXACT MATCH (normalized)
+        # ============================================================
+        for name in possible_names:
+            norm_name = normalize_key(name)
+            for col in df_cols:
+                if col in used_cols:
+                    continue
+                if df_cols_norm[col] == norm_name:
+                    found = col
+                    break
+            if found:
+                break
+        
+        # ============================================================
+        # PRIORITAS 2: EXACT MATCH (case-insensitive, raw)
+        # ============================================================
+        if not found:
+            for name in possible_names:
+                name_clean = str(name).strip().lower()
+                for col in df_cols:
+                    if col in used_cols:
+                        continue
+                    if str(col).strip().lower() == name_clean:
+                        found = col
+                        break
+                if found:
+                    break
+        
+        # ============================================================
+        # PRIORITAS 3: SUBSTRING MATCH
+        # ============================================================
+        if not found:
+            for name in possible_names:
+                norm_name = normalize_key(name)
+                if len(norm_name) < 4:  # Skip pattern terlalu pendek
+                    continue
+                for col in df_cols:
+                    if col in used_cols:
+                        continue
+                    col_norm = df_cols_norm[col]
+                    # Cek apakah salah satu mengandung yang lain
+                    if norm_name in col_norm or col_norm in norm_name:
+                        # Hitung rasio untuk memastikan tidak terlalu pendek
+                        shorter = min(len(norm_name), len(col_norm))
+                        longer = max(len(norm_name), len(col_norm))
+                        if longer > 0 and shorter / longer >= 0.5:
+                            found = col
+                            break
+                if found:
+                    break
+        
+        # ============================================================
+        # PRIORITAS 4: SIMILARITY RATIO
+        # ============================================================
+        if not found:
+            best_ratio = 0.0
+            best_col = None
+            for name in possible_names:
+                norm_name = normalize_key(name)
+                if len(norm_name) < 4:
+                    continue
+                for col in df_cols:
+                    if col in used_cols:
+                        continue
+                    col_norm = df_cols_norm[col]
+                    ratio = get_similarity_ratio(col_norm, norm_name)
+                    if ratio > best_ratio and ratio >= 0.75:
+                        best_ratio = ratio
+                        best_col = col
+            if best_col:
+                found = best_col
+        
+        if found:
+            mapping[field_key] = found
+            used_cols.add(found)
+    
+    return mapping
+
+
 def _is_valid_date(value) -> bool:
     """Cek apakah value adalah tanggal yang valid."""
-    # Get single value first
     value = get_single_value_safe(value)
     
     if value is None:
@@ -749,7 +816,7 @@ def validate_fptk_file(
 
 
 # ============================================================
-# VALIDATE DB SOURCING FILE - DIPERBAIKI DENGAN WARNING UNTUK SOURCING DATE
+# VALIDATE DB SOURCING FILE - DIPERBAIKI
 # ============================================================
 
 def validate_db_sourcing_file(
@@ -762,6 +829,12 @@ def validate_db_sourcing_file(
     - Kode Unik BOLEH kosong (warning)
     - Sourcing Date: WARNING (bukan error) jika kosong
     - TIDAK ADA CEK DUPLIKAT Kode Unik
+    
+    PENTING: Fungsi ini rename kolom df in-place dengan mapping:
+      - 'Kode Unik' / 'Kode Unik (copy value dari FPTK)' → 'kode_unik'
+      - 'Nama' / 'Nama Kandidat' → 'nama'
+      - 'Sourcing Date' → 'sourcing_date'
+      - dst.
     """
     errors = []
     
@@ -775,63 +848,127 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
+    # ============================================================
+    # REQUIRED MAPPINGS — DIPERBAIKI
+    # ============================================================
+    # PENTING: 'kode_unik' HANYA boleh match "Kode Unik" variants.
+    # JANGAN tambahkan 'KODE' atau 'ID FPTK' — bisa salah match.
     required_mappings = {
         "kode_unik": [
-            "Kode Unik", "Kode UNIK", "Unique Code", 
+            "Kode Unik",
+            "Kode UNIK",
             "Kode Unik (copy value dari FPTK)",
-            "KodeUnik", "KODE UNIK", "UNIK",
-            "KODE", "ID FPTK", "FPTK ID",
+            "KodeUnik",
+            "KODE UNIK",
+            "Unique Code",
         ],
         "nama": [
-            "Nama", "Nama Kandidat", "Candidate Name", 
-            "Nama Lengkap", "NAMA", "NAMA KANDIDAT",
-            "Nama Pelamar", "Nama Calon",
+            "Nama",
+            "Nama Kandidat",
+            "Candidate Name",
+            "Nama Lengkap",
+            "NAMA",
+            "NAMA KANDIDAT",
+            "Nama Pelamar",
+            "Nama Calon",
         ],
         "sourcing_date": [
-            "Sourcing Date", "Tanggal Sourcing", "Tanggal Input", 
-            "Date", "SOURCING DATE", "TANGGAL SOURCING",
-            "TGL SOURCING", "TANGGAL", "TGL",
-            "Tanggal Masuk", "Tanggal Sourcing Kandidat",
+            "Sourcing Date",
+            "Tanggal Sourcing",
+            "Tanggal Input",
+            "SOURCING DATE",
+            "TANGGAL SOURCING",
+            "TGL SOURCING",
+            "Tanggal Masuk",
+            "Tanggal Sourcing Kandidat",
         ],
     }
     
     optional_mappings = {
         "posisi": ["Posisi", "Position", "Jabatan", "Posisi Dilamar"],
         "model_rekrutmen": [
-            "Model Rekrutmen", "Model", "Model Recruitment", 
-            "Recruitment Model", "Kode Model", "Model Sourcing",
-            "Jenis Rekrutmen", "Metode Rekrutmen",
+            "Model Rekrutmen (Lihat di Sheet Flow Map Model)",
+            "Model Rekrutmen",
+            "Model",
+            "Model Recruitment",
+            "Recruitment Model",
+            "Kode Model",
+            "Model Sourcing",
+            "Jenis Rekrutmen",
+            "Metode Rekrutmen",
         ],
         "sumber_sourcing": [
-            "Sumber Sourcing", "Source", "Sumber", 
-            "Sumber Kandidat", "Sumber Rekrutmen",
-            "Sumber", "Sumber Data",
+            "Sumber Sourcing",
+            "Source",
+            "Sumber",
+            "Sumber Kandidat",
+            "Sumber Rekrutmen",
+            "Sumber Data",
         ],
         "rekruter": ["Rekruter", "Recruiter", "PIC Recruiter", "PIC", "PIC Rekruter", "Nama Rekruter"],
+        "no": ["No", "NO", "Nomor", "Number"],
         "nomor_hp": ["Nomor HP", "No HP", "Phone", "Telepon", "No Telepon", "HP", "WhatsApp"],
         "email": ["Email", "Email Address", "Alamat Email", "E-mail"],
         "domisili": ["Domisili", "Domicile", "Kota Domisili", "Alamat"],
         "jenjang_pendidikan": ["Jenjang Pendidikan", "Education Level", "Pendidikan", "Pendidikan Terakhir"],
         "jurusan": ["Jurusan", "Major", "Program Studi", "Jurusan Kuliah"],
-        "tahun_lulus": ["Tahun Lulus", "Graduation Year", "Tahun", "Tahun Lulus Kuliah"],
+        "tahun_lulus": ["Tahun Lulus", "Graduation Year", "Tahun Lulus Kuliah"],
         "ipk": ["IPK", "GPA", "Nilai", "IPK/Nilai"],
         "university_tier": ["University Tier", "Univ Tier", "Tier Universitas"],
         "ipk_tier": ["IPK Tier", "GPA Tier", "Tier IPK"],
-        "nama_universitas_top10": ["Nama Universitas/Sekolah (TOP 10)", "Universitas", "Nama Universitas", "Universitas/Sekolah"],
+        "nama_universitas_top10": ["Nama Universitas/Sekolah (TOP 10)", "Nama Universitas/Sekolah (Top 10)", "Universitas", "Nama Universitas", "Universitas/Sekolah"],
         "nama_universitas_lainnya": ["Nama Universitas/Sekolah Lainnya", "Universitas Lainnya"],
-        "last_position": ["Last Position", "Posisi Terakhir", "Posisi Sebelumnya", "Posisi Terakhir"],
+        "skor_bahasa_inggris": ["Skor Bahasa Inggris", "English Score"],
+        "last_position": ["Last Position", "Posisi Terakhir", "Posisi Sebelumnya"],
         "last_company": ["Last Company", "Company Terakhir", "Perusahaan Sebelumnya", "Perusahaan Terakhir"],
         "last_tenure": ["Last Tenure", "Lama Bekerja", "Tenure"],
         "total_tenure": ["Total Tenure", "Total Pengalaman", "Total Bekerja"],
         "pernah_di_fmcg": ["Pernah di FMCG?", "FMCG", "Pengalaman FMCG", "FMCG Experience"],
         "sourcing_freelance": ["Sourcing Freelance", "Freelance"],
+        "tanggal_sourcing_freelance": ["Tanggal Sourcing Freelance"],
         "sourcing_hr": ["Sourcing HR", "HR Sourcing"],
+        "detail_keterangan_sourcing_hr": ["Detail Keterangan Sourcing HR"],
+        "tanggal_sourcing": ["Tanggal Sourcing"],
         "shortlist_cv": ["Shortlist CV", "Shortlist", "CV Shortlist"],
+        "detail_keterangan_shortlist_cv": ["Detail Keterangan Shortlist CV"],
+        "tanggal_shortlist_cv": ["Tanggal Shortlist CV"],
         "psikotes": ["Psikotes", "Psychotest", "Tes Psikologi"],
+        "kode_psikotes": ["Kode Psikotes"],
+        "detail_keterangan_psikotes": ["Detail Keterangan Psikotes"],
+        "tanggal_psikotes": ["Tanggal Psikotes / Cek psikotes", "Tanggal Psikotes"],
+        "nilai_logika": ["Nilai Logika"],
+        "nilai_iq": ["Nilai IQ"],
+        "nilai_daya_tangkap": ["Nilai Daya Tangkap"],
+        "nilai_ra": ["Nilai RA"],
+        "disc": ["DISC"],
         "hr_interview": ["HR Interview", "Interview HR", "Interview HRD"],
+        "detail_keterangan_hr_interview": ["Detail Keterangan HR Interview"],
+        "tanggal_hr_interview": ["Tanggal HR Interview"],
+        "technical_test_case_study": ["Technical Test/ Case Study", "Technical Test", "Case Study"],
+        "detail_keterangan_technical_test": ["Detail Keterangan Technical Test/ Case Study", "Detail Keterangan Technical Test"],
+        "tanggal_technical_test": ["Tanggal Technical Test/ Case Study", "Tanggal Technical Test"],
+        "market_visit": ["Market Visit"],
+        "detail_market_visit": ["Detail Market Visit"],
+        "tanggal_market_visit": ["Tanggal Market Visit"],
         "user_interview": ["User Interview", "Interview User", "Interview User/Manager"],
-        "offering": ["Offering", "Offering Date", "Tanggal Offering"],
+        "detail_keterangan_user_interview": ["Detail Keterangan User Interview"],
+        "tanggal_user_interview": ["Tanggal User Interview"],
+        "panel_interview": ["Panel Interview"],
+        "detail_keterangan_panel_interview": ["Detail Keterangan Panel Interview"],
+        "tanggal_panel_interview": ["Tanggal Panel Interview"],
+        "reference_check": ["Reference Check"],
+        "detail_keterangan_reference_check": ["Detail Keterangan Reference Check"],
+        "tanggal_reference_check": ["Tanggal Reference Check"],
+        "mcu": ["MCU"],
+        "detail_keterangan_mcu": ["Detail Keterangan MCU"],
+        "tanggal_mcu": ["Tanggal MCU"],
+        "offering": ["Offering"],
+        "detail_keterangan_offering": ["Detail Keterangan Offering"],
+        "tanggal_offering": ["Tanggal Offering"],
+        "notes": ["Notes", "Catatan"],
         "day1": ["Day 1", "Day1", "Hari Pertama"],
+        "detail_keterangan_day1": ["Detail Keterangan Day 1"],
+        "tanggal_day1": ["Tanggal Day 1"],
     }
     
     all_mappings = {**required_mappings, **optional_mappings}
@@ -853,6 +990,9 @@ def validate_db_sourcing_file(
         })
         return False, errors
     
+    # ============================================================
+    # RENAME KOLOM in-place
+    # ============================================================
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
@@ -863,11 +1003,10 @@ def validate_db_sourcing_file(
     
     valid_models = ["Model 1", "Model 2", "Model 3", "Model 4"]
     
-    # TAMBAHKAN "Google Form RWC" KE DAFTAR VALID SUMBER
     valid_sumber = [
-        "Jobstreet", "LinkedIn", "Google Form", 
+        "Jobstreet", "LinkedIn", "Google Form",
         "Referensi User", "Referensi Karyawan", "Campus Hiring",
-        "Google Form RWC"  # ← TAMBAHKAN INI
+        "Google Form RWC",
     ]
     valid_sumber_lower = [s.lower() for s in valid_sumber]
     
@@ -898,14 +1037,14 @@ def validate_db_sourcing_file(
                 "expected": "Nama kandidat"
             })
         
-        # SOURCING DATE - UBAH DARI ERROR MENJADI WARNING
+        # SOURCING DATE - WARNING (bukan error)
         sourcing_date = get_single_value(row.get("sourcing_date"))
         if sourcing_date is None or pd.isna(sourcing_date) or str(sourcing_date).strip() == "":
             row_errors.append({
                 "row": row_num,
                 "field": "Sourcing Date",
                 "value": sourcing_date,
-                "warning": True,  # ← WARNING, BUKAN ERROR
+                "warning": True,
                 "error": "Sourcing Date kosong, data tetap akan disimpan",
                 "expected": "Format tanggal yang valid (opsional)"
             })
@@ -914,7 +1053,7 @@ def validate_db_sourcing_file(
                 "row": row_num,
                 "field": "Sourcing Date",
                 "value": sourcing_date,
-                "warning": True,  # ← WARNING, BUKAN ERROR
+                "warning": True,
                 "error": f"Format Sourcing Date '{sourcing_date}' tidak valid",
                 "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
             })
@@ -1052,9 +1191,11 @@ def validate_db_kode_posisi_file(
     required_mappings = {
         "position": ["POSITION", "Position", "Posisi"],
         "kode": [
-            "KODE", "Kode", "Kode Angka",
+            "KODE", "Kode",
+            "Kode Angka",
             "Kode Angka (tidak pakai tanda petik ')",
-            "KODE ANGKA", "ID", "Kode ID"
+            "KODE ANGKA",
+            "Kode ID",
         ],
     }
     
