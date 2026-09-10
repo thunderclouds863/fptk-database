@@ -4,27 +4,15 @@ import pandas as pd
 import math
 import re
 import hashlib
-from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from datetime import datetime, timedelta, date
-from core.models import (
-    FPTK,
-    DBSourcing,
-    DBKodePosisi,
-    UploadLog
-)
+
+from core.models import FPTK, DBSourcing, DBKodePosisi, UploadLog
 from core.utils import (
-    safe_int, 
-    safe_float, 
-    safe_string, 
-    safe_boolean_char, 
-    safe_date,
-    sanitize_date_value, 
-    calculate_detail_sla, 
-    calculate_sla_days,
-    parse_date_dmy,
-    normalize_text,
-    get_single_value
+    safe_int, safe_float, safe_string, safe_boolean_char, safe_date,
+    sanitize_date_value, calculate_detail_sla, calculate_sla_days,
+    parse_date_dmy, normalize_text, get_single_value
 )
 
 
@@ -33,7 +21,6 @@ from core.utils import (
 # ============================================================
 
 def safe_string_for_db(value, default='', max_length=None):
-    """Safely convert to string with truncation."""
     if value is None:
         return default
     if isinstance(value, float) and math.isnan(value):
@@ -48,15 +35,12 @@ def safe_string_for_db(value, default='', max_length=None):
         result = str(value)
     else:
         result = str(value) if value is not None else default
-    
     if max_length is not None and len(result) > max_length:
         result = result[:max_length]
-    
     return result
 
 
 def safe_numeric_value(value, default=None):
-    """Safely convert to numeric or None."""
     if value is None:
         return default
     if isinstance(value, float) and math.isnan(value):
@@ -83,7 +67,6 @@ def safe_numeric_value(value, default=None):
 
 
 def safe_int_value(value, default=None):
-    """Safely convert to integer or None."""
     if value is None:
         return default
     if isinstance(value, float) and math.isnan(value):
@@ -108,15 +91,7 @@ def safe_int_value(value, default=None):
     return default
 
 
-# ============================================================
-# GET BOOLEAN VALUE - DIPERBAIKI UNTUK MAX LENGTH 1
-# ============================================================
-
 def get_boolean_value(val):
-    """
-    Convert to 'V' or 'X' or None.
-    Always returns a single character or None.
-    """
     if val is None:
         return None
     if isinstance(val, float) and math.isnan(val):
@@ -127,21 +102,17 @@ def get_boolean_value(val):
         return 'V' if val else 'X'
     if isinstance(val, str):
         v = val.strip().upper()
-        # If string is longer than 1 character
         if len(v) > 1:
-            # Check for boolean-like strings
             if v in ['V', 'Y', 'YA', 'YES', 'TRUE', '1']:
                 return 'V'
             if v in ['X', 'N', 'NO', 'FALSE', '0']:
                 return 'X'
-            # Check first character
             first_char = v[0]
             if first_char in ['V', 'Y']:
                 return 'V'
             if first_char in ['X', 'N']:
                 return 'X'
             return None
-        # Single character
         if v in ['V', 'Y']:
             return 'V'
         if v in ['X', 'N']:
@@ -153,10 +124,8 @@ def get_boolean_value(val):
 
 
 def safe_level_number(value):
-    """Ambil angka dari level_number, handle string seperti 'STO Chilled'"""
     if value is None or pd.isna(value):
         return 1
-    
     if isinstance(value, (int, float)):
         try:
             int_val = int(value)
@@ -165,7 +134,6 @@ def safe_level_number(value):
             return 1
         except:
             return 1
-    
     if isinstance(value, str):
         match = re.search(r'(\d+)', value)
         if match:
@@ -173,63 +141,41 @@ def safe_level_number(value):
             if 1 <= num <= 5:
                 return num
         return 1
-    
     return 1
 
 
 def safe_level_fptk(value):
-    """Pastikan level_fptk formatnya 1A-5B"""
     if value is None or pd.isna(value):
         return "1A"
-    
     value_str = str(value).strip().upper()
-    
     if re.match(r'^[1-5][A-B]$', value_str):
         return value_str
-    
     match = re.search(r'(\d+)', value_str)
     if match:
         num = int(match.group(1))
         if 1 <= num <= 5:
             return f"{num}A"
-    
     return "1A"
 
 
-# ============================================================
-# SAFE DATE FALLBACK - HANDLE NaT
-# ============================================================
-
 def safe_date_fallback(value):
-    """
-    Safe date conversion with NaT handling.
-    Returns None for NaT, NaN, None, or invalid values.
-    """
     if value is None:
         return None
-    
-    # CEK NaT (Pandas Not a Time)
     try:
         if pd.isna(value):
             return None
     except:
         pass
-    
     if hasattr(value, '__class__') and 'NaT' in str(value.__class__):
         return None
-    
     if isinstance(value, str) and value.upper() == 'NAT':
         return None
-    
     if isinstance(value, float) and math.isnan(value):
         return None
-    
     if isinstance(value, datetime):
         return value.date()
-    
     if isinstance(value, date):
         return value
-    
     if isinstance(value, pd.Timestamp):
         try:
             if pd.isna(value):
@@ -237,23 +183,45 @@ def safe_date_fallback(value):
         except:
             pass
         return value.date()
-    
     if isinstance(value, str):
         return parse_date_dmy(value)
-    
+    return None
+
+
+def _get_kode_bu(kode_pic):
+    if not kode_pic:
+        return None
+    kode = str(kode_pic).strip().upper()
+    if kode.startswith('CORP'):
+        return 'HO'
+    elif kode.startswith('JESS'):
+        return 'JESS'
+    elif kode.startswith('CMD'):
+        return 'CMD'
+    elif kode.startswith('BHC') or kode.startswith('BCH'):
+        return 'BHC'
+    elif kode.startswith('ARC'):
+        return 'ARC'
+    elif kode.startswith('MS'):
+        return 'MS'
+    elif kode.startswith('MP'):
+        return 'MP'
+    elif kode.startswith('MB'):
+        return 'MB'
+    elif kode.startswith('HO'):
+        return 'HO'
     return None
 
 
 # ============================================================
-# COMPILE FPTK
+# COMPILE FPTK - BULK UPSERT (SELF-CONTAINED)
 # ============================================================
 
 def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
-                               file_name: str, file_bytes: bytes, is_sto: bool = False,
-                               chunk_size: int = 500):
+                 file_name: str, file_bytes: bytes, is_sto: bool = False):
     """
-    Compile FPTK dengan BULK UPSERT + CHUNKING.
-    Cocok untuk file dengan 5000+ row.
+    Compile FPTK dengan BULK UPSERT (INSERT ON CONFLICT DO UPDATE).
+    Semua logic inline, tidak butuh helper function external.
     """
     if isinstance(rows_or_df, list):
         df = pd.DataFrame(rows_or_df)
@@ -263,110 +231,216 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
     file_hash = hashlib.sha256(file_bytes).hexdigest() if file_bytes else ""
 
     if df.empty:
-        return {"success": False, "imported": 0, "updated": 0, "skipped": 0,
-                "errors": ["Tidak ada data valid"]}
+        return {
+            "success": False, "imported": 0, "updated": 0, "skipped": 0,
+            "errors": ["Tidak ada data valid"]
+        }
 
     # ============================================================
-    # PREPARE ALL ROWS
+    # PREPARE ALL ROWS (INLINE)
     # ============================================================
     rows_to_upsert = []
     skipped = 0
 
     for idx, row in df.iterrows():
-        row_data = _prepare_fptk_row_data(
-            row=row, user_id=user_id, cycle_id=cycle_id,
-            file_name=file_name, file_hash=file_hash, is_sto=is_sto,
-        )
-        if row_data:
-            rows_to_upsert.append(row_data)
-        else:
+        # --- Basic fields ---
+        kode_unik = safe_string_for_db(row.get('kode_unik', ''), max_length=100)
+        posisi = safe_string_for_db(row.get('posisi', ''), max_length=500)
+        status = safe_string_for_db(row.get('status', ''), max_length=50)
+
+        if not kode_unik or not posisi:
             skipped += 1
+            continue
+
+        # --- Dates ---
+        fptk_date_real = safe_date(row.get('fptk_date_real'))
+        offering_date = safe_date(row.get('offering_date'))
+        fptk_cancel_date = safe_date(row.get('fptk_cancel_date'))
+        deadline_sla_input = safe_date(row.get('deadline_sla'))
+
+        if fptk_date_real and isinstance(fptk_date_real, datetime):
+            fptk_date_real = fptk_date_real.date()
+        if offering_date and isinstance(offering_date, datetime):
+            offering_date = offering_date.date()
+        if fptk_cancel_date and isinstance(fptk_cancel_date, datetime):
+            fptk_cancel_date = fptk_cancel_date.date()
+        if deadline_sla_input and isinstance(deadline_sla_input, datetime):
+            deadline_sla_input = deadline_sla_input.date()
+
+        # --- Level ---
+        level_num = safe_level_number(row.get('level_number'))
+        if level_num == 1:
+            raw_level_fptk = row.get('level_fptk')
+            if raw_level_fptk:
+                m = re.search(r'(\d+)', str(raw_level_fptk))
+                if m:
+                    n = int(m.group(1))
+                    if 1 <= n <= 5:
+                        level_num = n
+
+        level_fptk = safe_level_fptk(row.get('level_fptk'))
+        if level_fptk == "1A" and level_num > 1:
+            level_fptk = f"{level_num}A"
+
+        # --- SLA ---
+        sla_days = calculate_sla_days(level_num)
+        deadline_sla = fptk_date_real + timedelta(days=sla_days) if fptk_date_real else deadline_sla_input
+
+        detail_sla = calculate_detail_sla(
+            status=status, deadline_sla=deadline_sla, offering_date=offering_date
+        )
+
+        # --- Week & Month ---
+        week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
+        month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
+
+        # --- Kode BU ---
+        kode_bu = _get_kode_bu(row.get('kode_pic', ''))
+
+        # --- Filter Kategorisasi ---
+        filter_kat = safe_string_for_db(row.get('filter_kategorisasi_fptk', ''), max_length=100)
+        posisi_lower = posisi.lower()
+        if not filter_kat:
+            if posisi_lower.startswith('cimory') or posisi_lower.startswith('fresh'):
+                filter_kat = 'CLAP FGDP'
+            elif level_num in [1, 2]:
+                filter_kat = 'Level 1-2'
+            elif level_num == 3:
+                filter_kat = 'Level 3'
+            elif level_num == 4:
+                filter_kat = 'Level 4'
+
+        # --- Availability ---
+        avail = get_boolean_value(row.get('fptk_availability', ''))
+
+        # --- Numeric ---
+        jumlah_sla = safe_int_value(row.get('jumlah_sla'), sla_days)
+        vacancy = safe_int_value(row.get('vacancy'), 1)
+        level_number = int(level_num) if level_num else 1
+
+        kode_angka = row.get('kode_angka')
+        if pd.isna(kode_angka) or not kode_angka:
+            kode_angka = safe_string_for_db(row.get('kode_pic', ''), max_length=50)[:4] + str(vacancy)
+
+        # --- Build dict ---
+        rows_to_upsert.append({
+            'kode_unik': kode_unik,
+            'posisi': posisi,
+            'kode_pic': safe_string_for_db(row.get('kode_pic'), max_length=50),
+            'fptk_date_real': fptk_date_real,
+            'fptk_date_kode': fptk_date_real,
+            'kode_angka': safe_string_for_db(kode_angka, max_length=50),
+            'business_unit': safe_string_for_db(row.get('business_unit'), max_length=100),
+            'direktorat': safe_string_for_db(row.get('direktorat'), max_length=100),
+            'divisi': safe_string_for_db(row.get('divisi'), max_length=100),
+            'department': safe_string_for_db(row.get('department'), max_length=100),
+            'level_fptk': level_fptk,
+            'level_number': level_number,
+            'alasan_permintaan_fptk': safe_string_for_db(row.get('alasan_permintaan_fptk'), max_length=200),
+            'category_fptk': safe_string_for_db(row.get('category_fptk'), max_length=100),
+            'pic_recruiter': safe_string_for_db(row.get('pic_recruiter'), max_length=100),
+            'filter_kategorisasi_fptk': filter_kat,
+            'vacancy': vacancy,
+            'status': status,
+            'offering_date': offering_date,
+            'fptk_cancel_date': fptk_cancel_date,
+            'jumlah_sla': jumlah_sla,
+            'deadline_sla': deadline_sla,
+            'detail_sla': detail_sla,
+            'week_fptk_date': week_num,
+            'month_fptk_date': month_name,
+            'kode_bu': kode_bu,
+            'fptk_availability': avail,
+            'source_user_id': user_id,
+            'source_cycle_id': cycle_id,
+            'source_file': safe_string_for_db(file_name, max_length=255),
+            'source_file_hash': file_hash,
+            'is_sto': is_sto,
+        })
 
     if not rows_to_upsert:
-        return {"success": False, "imported": 0, "updated": 0, "skipped": skipped,
-                "errors": ["Tidak ada row valid untuk di-compile"]}
+        return {
+            "success": False, "imported": 0, "updated": 0, "skipped": skipped,
+            "errors": ["Tidak ada row valid untuk di-compile"]
+        }
 
     # ============================================================
-    # DETEKSI IMPORTED vs UPDATED (1x query)
+    # DETEKSI IMPORTED vs UPDATED
     # ============================================================
-    keys_in_file = [(r['kode_unik'], r['posisi']) for r in rows_to_upsert]
-
-    existing_records = db.query(FPTK.kode_unik, FPTK.posisi).filter(
-        FPTK.kode_unik.in_([k for k, p in keys_in_file])
-    ).all()
-
-    existing_keys = {(r.kode_unik, r.posisi) for r in existing_records}
-
     imported = 0
     updated = 0
-    for r in rows_to_upsert:
-        key = (r['kode_unik'], r['posisi'])
-        if key in existing_keys:
-            updated += 1
-        else:
-            imported += 1
-
-    # ============================================================
-    # BULK UPSERT PER CHUNK
-    # ============================================================
-    now = datetime.now()
-    for r in rows_to_upsert:
-        r['created_at'] = now
-        r['last_updated_at'] = now
-        r['last_compile_action'] = 'UPSERT'
 
     try:
-        total_chunks = (len(rows_to_upsert) + chunk_size - 1) // chunk_size
+        kode_list = [r['kode_unik'] for r in rows_to_upsert]
+        existing_records = db.query(FPTK.kode_unik, FPTK.posisi).filter(
+            FPTK.kode_unik.in_(kode_list)
+        ).all()
+        existing_keys = {(r.kode_unik, r.posisi) for r in existing_records}
 
-        for i in range(0, len(rows_to_upsert), chunk_size):
-            chunk = rows_to_upsert[i:i + chunk_size]
-            chunk_num = (i // chunk_size) + 1
+        for r in rows_to_upsert:
+            key = (r['kode_unik'], r['posisi'])
+            if key in existing_keys:
+                updated += 1
+            else:
+                imported += 1
 
-            stmt = pg_insert(FPTK).values(chunk)
-            stmt = stmt.on_conflict_do_update(
-                index_elements=['kode_unik', 'posisi'],
-                set_={
-                    'kode_pic': stmt.excluded.kode_pic,
-                    'fptk_date_real': stmt.excluded.fptk_date_real,
-                    'fptk_date_kode': stmt.excluded.fptk_date_kode,
-                    'kode_angka': stmt.excluded.kode_angka,
-                    'business_unit': stmt.excluded.business_unit,
-                    'direktorat': stmt.excluded.direktorat,
-                    'divisi': stmt.excluded.divisi,
-                    'department': stmt.excluded.department,
-                    'level_fptk': stmt.excluded.level_fptk,
-                    'level_number': stmt.excluded.level_number,
-                    'alasan_permintaan_fptk': stmt.excluded.alasan_permintaan_fptk,
-                    'category_fptk': stmt.excluded.category_fptk,
-                    'pic_recruiter': stmt.excluded.pic_recruiter,
-                    'filter_kategorisasi_fptk': stmt.excluded.filter_kategorisasi_fptk,
-                    'vacancy': stmt.excluded.vacancy,
-                    'status': stmt.excluded.status,
-                    'offering_date': stmt.excluded.offering_date,
-                    'fptk_cancel_date': stmt.excluded.fptk_cancel_date,
-                    'jumlah_sla': stmt.excluded.jumlah_sla,
-                    'deadline_sla': stmt.excluded.deadline_sla,
-                    'detail_sla': stmt.excluded.detail_sla,
-                    'week_fptk_date': stmt.excluded.week_fptk_date,
-                    'month_fptk_date': stmt.excluded.month_fptk_date,
-                    'kode_bu': stmt.excluded.kode_bu,
-                    'fptk_availability': stmt.excluded.fptk_availability,
-                    'source_user_id': stmt.excluded.source_user_id,
-                    'source_cycle_id': stmt.excluded.source_cycle_id,
-                    'source_file': stmt.excluded.source_file,
-                    'source_file_hash': stmt.excluded.source_file_hash,
-                    'is_sto': stmt.excluded.is_sto,
-                    'last_updated_at': now,
-                    'last_compile_action': 'UPDATE',
-                }
-            )
+        # ============================================================
+        # BULK UPSERT
+        # ============================================================
+        now = datetime.now()
+        for r in rows_to_upsert:
+            r['created_at'] = now
+            r['last_updated_at'] = now
+            r['last_compile_action'] = 'UPSERT'
 
-            db.execute(stmt)
-            db.flush()  # Flush per chunk biar memory aman
+        stmt = pg_insert(FPTK).values(rows_to_upsert)
 
-        db.commit()
+        update_columns = {
+            'kode_pic': stmt.excluded.kode_pic,
+            'fptk_date_real': stmt.excluded.fptk_date_real,
+            'fptk_date_kode': stmt.excluded.fptk_date_kode,
+            'kode_angka': stmt.excluded.kode_angka,
+            'business_unit': stmt.excluded.business_unit,
+            'direktorat': stmt.excluded.direktorat,
+            'divisi': stmt.excluded.divisi,
+            'department': stmt.excluded.department,
+            'level_fptk': stmt.excluded.level_fptk,
+            'level_number': stmt.excluded.level_number,
+            'alasan_permintaan_fptk': stmt.excluded.alasan_permintaan_fptk,
+            'category_fptk': stmt.excluded.category_fptk,
+            'pic_recruiter': stmt.excluded.pic_recruiter,
+            'filter_kategorisasi_fptk': stmt.excluded.filter_kategorisasi_fptk,
+            'vacancy': stmt.excluded.vacancy,
+            'status': stmt.excluded.status,
+            'offering_date': stmt.excluded.offering_date,
+            'fptk_cancel_date': stmt.excluded.fptk_cancel_date,
+            'jumlah_sla': stmt.excluded.jumlah_sla,
+            'deadline_sla': stmt.excluded.deadline_sla,
+            'detail_sla': stmt.excluded.detail_sla,
+            'week_fptk_date': stmt.excluded.week_fptk_date,
+            'month_fptk_date': stmt.excluded.month_fptk_date,
+            'kode_bu': stmt.excluded.kode_bu,
+            'fptk_availability': stmt.excluded.fptk_availability,
+            'source_user_id': stmt.excluded.source_user_id,
+            'source_cycle_id': stmt.excluded.source_cycle_id,
+            'source_file': stmt.excluded.source_file,
+            'source_file_hash': stmt.excluded.source_file_hash,
+            'is_sto': stmt.excluded.is_sto,
+            'last_updated_at': now,
+            'last_compile_action': 'UPDATE',
+        }
 
-        # Log success
+        stmt = stmt.on_conflict_do_update(
+            index_elements=['kode_unik', 'posisi'],
+            set_=update_columns
+        )
+
+        db.execute(stmt)
+        db.flush()
+
+        # ============================================================
+        # LOG SUCCESS
+        # ============================================================
         log = UploadLog(
             cycle_id=cycle_id,
             user_id=user_id,
@@ -375,7 +449,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             file_hash=file_hash,
             status="SUCCESS",
             record_count=imported + updated,
-            error_details=f"Imported: {imported}, Updated: {updated}, Skipped: {skipped}, Chunks: {total_chunks}"
+            error_details=f"Imported: {imported}, Updated: {updated}, Skipped: {skipped}"
         )
         db.add(log)
         db.commit()
@@ -410,9 +484,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
 
         return {
             "success": False,
-            "imported": 0,
-            "updated": 0,
-            "skipped": skipped,
+            "imported": 0, "updated": 0, "skipped": skipped,
             "errors": [error_msg]
         }
 
