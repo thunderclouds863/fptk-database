@@ -358,6 +358,72 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             'is_sto': is_sto,
         })
 
+    if rows_to_upsert:
+        seen_keys = {}
+        duplicate_details = []
+        
+        for r in rows_to_upsert:
+            key = (r['kode_unik'], r['posisi'])
+            if key in seen_keys:
+                duplicate_details.append({
+                    "kode_unik": r['kode_unik'],
+                    "posisi": r['posisi'],
+                    "first_row": seen_keys[key],
+                    "duplicate_row": len(seen_keys) + len(duplicate_details) + 1,
+                })
+            else:
+                seen_keys[key] = len(seen_keys) + 1
+        
+        # Jika ada duplikat → TOLAK file
+        if duplicate_details:
+            db.rollback()
+            
+            # Build pesan user-friendly
+            pesan = f"⚠️ File ditolak karena ada {len(duplicate_details)} baris duplikat.\n\n"
+            pesan += "Baris duplikat artinya: ada 2+ baris dengan Kode Unik + Posisi yang SAMA.\n\n"
+            pesan += "Daftar duplikat:\n"
+            for dup in duplicate_details[:10]:
+                pesan += f"  • Kode Unik: {dup['kode_unik']}\n"
+                pesan += f"    Posisi: {dup['posisi']}\n"
+                pesan += f"    Muncul di baris ke-{dup['first_row']} dan ke-{dup['duplicate_row']}\n\n"
+            
+            if len(duplicate_details) > 10:
+                pesan += f"  ... dan {len(duplicate_details) - 10} duplikat lainnya\n\n"
+            
+            pesan += "Solusi:\n"
+            pesan += "1. Buka file Excel-nya\n"
+            pesan += "2. Cari baris dengan Kode Unik + Posisi yang sama\n"
+            pesan += "3. Hapus salah satu (yang lama atau yang duplikat)\n"
+            pesan += "4. Upload ulang file-nya"
+            
+            # Log failure dengan pesan friendly
+            try:
+                log = UploadLog(
+                    cycle_id=cycle_id,
+                    user_id=user_id,
+                    file_name=safe_string_for_db(file_name, max_length=255),
+                    file_size_bytes=len(file_bytes) if file_bytes else 0,
+                    file_hash=file_hash,
+                    status="REJECTED",
+                    record_count=0,
+                    error_details=pesan
+                )
+                db.add(log)
+                db.commit()
+            except:
+                db.rollback()
+            
+            return {
+                "success": False,
+                "imported": 0,
+                "updated": 0,
+                "skipped": 0,
+                "errors": [pesan],  # Pesan user-friendly
+                "duplicate_count": len(duplicate_details),
+                "duplicate_details": duplicate_details,
+                "rejection_type": "DUPLICATE"
+            }
+
     if not rows_to_upsert:
         return {
             "success": False, "imported": 0, "updated": 0, "skipped": skipped,
