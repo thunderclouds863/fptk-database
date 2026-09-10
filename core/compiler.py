@@ -248,7 +248,7 @@ def safe_date_fallback(value):
 # COMPILE FPTK
 # ============================================================
 
-def compile_fptk_bulk_chunked(db: Session, rows_or_df, user_id: int, cycle_id: int,
+def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                                file_name: str, file_bytes: bytes, is_sto: bool = False,
                                chunk_size: int = 500):
     """
