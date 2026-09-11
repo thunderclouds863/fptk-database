@@ -35,9 +35,7 @@ st.set_page_config(
 # OPTIMASI: CACHE RESOURCE UNTUK DATABASE
 # ============================================================
 
-@st.cache_resource
 def get_cached_db():
-    """Cache database session untuk performa lebih baik"""
     return SessionLocal()
 
 @st.cache_resource
