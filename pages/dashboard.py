@@ -9,6 +9,24 @@ from core.utils import get_filter_options_from_db
 from datetime import datetime, timedelta
 import time
 
+
+# ============================================================
+# ⭐ CACHE FIX: Clear cache sekali per session
+# ============================================================
+# Ini wajib di paling atas, sebelum function apapun dipanggil.
+# Supaya cache lama (yang kosong) gak nyangkut.
+# ============================================================
+
+if "cache_cleared_v2" not in st.session_state:
+    st.cache_data.clear()
+    st.cache_resource.clear()
+    st.session_state["cache_cleared_v2"] = True
+
+
+# ============================================================
+# BACKWARD COMPATIBILITY: get_filter_options (alias)
+# ============================================================
+
 @st.cache_data(ttl=3600)
 def get_filter_options():
     """
@@ -48,7 +66,7 @@ def load_fptk_data(
         query = db.query(FPTK)
 
         if pic_filter and pic_filter != "Semua":
-            query = query.filter(master_dropdown.pic_recruiter == pic_filter)
+            query = query.filter(FPTK.pic_recruiter == pic_filter)
         if status_filter and status_filter != "Semua":
             query = query.filter(FPTK.status == status_filter)
         if bu_filter and bu_filter != "Semua":
@@ -197,70 +215,37 @@ def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
     st.markdown("---")
 
-    # ⭐ Clear cache dulu biar filter fresh
-    get_filter_options_from_db.clear()
-
     # ============================================================
-    # LOAD FILTER OPTIONS DARI DATABASE (DINAMIS)
+    # ⭐ LOAD FILTER OPTIONS (dengan cache fallback)
     # ============================================================
-    filter_opts = get_filter_options_from_db()
-# ============================================================
-# 🐛 DEBUG KONEKSI DATABASE — HAPUS SETELAH SELESAI
-# ============================================================
-with st.expander("🐛 DEBUG KONEKSI DB", expanded=True):
-    import os
-    from sqlalchemy import create_engine, text
-    
-    # 1. Tampilkan connection string (sensor password)
-    db_url = os.getenv("DATABASE_URL") or "TIDAK ADA ENV VAR"
-    if db_url and "@" in db_url:
-        # Sensor password
-        parts = db_url.split("@")
-        safe_url = parts[0].split(":")[0] + ":***@" + parts[1]
-    else:
-        safe_url = db_url
-    st.write(f"**Connection String:** `{safe_url}`")
-    
-    # 2. Test koneksi langsung
     try:
-        from core.database import engine
-        with engine.connect() as conn:
-            result = conn.execute(text("SELECT current_database(), current_user, version()"))
-            row = result.fetchone()
-            st.write(f"**Database:** `{row[0]}`")
-            st.write(f"**User:** `{row[1]}`")
-            st.write(f"**Version:** `{row[2][:50]}...`")
-            
-            # Cek jumlah row di tabel fptk
-            result2 = conn.execute(text("SELECT COUNT(*) FROM fptk"))
-            count_fptk = result2.scalar()
-            st.write(f"**Jumlah row di tabel `fptk`:** `{count_fptk}`")
-            
-            # Cek sample PIC
-            result3 = conn.execute(text(
-                "SELECT DISTINCT pic_recruiter FROM fptk "
-                "WHERE pic_recruiter IS NOT NULL LIMIT 10"
-            ))
-            pics = [r[0] for r in result3.fetchall()]
-            st.write(f"**Sample PIC:** `{pics}`")
-            
-            # List semua tabel
-            result4 = conn.execute(text(
-                "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
-            ))
-            tables = [r[0] for r in result4.fetchall()]
-            st.write(f"**Tabel yang ada:** `{tables}`")
+        filter_opts = get_filter_options_from_db()
     except Exception as e:
-        st.error(f"❌ Gagal konek: {e}")
-# ============================================================
+        st.error(f"❌ Gagal load filter options: {e}")
+        filter_opts = {
+            "pic_options": [],
+            "bu_options": [],
+            "direktorat_options": [],
+            "filter_kategorisasi_options": [],
+            "status_options": ["OP", "Closed", "Cancel"],
+        }
+
+    # Fallback: kalau kosong, coba clear cache & load ulang
+    if not filter_opts.get("pic_options"):
+        get_filter_options_from_db.clear()
+        try:
+            filter_opts = get_filter_options_from_db()
+        except Exception:
+            pass
+
     # ============================================================
     # SIDEBAR FILTERS
     # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filters")
 
-        # Debug counter — hapus kalau sudah berhasil
-        with st.expander("🐛 Debug Filter Options", expanded=False):
+        # Debug — hapus setelah berhasil
+        with st.expander("🐛 Debug Filter", expanded=False):
             st.caption(
                 f"PIC: {len(filter_opts.get('pic_options', []))} | "
                 f"BU: {len(filter_opts.get('bu_options', []))} | "
@@ -274,23 +259,23 @@ with st.expander("🐛 DEBUG KONEKSI DB", expanded=True):
         with col2:
             date_to = st.date_input("Sampai", datetime.now())
 
-        # PIC Recruiter (DINAMIS dari tabel FPTK)
+        # PIC Recruiter
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
         pic_filter = st.selectbox("PIC Recruiter", pic_options)
 
-        # Status (HARDCODED - enum tetap)
+        # Status
         status_options = ["Semua"] + filter_opts.get("status_options", ["OP", "Closed", "Cancel"])
         status_filter = st.selectbox("Status", status_options)
 
-        # Business Unit (DINAMIS dari tabel FPTK)
+        # Business Unit
         bu_options = ["Semua"] + filter_opts.get("bu_options", [])
         bu_filter = st.selectbox("Business Unit", bu_options)
 
-        # Direktorat (DINAMIS dari tabel FPTK)
+        # Direktorat
         dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
         dir_filter = st.selectbox("Direktorat", dir_options)
 
-        # Filter Kategorisasi (DINAMIS dari tabel FPTK)
+        # Filter Kategorisasi
         filter_kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
         filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options)
 
@@ -302,6 +287,7 @@ with st.expander("🐛 DEBUG KONEKSI DB", expanded=True):
         if st.button("🔄 Refresh Filter Options", use_container_width=True):
             get_filter_options_from_db.clear()
             get_filter_options.clear()
+            st.session_state.pop("cache_cleared_v2", None)
             st.success("✅ Filter refreshed!")
             time.sleep(0.3)
             st.rerun()
