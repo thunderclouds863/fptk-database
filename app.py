@@ -32,33 +32,48 @@ st.set_page_config(
 
 
 # ============================================================
-# AUTO-REFRESH UNTUK UPDATE COUNTDOWN IDLE
+# AUTO-REFRESH VIA JAVASCRIPT (CLIENT-SIDE)
 # ============================================================
+# ⚠️ PENTING: Auto-refresh JANGAN pakai st.rerun() di atas app.py
+# karena bakal RESET session_state & bikin halaman balik ke Dashboard.
+#
+# Solusi: pakai JavaScript `location.reload()` yang TIDAK
+# reset session_state Streamlit (WebSocket tetap jalan).
+#
 # Logic:
-#   - Idle timeout: 30 MENIT (1800 detik) → auto-logout
-#   - Auto-refresh UI: kalau user BENAR-BENAR idle > 10 menit → refresh tiap 60 detik
-#   - Tujuan: countdown di sidebar update, tapi gak ganggu user yang aktif
-#   - User yang masih aktif (< 10 menit) → gak refresh → form aman
+#   - Cek idle pakai JS (detect mouse/keyboard/scroll)
+#   - Kalau user idle > 4 menit, reload halaman
+#   - User yang aktif → gak reload → form aman
 # ============================================================
-
-IDLE_THRESHOLD_FOR_REFRESH = 10 * 60  # 10 menit = 600 detik
 
 if st.session_state.get("user_id"):
-    last_activity = st.session_state.get("last_activity")
+    st.markdown(
+        """
+        <script>
+        (function() {
+            let lastInteraction = Date.now();
 
-    if last_activity:
-        idle_seconds = (datetime.now() - last_activity).total_seconds()
+            const updateActivity = () => {
+                lastInteraction = Date.now();
+            };
 
-        # Cuma auto-refresh kalau user BENAR-BENAR idle > 10 menit
-        if idle_seconds > IDLE_THRESHOLD_FOR_REFRESH:
-            if "last_auto_refresh" not in st.session_state:
-                st.session_state.last_auto_refresh = time.time()
+            // Listen semua event interaksi user
+            ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click']
+                .forEach(evt => document.addEventListener(evt, updateActivity, {passive: true}));
 
-            elapsed = time.time() - st.session_state.last_auto_refresh
-
-            if elapsed >= 60:
-                st.session_state.last_auto_refresh = time.time()
-                st.rerun()
+            // Cek tiap 60 detik — kalau idle > 4 menit, reload halaman
+            setInterval(function() {
+                const idle = Date.now() - lastInteraction;
+                // 4 menit = 240000 ms
+                if (idle > 4 * 60 * 1000) {
+                    window.parent.location.reload();
+                }
+            }, 60 * 1000);
+        })();
+        </script>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 # ============================================================
@@ -538,8 +553,16 @@ if not st.session_state.user_id:
                             or user.username
                         )
                         st.session_state.last_activity = datetime.now()
-                        # ⭐ Reset halaman ke dashboard saat login baru
+                        # Reset halaman ke dashboard saat login baru
                         st.session_state.page = "dashboard"
+
+                        # ⭐ Clear pages_dict & user_is_admin biar di-rebuild
+                        if "pages_dict" in st.session_state:
+                            del st.session_state.pages_dict
+                        if "user_is_admin" in st.session_state:
+                            del st.session_state.user_is_admin
+                        if "nav_page_label" in st.session_state:
+                            del st.session_state.nav_page_label
 
                         st.success(
                             f"✅ Selamat datang, "
@@ -595,49 +618,52 @@ with st.sidebar:
     st.markdown("---")
 
     # ========================================================
-    # NAVIGATION DICT
+    # BUILD PAGES DICT — SEKALI SAJA (STABLE)
+    # ========================================================
+    # ⚠️ PENTING: pages_dict disimpan di session_state biar
+    # gak berubah-ubah tiap rerun (yang bikin radio reset).
     # ========================================================
 
-    pages = {
-        "📊 Dashboard": "dashboard",
-        "📤 Upload & Compile FPTK": "upload_compile",
-        "📋 FPTK View": "fptk_view",
-        "📝 Update Progres Recruitment": "update_progres",
-        "👤 Sourcing Input": "sourcing_input",
-        "👩🏻‍💻 Sourcing View": "sourcing_view",
-        "🏢 DB Kode Posisi": "db_kode_posisi",
-        "🔍 Funnel Report": "funnel_report",
-        "📊 Monitoring Sourcing": "monitoring_sourcing",
-        "📎 Upload Evidence": "upload_evidence",
-        "📩 Transfer FPTK": "transfer_fptk"
-    }
+    if "pages_dict" not in st.session_state:
 
-    # ========================================================
-    # ADMIN MENU
-    # ========================================================
+        base_pages = {
+            "📊 Dashboard": "dashboard",
+            "📤 Upload & Compile FPTK": "upload_compile",
+            "📋 FPTK View": "fptk_view",
+            "📝 Update Progres Recruitment": "update_progres",
+            "👤 Sourcing Input": "sourcing_input",
+            "👩🏻‍💻 Sourcing View": "sourcing_view",
+            "🏢 DB Kode Posisi": "db_kode_posisi",
+            "🔍 Funnel Report": "funnel_report",
+            "📊 Monitoring Sourcing": "monitoring_sourcing",
+            "📎 Upload Evidence": "upload_evidence",
+            "📩 Transfer FPTK": "transfer_fptk",
+        }
 
-    @st.cache_data(ttl=60)
-    def check_is_admin():
+        # Cek admin SEKALI saja (tanpa cache_data)
         db = get_cached_db()
         try:
-            return is_admin(db)
+            user_is_admin = is_admin(db)
         finally:
             db.close()
 
-    if check_is_admin():
-        pages["🔄 Update Cycle"] = "upload_cycle"
-        pages["👥 User Management"] = "user_management"
-        pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
+        st.session_state["user_is_admin"] = user_is_admin
 
-    # ========================================================
-    # NAVIGATION RADIO — FIX BIAR GAK BALIK KE DASHBOARD
-    # ========================================================
-    # Pakai index + session_state key yang TERPISAH
-    # ========================================================
+        if user_is_admin:
+            base_pages["🔄 Update Cycle"] = "upload_cycle"
+            base_pages["👥 User Management"] = "user_management"
+            base_pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
 
+        st.session_state.pages_dict = base_pages
+
+    pages = st.session_state.pages_dict
     page_labels = list(pages.keys())
 
-    # Dapatkan label dari page key yang sedang aktif
+    # ========================================================
+    # NAVIGATION RADIO — PERSISTENT
+    # ========================================================
+
+    # Cari label aktif dari page key
     current_page_key = st.session_state.get("page", "dashboard")
     current_label = page_labels[0]
     for label, key in pages.items():
@@ -645,15 +671,17 @@ with st.sidebar:
             current_label = label
             break
 
-    # Init nav session state kalau belum ada
+    # Init nav_page_label
     if "nav_page_label" not in st.session_state:
         st.session_state.nav_page_label = current_label
 
-    # Sync: kalau page berubah dari luar (bukan dari radio),
-    # update nav_page_label juga
-    if st.session_state.nav_page_label != current_label:
-        if current_label in page_labels:
-            st.session_state.nav_page_label = current_label
+    # Kalau label tersimpan gak ada di list → reset ke current_label
+    if st.session_state.nav_page_label not in page_labels:
+        st.session_state.nav_page_label = current_label
+
+    # Kalau page diubah programmatic, sync radio
+    elif st.session_state.nav_page_label != current_label:
+        st.session_state.nav_page_label = current_label
 
     selected = st.radio(
         "Navigasi",
