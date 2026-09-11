@@ -9,11 +9,6 @@ from core.utils import get_filter_options_from_db
 from datetime import datetime, timedelta
 import time
 
-
-# ============================================================
-# BACKWARD COMPATIBILITY: get_filter_options (alias)
-# ============================================================
-
 @st.cache_data(ttl=3600)
 def get_filter_options():
     """
@@ -53,7 +48,7 @@ def load_fptk_data(
         query = db.query(FPTK)
 
         if pic_filter and pic_filter != "Semua":
-            query = query.filter(FPTK.pic_recruiter == pic_filter)
+            query = query.filter(Master_Dropdown.pic_recruiter == pic_filter)
         if status_filter and status_filter != "Semua":
             query = query.filter(FPTK.status == status_filter)
         if bu_filter and bu_filter != "Semua":
