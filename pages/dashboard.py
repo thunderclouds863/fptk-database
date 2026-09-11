@@ -11,14 +11,7 @@ import time
 
 
 # ============================================================
-# CACHE FUNCTIONS (DIPINDAHKAN KE ATAS AGAR BISA DIIMPORT)
-# ============================================================
-
-# ============================================================
 # BACKWARD COMPATIBILITY: get_filter_options (alias)
-# ============================================================
-# Fungsi ini dipertahankan supaya app.py lama yang masih
-# import `get_filter_options` tidak error.
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -27,8 +20,6 @@ def get_filter_options():
     BACKWARD COMPATIBILITY.
     Mengembalikan tuple (pic_options, bu_options, dir_options)
     yang sudah termasuk "Semua" di depan.
-
-    Sekarang ambil dari core.utils.get_filter_options_from_db().
     """
     try:
         opts = get_filter_options_from_db()
@@ -222,13 +213,22 @@ def show_dashboard():
     with st.sidebar:
         st.markdown("### 🔍 Filters")
 
+        # Debug counter — hapus kalau sudah berhasil
+        with st.expander("🐛 Debug Filter Options", expanded=False):
+            st.caption(
+                f"PIC: {len(filter_opts.get('pic_options', []))} | "
+                f"BU: {len(filter_opts.get('bu_options', []))} | "
+                f"Dir: {len(filter_opts.get('direktorat_options', []))} | "
+                f"Kat: {len(filter_opts.get('filter_kategorisasi_options', []))}"
+            )
+
         col1, col2 = st.columns(2)
         with col1:
             date_from = st.date_input("Dari", datetime.now() - timedelta(days=90))
         with col2:
             date_to = st.date_input("Sampai", datetime.now())
 
-        # PIC Recruiter (DINAMIS dari tabel users)
+        # PIC Recruiter (DINAMIS dari tabel FPTK)
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
         pic_filter = st.selectbox("PIC Recruiter", pic_options)
 
@@ -236,15 +236,15 @@ def show_dashboard():
         status_options = ["Semua"] + filter_opts.get("status_options", ["OP", "Closed", "Cancel"])
         status_filter = st.selectbox("Status", status_options)
 
-        # Business Unit (DINAMIS dari master_dropdown)
+        # Business Unit (DINAMIS dari tabel FPTK)
         bu_options = ["Semua"] + filter_opts.get("bu_options", [])
         bu_filter = st.selectbox("Business Unit", bu_options)
 
-        # Direktorat (DINAMIS dari master_dropdown)
+        # Direktorat (DINAMIS dari tabel FPTK)
         dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
         dir_filter = st.selectbox("Direktorat", dir_options)
 
-        # Filter Kategorisasi (DINAMIS dari master_dropdown)
+        # Filter Kategorisasi (DINAMIS dari tabel FPTK)
         filter_kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
         filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options)
 
@@ -255,6 +255,7 @@ def show_dashboard():
 
         if st.button("🔄 Refresh Filter Options", use_container_width=True):
             get_filter_options_from_db.clear()
+            get_filter_options.clear()
             st.success("✅ Filter refreshed!")
             time.sleep(0.3)
             st.rerun()
