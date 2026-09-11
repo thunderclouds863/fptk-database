@@ -48,7 +48,7 @@ if st.session_state.get("user_id"):
         idle_seconds = (datetime.now() - last_activity).total_seconds()
 
         # Cuma auto-refresh kalau user idle > 30 detik
-        if idle_seconds > 30:
+        if idle_seconds > 300000:
             if "last_auto_refresh" not in st.session_state:
                 st.session_state.last_auto_refresh = time.time()
 
