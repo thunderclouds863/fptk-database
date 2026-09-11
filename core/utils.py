@@ -124,18 +124,15 @@ def safe_date(value):
     if value is None:
         return None
 
-    # Cek NaT (Pandas Not a Time)
     try:
         if pd.isna(value):
             return None
     except:
         pass
 
-    # Cek class name untuk NaT
     if hasattr(value, '__class__') and 'NaT' in str(value.__class__):
         return None
 
-    # Cek string "NaT"
     if isinstance(value, str) and value.upper() == 'NAT':
         return None
 
@@ -159,7 +156,6 @@ def safe_date(value):
     if isinstance(value, str):
         return parse_date_dmy(value)
 
-    # Cek untuk pandas Series
     if isinstance(value, pd.Series):
         if len(value) > 0:
             val = value.iloc[0]
@@ -499,7 +495,10 @@ def normalize_boolean_to_vx(value):
 
 
 # ============================================================
-# NEW: FILTER OPTIONS FROM DB (DINAMIS)
+# ⭐ FILTER OPTIONS FROM DB (DINAMIS) — DIPERBAIKI
+# ============================================================
+# Prioritas ambil dari tabel FPTK (karena berisi data real).
+# Fallback ke master_dropdown / users kalau FPTK kosong.
 # ============================================================
 
 @st.cache_data(ttl=3600)
@@ -529,46 +528,78 @@ def get_filter_options_from_db():
     db = SessionLocal()
     try:
         # ============================================================
-        # 1. PIC RECRUITER - dari tabel users
+        # 1. PIC RECRUITER — ambil dari FPTK dulu
         # ============================================================
-        pic_rows = db.query(User.pic_recruiter).filter(
-            User.pic_recruiter.isnot(None),
-            User.pic_recruiter != ""
+        pic_rows = db.query(FPTK.pic_recruiter).filter(
+            FPTK.pic_recruiter.isnot(None),
+            FPTK.pic_recruiter != ""
         ).distinct().all()
         pic_options = sorted(set([r[0] for r in pic_rows if r[0]]))
 
+        # Fallback ke tabel users kalau FPTK kosong
+        if not pic_options:
+            pic_rows = db.query(User.pic_recruiter).filter(
+                User.pic_recruiter.isnot(None),
+                User.pic_recruiter != ""
+            ).distinct().all()
+            pic_options = sorted(set([r[0] for r in pic_rows if r[0]]))
+
         # ============================================================
-        # 2. BUSINESS UNIT - dari master_dropdown
+        # 2. BUSINESS UNIT — ambil dari FPTK dulu
         # ============================================================
-        bu_rows = db.query(MasterDropdown.bu).filter(
-            MasterDropdown.is_active == True,
-            MasterDropdown.bu.isnot(None),
-            MasterDropdown.bu != ""
+        bu_rows = db.query(FPTK.business_unit).filter(
+            FPTK.business_unit.isnot(None),
+            FPTK.business_unit != ""
         ).distinct().all()
         bu_options = sorted(set([r[0] for r in bu_rows if r[0]]))
 
+        # Fallback ke master_dropdown
+        if not bu_options:
+            bu_rows = db.query(MasterDropdown.bu).filter(
+                MasterDropdown.is_active == True,
+                MasterDropdown.bu.isnot(None),
+                MasterDropdown.bu != ""
+            ).distinct().all()
+            bu_options = sorted(set([r[0] for r in bu_rows if r[0]]))
+
         # ============================================================
-        # 3. DIREKTORAT - dari master_dropdown
+        # 3. DIREKTORAT — ambil dari FPTK dulu
         # ============================================================
-        dir_rows = db.query(MasterDropdown.nama_direktorat).filter(
-            MasterDropdown.is_active == True,
-            MasterDropdown.nama_direktorat.isnot(None),
-            MasterDropdown.nama_direktorat != ""
+        dir_rows = db.query(FPTK.direktorat).filter(
+            FPTK.direktorat.isnot(None),
+            FPTK.direktorat != ""
         ).distinct().all()
         direktorat_options = sorted(set([r[0] for r in dir_rows if r[0]]))
 
+        # Fallback ke master_dropdown
+        if not direktorat_options:
+            dir_rows = db.query(MasterDropdown.nama_direktorat).filter(
+                MasterDropdown.is_active == True,
+                MasterDropdown.nama_direktorat.isnot(None),
+                MasterDropdown.nama_direktorat != ""
+            ).distinct().all()
+            direktorat_options = sorted(set([r[0] for r in dir_rows if r[0]]))
+
         # ============================================================
-        # 4. FILTER KATEGORISASI FPTK - dari master_dropdown
+        # 4. FILTER KATEGORISASI FPTK — ambil dari FPTK dulu
         # ============================================================
-        filter_kat_rows = db.query(MasterDropdown.filter_fptk).filter(
-            MasterDropdown.is_active == True,
-            MasterDropdown.filter_fptk.isnot(None),
-            MasterDropdown.filter_fptk != ""
+        filter_kat_rows = db.query(FPTK.filter_kategorisasi_fptk).filter(
+            FPTK.filter_kategorisasi_fptk.isnot(None),
+            FPTK.filter_kategorisasi_fptk != ""
         ).distinct().all()
         filter_kategorisasi_options = sorted(set([r[0] for r in filter_kat_rows if r[0]]))
 
+        # Fallback ke master_dropdown
+        if not filter_kategorisasi_options:
+            filter_kat_rows = db.query(MasterDropdown.filter_fptk).filter(
+                MasterDropdown.is_active == True,
+                MasterDropdown.filter_fptk.isnot(None),
+                MasterDropdown.filter_fptk != ""
+            ).distinct().all()
+            filter_kategorisasi_options = sorted(set([r[0] for r in filter_kat_rows if r[0]]))
+
         # ============================================================
-        # 5. SUMBER SOURCING - dari master_dropdown
+        # 5. SUMBER SOURCING — dari master_dropdown
         # ============================================================
         sumber_rows = db.query(MasterDropdown.sumber_sourcing).filter(
             MasterDropdown.is_active == True,
@@ -578,7 +609,7 @@ def get_filter_options_from_db():
         sumber_options = sorted(set([r[0] for r in sumber_rows if r[0]]))
 
         # ============================================================
-        # 6. MODEL REKRUTMEN - dari master_dropdown
+        # 6. MODEL REKRUTMEN — dari master_dropdown
         # ============================================================
         model_rows = db.query(MasterDropdown.model).filter(
             MasterDropdown.is_active == True,
@@ -588,7 +619,7 @@ def get_filter_options_from_db():
         model_options = sorted(set([r[0] for r in model_rows if r[0]]))
 
         # ============================================================
-        # 7. DIVISI - dari master_dropdown
+        # 7. DIVISI — dari master_dropdown
         # ============================================================
         divisi_rows = db.query(MasterDropdown.divisi).filter(
             MasterDropdown.is_active == True,
@@ -598,7 +629,7 @@ def get_filter_options_from_db():
         divisi_options = sorted(set([r[0] for r in divisi_rows if r[0]]))
 
         # ============================================================
-        # 8. DEPARTMENT - dari master_dropdown
+        # 8. DEPARTMENT — dari master_dropdown
         # ============================================================
         dept_rows = db.query(MasterDropdown.department).filter(
             MasterDropdown.is_active == True,
@@ -608,7 +639,7 @@ def get_filter_options_from_db():
         dept_options = sorted(set([r[0] for r in dept_rows if r[0]]))
 
         # ============================================================
-        # 9. REKRUTER (dari DBSourcing)
+        # 9. REKRUTER — dari DBSourcing
         # ============================================================
         rekruter_rows = db.query(DBSourcing.rekruter).filter(
             DBSourcing.rekruter.isnot(None),
@@ -617,12 +648,13 @@ def get_filter_options_from_db():
         rekruter_options = sorted(set([r[0] for r in rekruter_rows if r[0]]))
 
         # ============================================================
-        # 10. LEVEL FPTK - hardcoded enum
+        # 10. LEVEL FPTK — hardcoded enum
         # ============================================================
-        level_options = ["1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B", "5A", "5B"]
+        level_options = ["1A", "1B", "1C", "2A", "2B", "2C",
+                         "3A", "3B", "3C", "4A", "4B", "5A", "5B"]
 
         # ============================================================
-        # 11. STATUS - hardcoded enum
+        # 11. STATUS — hardcoded enum
         # ============================================================
         status_options = ["OP", "Closed", "Cancel"]
 
@@ -640,7 +672,8 @@ def get_filter_options_from_db():
             "status_options": status_options,
         }
     except Exception as e:
-        # Fallback: return empty lists jika error
+        import traceback
+        traceback.print_exc()
         return {
             "pic_options": [],
             "bu_options": [],
@@ -651,7 +684,8 @@ def get_filter_options_from_db():
             "divisi_options": [],
             "dept_options": [],
             "rekruter_options": [],
-            "level_options": ["1A", "1B", "2A", "2B", "3A", "3B", "4A", "4B", "5A", "5B"],
+            "level_options": ["1A", "1B", "1C", "2A", "2B", "2C",
+                              "3A", "3B", "3C", "4A", "4B", "5A", "5B"],
             "status_options": ["OP", "Closed", "Cancel"],
         }
     finally:
