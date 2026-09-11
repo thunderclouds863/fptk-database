@@ -69,7 +69,6 @@ session_mgr = get_session_manager()
 # SESSION STATE - FULL INISIALISASI
 # ============================================================
 
-# Inisialisasi session_state dari session_manager
 if "user_id" not in st.session_state:
     st.session_state.user_id = session_mgr.user_id
 
@@ -94,14 +93,12 @@ if "detail_id" not in st.session_state:
 if "edit_id" not in st.session_state:
     st.session_state.edit_id = None
 
-# Inisialisasi timestamp untuk cache
 if "last_fptk_load" not in st.session_state:
     st.session_state.last_fptk_load = datetime.now()
 
 if "last_sourcing_load" not in st.session_state:
     st.session_state.last_sourcing_load = datetime.now()
 
-# Tambahan untuk sort dan filter
 if "sort_column" not in st.session_state:
     st.session_state.sort_column = None
 
@@ -128,8 +125,6 @@ if "filter_applied" not in st.session_state:
 # SESSION PERSISTENCE - CEK SETIAP LOAD
 # ============================================================
 
-# Jika user_id ada di session_state tapi session_manager kosong,
-# restore session_manager dari session_state
 if st.session_state.user_id and not session_mgr.is_logged_in:
     session_mgr.login(
         st.session_state.user_id,
@@ -138,8 +133,6 @@ if st.session_state.user_id and not session_mgr.is_logged_in:
         st.session_state.user_display
     )
 
-# Jika session_manager ada tapi session_state kosong,
-# restore session_state dari session_manager
 elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.user_id = session_mgr.user_id
     st.session_state.username = session_mgr.username
@@ -153,10 +146,6 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
 
 if not st.session_state.user_id:
 
-    # ========================================================
-    # LOAD CIMORY LOGO
-    # ========================================================
-
     @st.cache_data(ttl=3600)
     def load_logo():
         try:
@@ -166,10 +155,6 @@ if not st.session_state.user_id:
             return ""
 
     logo_base64 = load_logo()
-
-    # ========================================================
-    # LOGIN CSS
-    # ========================================================
 
     st.markdown(
         """
@@ -421,10 +406,6 @@ if not st.session_state.user_id:
         unsafe_allow_html=True
     )
 
-    # ========================================================
-    # CIMORY LOGO
-    # ========================================================
-
     if logo_base64:
         st.markdown(
             f"""
@@ -438,10 +419,6 @@ if not st.session_state.user_id:
             """,
             unsafe_allow_html=True
         )
-
-    # ========================================================
-    # LOGIN FORM
-    # ========================================================
 
     with st.form("login_form"):
 
@@ -526,10 +503,6 @@ if not st.session_state.user_id:
 
                     db.close()
 
-    # ========================================================
-    # STOP RENDER - HANYA UNTUK HALAMAN LOGIN
-    # ========================================================
-
     st.stop()
 
 
@@ -542,7 +515,7 @@ with st.sidebar:
     # ========================================================
     # USER INFO
     # ========================================================
-    
+
     st.markdown(
         f"### 👤 {st.session_state.user_display}"
     )
@@ -585,6 +558,7 @@ with st.sidebar:
     if check_is_admin():
         pages["🔄 Update Cycle"] = "upload_cycle"
         pages["👥 User Management"] = "user_management"
+        pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
 
     # ========================================================
     # NAVIGATION RADIO
@@ -606,7 +580,6 @@ with st.sidebar:
 
     st.markdown("### ⚡ Cache Control")
 
-    # Import cache functions
     def get_cache_functions():
         """Import cache functions dari dashboard dengan error handling"""
         try:
@@ -615,14 +588,14 @@ with st.sidebar:
                 load_sourcing_data,
                 calculate_metrics,
                 get_upload_cycle_progress,
-                get_filter_options
             )
+            from core.utils import get_filter_options_from_db
             return {
                 'load_fptk_data': load_fptk_data,
                 'load_sourcing_data': load_sourcing_data,
                 'calculate_metrics': calculate_metrics,
                 'get_upload_cycle_progress': get_upload_cycle_progress,
-                'get_filter_options': get_filter_options
+                'get_filter_options_from_db': get_filter_options_from_db,
             }
         except ImportError as e:
             st.caption(f"⚠️ Cache functions not available: {str(e)}")
@@ -631,21 +604,18 @@ with st.sidebar:
     cache_funcs = get_cache_functions()
 
     if cache_funcs:
-        # Ambil fungsi-fungsi cache
         load_fptk_data = cache_funcs['load_fptk_data']
         load_sourcing_data = cache_funcs['load_sourcing_data']
         calculate_metrics = cache_funcs['calculate_metrics']
         get_upload_cycle_progress = cache_funcs['get_upload_cycle_progress']
-        get_filter_options = cache_funcs['get_filter_options']
+        get_filter_options_from_db = cache_funcs['get_filter_options_from_db']
 
-        # Tampilkan info last update
         last_fptk = st.session_state.get('last_fptk_load', datetime.now())
         last_sourcing = st.session_state.get('last_sourcing_load', datetime.now())
 
         st.caption(f"🕐 FPTK: {last_fptk.strftime('%H:%M:%S')}")
         st.caption(f"🕐 Sourcing: {last_sourcing.strftime('%H:%M:%S')}")
 
-        # Hitung auto refresh countdown (5 menit = 300 detik)
         time_diff = (datetime.now() - last_fptk).seconds
         remaining = max(0, 300 - time_diff)
         if remaining > 0:
@@ -655,13 +625,11 @@ with st.sidebar:
 
         st.markdown("---")
 
-        # Tombol Refresh - OPTIMASI
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
                 st.cache_data.clear()
                 st.cache_resource.clear()
-                # Reset timestamp
                 st.session_state.last_fptk_load = datetime.now()
                 st.session_state.last_sourcing_load = datetime.now()
                 st.success("✅ All cache cleared! Reloading...")
@@ -678,7 +646,6 @@ with st.sidebar:
                 time.sleep(0.5)
                 st.rerun()
 
-        # Advanced Cache Control
         with st.expander("🔧 Advanced Cache Control", expanded=False):
             if st.button("🧹 Clear FPTK Cache", use_container_width=True):
                 load_fptk_data.clear()
@@ -694,8 +661,9 @@ with st.sidebar:
                 st.rerun()
 
             if st.button("🧹 Clear Filter Options", use_container_width=True):
-                get_filter_options.clear()
+                get_filter_options_from_db.clear()
                 st.success("✅ Filter options cache cleared!")
+                time.sleep(0.5)
                 st.rerun()
 
             if st.button("🧹 Clear All Cache", use_container_width=True):
@@ -930,6 +898,21 @@ elif page == "user_management":
 
 
 # ============================================================
+# REQUEST HAPUS FPTK (ADMIN)
+# ============================================================
+
+elif page == "admin_delete_requests":
+
+    try:
+        admin_delete_requests = importlib.import_module(
+            "pages.10_admin_delete_requests"
+        )
+        admin_delete_requests.show_admin_delete_requests()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/10_admin_delete_requests.py tidak ditemukan!")
+
+
+# ============================================================
 # SOURCING INPUT
 # ============================================================
 
@@ -1018,7 +1001,6 @@ if st.button("📊 Export All Data", use_container_width=True):
             from core.export_excel import export_database_to_excel
             filepath = export_database_to_excel(db)
 
-            # Baca file untuk download
             with open(filepath, "rb") as f:
                 file_data = f.read()
 
@@ -1055,7 +1037,6 @@ with st.expander("📋 Export Sheet Spesifik"):
                 from core.export_excel import export_single_sheet
                 df = export_single_sheet(db, selected_sheet)
 
-                # Convert ke Excel
                 from io import BytesIO
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
