@@ -22,7 +22,7 @@ def get_current_week():
     """Dapatkan ISO week number + year"""
     today = date.today()
     iso = today.isocalendar()
-    return iso[1], iso[0]  # week_number, year
+    return iso[1], iso[0]
 
 
 def get_week_label(week_num, year):
@@ -46,34 +46,26 @@ def get_week_range(week_num, year):
 # ⭐ HELPER: GENERATE EXCEL PROGRESS RECRUITMENT
 # ============================================================
 
-def generate_progress_recruitment_excel(df, week_label="", year=""):
+def generate_progress_recruitment_excel(df):
     """
-    Generate Excel file dengan format Update Progress Recruitment.
+    Generate Excel dengan format Update Progress Recruitment (sesuai template).
     
-    Parameters:
-    df : DataFrame dengan kolom:
-         ['No', 'Tanggal FPTK', 'kode unik', 'Posisi', 'Level', 
-          'Business Unit', 'Kategori', 'SLA Target Pemenuhan', 
-          'PIC TA', 'Jumlah Permintaan', 'Status Rekrutmen', 'Recruitment Update']
-    week_label : str, contoh "Week 37, 2026"
-    year : str/int
-    
-    Returns:
-    BytesIO : buffer file Excel siap download
+    Kolom: No, Tanggal FPTK, Posisi, Level, Business Unit, 
+           Kategori sheet, SLA Target Pemenuhan, PIC TA, 
+           Jumlah Permintaan, Status Rekrutmen, Recruitment Update
     """
     output = BytesIO()
-    
     wb = Workbook()
     ws = wb.active
     ws.title = "Update Progress Recruitment"
-    
+
     headers = [
-        'No', 'Tanggal FPTK', 'kode unik', 'Posisi', 'Level',
-        'Business Unit', 'Kategori', 'SLA Target Pemenuhan',
+        'No', 'Tanggal FPTK', 'Posisi', 'Level',
+        'Business Unit', 'Kategori sheet', 'SLA Target Pemenuhan',
         'PIC TA', 'Jumlah Permintaan', 'Status Rekrutmen', 'Recruitment Update'
     ]
-    
-    # ===== TULIS HEADER =====
+
+    # ===== HEADER =====
     for col_idx, header in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = Font(bold=True, color="FFFFFF", size=11)
@@ -84,53 +76,54 @@ def generate_progress_recruitment_excel(df, week_label="", year=""):
             horizontal="center", vertical="center", wrap_text=True
         )
         cell.border = Border(
-            left=Side(style='thin'),
-            right=Side(style='thin'),
-            top=Side(style='thin'),
-            bottom=Side(style='thin')
+            left=Side(style='thin'), right=Side(style='thin'),
+            top=Side(style='thin'), bottom=Side(style='thin')
         )
-    
-    # ===== TULIS DATA =====
+
+    # ===== DATA =====
     for row_idx, row in df.iterrows():
         for col_idx, value in enumerate(row, start=1):
+            # Handle NaN
+            if pd.isna(value):
+                value = ""
+
             cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             cell.border = Border(
-                left=Side(style='thin'),
-                right=Side(style='thin'),
-                top=Side(style='thin'),
-                bottom=Side(style='thin')
+                left=Side(style='thin'), right=Side(style='thin'),
+                top=Side(style='thin'), bottom=Side(style='thin')
             )
-            
+
             # Format tanggal
             header_name = headers[col_idx - 1]
             if header_name in ('Tanggal FPTK', 'SLA Target Pemenuhan'):
                 if isinstance(value, (datetime, date, pd.Timestamp)):
                     cell.number_format = 'DD-MM-YYYY'
-    
-    # ===== ATUR LEBAR KOLOM =====
+
+    # ===== LEBAR KOLOM =====
     column_widths = {
-        'A': 5,    # No
+        'A': 6,    # No
         'B': 14,   # Tanggal FPTK
-        'C': 20,   # kode unik
-        'D': 35,   # Posisi
-        'E': 6,    # Level
-        'F': 32,   # Business Unit
-        'G': 12,   # Kategori
-        'H': 14,   # SLA Target Pemenuhan
-        'I': 14,   # PIC TA
-        'J': 8,    # Jumlah Permintaan
-        'K': 12,   # Status Rekrutmen
-        'L': 70,   # Recruitment Update
+        'C': 38,   # Posisi
+        'D': 7,    # Level
+        'E': 30,   # Business Unit
+        'F': 14,   # Kategori sheet
+        'G': 14,   # SLA Target Pemenuhan
+        'H': 10,   # PIC TA
+        'I': 12,   # Jumlah Permintaan
+        'J': 12,   # Status Rekrutmen
+        'K': 75,   # Recruitment Update
     }
-    
     for col_letter, width in column_widths.items():
         ws.column_dimensions[col_letter].width = width
-    
+
+    # Header height diperbesar biar muat 2 baris
+    ws.row_dimensions[1].height = 35
+
     # Freeze header + auto filter
     ws.freeze_panes = "A2"
-    ws.auto_filter.ref = f"A1:L{len(df) + 1}"
-    
+    ws.auto_filter.ref = f"A1:K{len(df) + 1}"
+
     wb.save(output)
     output.seek(0)
     return output
@@ -618,7 +611,7 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
     st.markdown("### 📥 Export Excel Update Progress Recruitment")
     st.caption("Download data progress recruitment dalam format Excel yang siap dipakai.")
 
-    # ===== FILTER TAMBAHAN =====
+    # ===== FILTER =====
     st.markdown("#### 🔍 Filter Data yang Akan Di-export")
 
     col1, col2, col3 = st.columns(3)
@@ -626,13 +619,12 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
     with col1:
         status_filter = st.selectbox(
             "Status Rekrutmen",
-            ["OP", "CLOSED", "CANCEL", "Semua"],
+            ["OP", "Closed", "Cancel", "Semua"],
             index=0,
             key="export_status_filter"
         )
 
     with col2:
-        # Ambil daftar PIC dari filter_opts
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
         pic_export = st.selectbox(
             "PIC Recruiter",
@@ -687,7 +679,6 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
     if not admin:
         query = query.filter(FPTK.pic_recruiter == user.pic_recruiter)
 
-    # Ambil semua FPTK sesuai filter
     fptk_list = query.order_by(FPTK.fptk_date_real.desc()).all()
 
     if not fptk_list:
@@ -708,25 +699,37 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
     no = 1
     for fptk in fptk_list:
         progress = progress_map.get(fptk.id)
-        
+
         if only_with_progress and not progress:
             continue
 
         # Gabungkan progress + next action
         progress_text = ""
         if progress:
-            progress_text = progress.progress_this_week or ""
-            if progress.next_action:
-                progress_text += f"\n\nNext Action:\n{progress.next_action}"
+            ptw = (progress.progress_this_week or "").strip()
+            na = (progress.next_action or "").strip()
+
+            # Bersihkan prefix kalau sudah ada
+            if ptw.lower().startswith("progress weekly:"):
+                ptw = ptw[len("progress weekly:"):].strip()
+            if na.lower().startswith("next action:"):
+                na = na[len("next action:"):].strip()
+
+            if ptw:
+                progress_text = f"Progress Weekly: {ptw}"
+            if na:
+                if progress_text:
+                    progress_text += f"\nNext Action: {na}"
+                else:
+                    progress_text = f"Next Action: {na}"
 
         rows.append({
             'No': no,
             'Tanggal FPTK': fptk.fptk_date_real,
-            'kode unik': fptk.kode_unik,
             'Posisi': fptk.posisi,
             'Level': fptk.level_fptk,
             'Business Unit': fptk.business_unit,
-            'Kategori': fptk.filter_kategorisasi_fptk or fptk.category_fptk or "",
+            'Kategori sheet': fptk.filter_kategorisasi_fptk or fptk.category_fptk or "",
             'SLA Target Pemenuhan': fptk.deadline_sla,
             'PIC TA': fptk.pic_recruiter,
             'Jumlah Permintaan': fptk.vacancy or 1,
@@ -758,9 +761,7 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
         if st.button("📊 Generate Excel", type="primary", use_container_width=True, key="btn_generate_excel"):
             with st.spinner("Membuat file Excel..."):
                 try:
-                    excel_buffer = generate_progress_recruitment_excel(
-                        df_export, week_label, year_export
-                    )
+                    excel_buffer = generate_progress_recruitment_excel(df_export)
                     st.session_state["excel_buffer"] = excel_buffer.getvalue()
                     st.session_state["excel_filename"] = (
                         f"Update_Progres_Recruitment_{week_label.replace(' ', '_').replace(',', '')}.xlsx"
@@ -880,7 +881,7 @@ def show_update_progres():
         st.caption("💡 Hanya FPTK dengan status **OP** yang ditampilkan")
 
     # ============================================================
-    # TABS — SEKARANG ADA 3 TAB
+    # TABS
     # ============================================================
     tab1, tab2, tab3 = st.tabs([
         "✏️ Update Manual",
