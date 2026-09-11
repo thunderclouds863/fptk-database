@@ -8,6 +8,119 @@ from core.utils import parse_date_dmy, safe_int, normalize_key, is_valid_email, 
 
 
 # ============================================================
+# FRIENDLY HEADER ERROR - UNTUK USER AWAM
+# ============================================================
+
+def build_friendly_header_error(
+    df_columns: list,
+    missing_fields: list,
+    required_mappings: dict
+) -> dict:
+    """
+    Bikin pesan error yang user-friendly untuk masalah header.
+
+    Return dict dengan struktur:
+    {
+        "summary": "1 kalimat ringkas",
+        "missing": [list of dicts],
+        "found": [list of actual columns],
+        "solution": "Langkah konkret"
+    }
+    """
+
+    # Mapping field_key → nama kolom yang diharapkan (prioritas pertama)
+    FIELD_DISPLAY_NAMES = {
+        # FPTK
+        "kode_unik": "Kode Unik",
+        "posisi": "Posisi",
+        "kode_pic": "Kode PIC",
+        "kode_angka": "Kode Angka (ID)",
+        "fptk_date_real": "FPTK Date (Real)",
+        "fptk_date_kode": "FPTK Date (Kode)",
+        "business_unit": "Business Unit",
+        "direktorat": "Direktorat",
+        "divisi": "Divisi (Sesuai SO)",
+        "department": "Department",
+        "level_fptk": "Level FPTK",
+        "alasan_permintaan_fptk": "Alasan Permintaan FPTK",
+        "category_fptk": "Category FPTK",
+        "pic_recruiter": "PIC Recruiter",
+        "vacancy": "Vacancy",
+        "status": "Status",
+        # DB Sourcing
+        "nama": "Nama Kandidat",
+        "sourcing_date": "Sourcing Date",
+        "model_rekrutmen": "Model Rekrutmen",
+        "sumber_sourcing": "Sumber Sourcing",
+        "rekruter": "Rekruter",
+        # DB Kode Posisi
+        "position": "Position",
+        "kode": "Kode",
+    }
+
+    missing_list = []
+    for field_key in missing_fields:
+        expected_names = required_mappings.get(field_key, [])
+        display_name = FIELD_DISPLAY_NAMES.get(
+            field_key, field_key.replace("_", " ").title()
+        )
+
+        # Cari kemungkinan "typo" di df_columns
+        closest = _find_closest_match(display_name, df_columns)
+
+        missing_list.append({
+            "field": display_name,
+            "expected": expected_names[:3],  # Tampilkan max 3 alias
+            "closest_found": closest,
+        })
+
+    return {
+        "summary": (
+            f"❌ File ini punya {len(missing_list)} kolom yang tidak dikenali. "
+            f"Cek kembali nama header di baris pertama Excel."
+        ),
+        "missing": missing_list,
+        "found": df_columns,
+        "solution": (
+            "1️⃣ Buka file Excel-nya\n"
+            "2️⃣ Cek baris pertama (header) — pastikan nama kolomnya sesuai\n"
+            "3️⃣ Kalau ada typo, perbaiki nama kolomnya\n"
+            "4️⃣ Simpan & upload ulang"
+        ),
+    }
+
+
+def _find_closest_match(target: str, candidates: list) -> str:
+    """Cari kolom di file yang paling mirip dengan nama yang diharapkan"""
+    target_lower = target.lower()
+    best_match = ""
+    best_score = 0.0
+
+    for col in candidates:
+        col_lower = str(col).lower()
+        # Cek substring match
+        if target_lower in col_lower or col_lower in target_lower:
+            score = min(len(target_lower), len(col_lower)) / max(
+                len(target_lower), len(col_lower)
+            )
+            if score > best_score:
+                best_score = score
+                best_match = col
+        # Cek word overlap
+        else:
+            target_words = set(target_lower.split())
+            col_words = set(col_lower.split())
+            overlap = len(target_words & col_words)
+            if overlap > 0:
+                score = overlap / max(len(target_words), len(col_words))
+                if score > best_score:
+                    best_score = score
+                    best_match = col
+
+    return best_match if best_score > 0.3 else ""
+
+
+# ============================================================
 # HELPER: GENERATE KODE UNIK
 # ============================================================
 
@@ -22,11 +135,11 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
     """
     if not kode_pic or not kode_angka or not fptk_date_kode:
         return ""
-    
+
     angka_part = re.sub(r'[^0-9]', '', str(kode_angka))
     if not angka_part:
         angka_part = "001"
-    
+
     if hasattr(fptk_date_kode, 'strftime'):
         date_code = fptk_date_kode.strftime("%d%m%y")
     elif isinstance(fptk_date_kode, (int, float)):
@@ -38,7 +151,7 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
             date_code = str(fptk_date_kode)
     else:
         date_code = str(fptk_date_kode)
-    
+
     return f"{kode_pic}{angka_part}{date_code}"
 
 
@@ -47,16 +160,10 @@ def generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode):
 # ============================================================
 
 def get_single_value_safe(value):
-    """
-    Helper untuk mendapatkan nilai tunggal dari berbagai tipe data.
-    - Jika pd.Series, ambil nilai pertama
-    - Jika pd.DataFrame, ambil nilai pertama
-    - Jika list/tuple, ambil nilai pertama
-    - Jika None/NaN, return None
-    """
+    """Ambil nilai tunggal dari Series/DataFrame/list/None."""
     if value is None:
         return None
-    
+
     if isinstance(value, pd.Series):
         if len(value) > 0:
             val = value.iloc[0]
@@ -67,7 +174,7 @@ def get_single_value_safe(value):
                 pass
             return val
         return None
-    
+
     if isinstance(value, pd.DataFrame):
         if not value.empty:
             val = value.iloc[0, 0] if value.shape[1] > 0 else None
@@ -78,7 +185,7 @@ def get_single_value_safe(value):
                 pass
             return val
         return None
-    
+
     if isinstance(value, (list, tuple)):
         if len(value) > 0:
             val = value[0]
@@ -89,13 +196,13 @@ def get_single_value_safe(value):
                 pass
             return val
         return None
-    
+
     try:
         if pd.isna(value):
             return None
     except:
         pass
-    
+
     return value
 
 
@@ -107,19 +214,19 @@ def get_similarity_ratio(a: str, b: str) -> float:
     """Hitung similarity ratio antara dua string"""
     if not a or not b:
         return 0.0
-    
+
     a = a.lower().strip()
     b = b.lower().strip()
-    
+
     if a == b:
         return 1.0
-    
+
     if a in b or b in a:
         shorter = a if len(a) < len(b) else b
         longer = b if len(a) < len(b) else a
         if shorter in longer:
             return len(shorter) / len(longer)
-    
+
     common = len(set(a) & set(b))
     total = (len(a) + len(b)) / 2
     if total == 0:
@@ -128,32 +235,21 @@ def get_similarity_ratio(a: str, b: str) -> float:
 
 
 # ============================================================
-# HELPER: FIND COLUMN MAPPING (FUZZY) - DIPERBAIKI
+# HELPER: FIND COLUMN MAPPING (FUZZY)
 # ============================================================
 
 def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]]) -> Dict[str, str]:
     """
     Cari mapping kolom dengan fuzzy matching.
-    
-    STRATEGI (BERURUTAN):
-    1. Exact match (case-insensitive, normalized)
-    2. Case-insensitive exact match pada raw string
-    3. Substring match (kolom ada di pattern atau sebaliknya)
-    4. Similarity ratio > 0.75
-    
-    PENTING: Setiap kolom hanya boleh dipakai SEKALI.
     """
     df_cols = list(df.columns)
-    # Simpan versi normalized dari setiap kolom
     df_cols_norm = {col: normalize_key(str(col)) for col in df_cols}
-    
+
     mapping = {}
     used_cols = set()
-    
-    # Urutkan field_key agar field yang lebih spesifik diproses dulu
-    # (misal: 'kode_unik' sebelum 'kode')
+
     priority_order = [
-        'kode_unik', 'nama', 'sourcing_date',  # DB Sourcing
+        'kode_unik', 'nama', 'sourcing_date',
         'posisi', 'model_rekrutmen', 'sumber_sourcing', 'rekruter',
         'kode_pic', 'kode_angka', 'fptk_date_real', 'fptk_date_kode',
         'business_unit', 'direktorat', 'divisi', 'department',
@@ -175,20 +271,17 @@ def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]
         'shortlist_cv', 'psikotes', 'hr_interview', 'user_interview',
         'offering', 'day1',
     ]
-    
-    # Urutkan field_keys berdasarkan priority_order
+
     sorted_fields = sorted(
         required_mappings.keys(),
         key=lambda k: priority_order.index(k) if k in priority_order else 999
     )
-    
+
     for field_key in sorted_fields:
         possible_names = required_mappings[field_key]
         found = None
-        
-        # ============================================================
+
         # PRIORITAS 1: EXACT MATCH (normalized)
-        # ============================================================
         for name in possible_names:
             norm_name = normalize_key(name)
             for col in df_cols:
@@ -199,10 +292,8 @@ def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]
                     break
             if found:
                 break
-        
-        # ============================================================
+
         # PRIORITAS 2: EXACT MATCH (case-insensitive, raw)
-        # ============================================================
         if not found:
             for name in possible_names:
                 name_clean = str(name).strip().lower()
@@ -214,22 +305,18 @@ def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]
                         break
                 if found:
                     break
-        
-        # ============================================================
+
         # PRIORITAS 3: SUBSTRING MATCH
-        # ============================================================
         if not found:
             for name in possible_names:
                 norm_name = normalize_key(name)
-                if len(norm_name) < 4:  # Skip pattern terlalu pendek
+                if len(norm_name) < 4:
                     continue
                 for col in df_cols:
                     if col in used_cols:
                         continue
                     col_norm = df_cols_norm[col]
-                    # Cek apakah salah satu mengandung yang lain
                     if norm_name in col_norm or col_norm in norm_name:
-                        # Hitung rasio untuk memastikan tidak terlalu pendek
                         shorter = min(len(norm_name), len(col_norm))
                         longer = max(len(norm_name), len(col_norm))
                         if longer > 0 and shorter / longer >= 0.5:
@@ -237,10 +324,8 @@ def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]
                             break
                 if found:
                     break
-        
-        # ============================================================
+
         # PRIORITAS 4: SIMILARITY RATIO
-        # ============================================================
         if not found:
             best_ratio = 0.0
             best_col = None
@@ -258,30 +343,30 @@ def find_column_mapping(df: pd.DataFrame, required_mappings: Dict[str, List[str]
                         best_col = col
             if best_col:
                 found = best_col
-        
+
         if found:
             mapping[field_key] = found
             used_cols.add(found)
-    
+
     return mapping
 
 
 def _is_valid_date(value) -> bool:
     """Cek apakah value adalah tanggal yang valid."""
     value = get_single_value_safe(value)
-    
+
     if value is None:
         return False
-    
+
     try:
         if pd.isna(value):
             return False
     except:
         pass
-    
+
     if isinstance(value, (datetime, pd.Timestamp, date)):
         return True
-    
+
     if isinstance(value, (int, float)):
         try:
             if value > 0:
@@ -294,7 +379,7 @@ def _is_valid_date(value) -> bool:
         except:
             pass
         return False
-    
+
     if isinstance(value, str):
         result = parse_date_dmy(value)
         if result:
@@ -303,26 +388,26 @@ def _is_valid_date(value) -> bool:
         if re.match(r'^[0-9]{1,2}[/.-][0-9]{1,2}[/.-][0-9]{2,4}$', clean):
             return True
         return False
-    
+
     return False
 
 
 def parse_excel_date(value):
     """Parse Excel serial number menjadi date, atau parse string date"""
     value = get_single_value_safe(value)
-    
+
     if value is None:
         return None
-    
+
     try:
         if pd.isna(value):
             return None
     except:
         pass
-    
+
     if isinstance(value, (datetime, pd.Timestamp, date)):
         return value.date() if hasattr(value, 'date') else value
-    
+
     if isinstance(value, (int, float)):
         try:
             base = datetime(1899, 12, 30)
@@ -332,31 +417,31 @@ def parse_excel_date(value):
         except:
             pass
         return None
-    
+
     if isinstance(value, str):
         return parse_date_dmy(value)
-    
+
     return None
 
 
 def safe_level_fptk_from_string(value):
     """Ambil level_fptk dari string. VALID: 1A-5C"""
     value = get_single_value_safe(value)
-    
+
     if value is None:
         return None
-    
+
     try:
         if pd.isna(value):
             return None
     except:
         pass
-    
+
     value_str = str(value).strip().upper()
-    
+
     if re.match(r'^[1-5][A-C]$', value_str):
         return value_str
-    
+
     match = re.search(r'(\d+)([A-Z])?', value_str)
     if match:
         num = int(match.group(1))
@@ -365,29 +450,29 @@ def safe_level_fptk_from_string(value):
             letter = 'A'
         if 1 <= num <= 5:
             return f"{num}{letter}"
-    
+
     match = re.search(r'(\d+)', value_str)
     if match:
         num = int(match.group(1))
         if 1 <= num <= 5:
             return f"{num}A"
-    
+
     return None
 
 
 def safe_level_number_from_string(value):
     """Ambil angka dari level_number"""
     value = get_single_value_safe(value)
-    
+
     if value is None:
         return None
-    
+
     try:
         if pd.isna(value):
             return None
     except:
         pass
-    
+
     if isinstance(value, (int, float)):
         try:
             int_val = int(value)
@@ -396,7 +481,7 @@ def safe_level_number_from_string(value):
             return None
         except:
             return None
-    
+
     if isinstance(value, str):
         match = re.search(r'(\d+)', value)
         if match:
@@ -404,7 +489,7 @@ def safe_level_number_from_string(value):
             if 1 <= num <= 5:
                 return num
         return None
-    
+
     return None
 
 
@@ -420,7 +505,7 @@ def validate_fptk_file(
 ) -> Tuple[bool, List[Dict[str, Any]]]:
     """Validasi file FPTK dengan error detail per row"""
     errors = []
-    
+
     if df.empty:
         errors.append({
             "row": 0,
@@ -430,7 +515,7 @@ def validate_fptk_file(
             "expected": "Minimal 1 baris data FPTK"
         })
         return False, errors
-    
+
     required_mappings = {
         "kode_unik": ["Kode Unik", "KodeUNIK", "Unique Code"],
         "posisi": ["Posisi", "Posisi - Kebutuhan TA", "Posisi Kebutuhan", "Position"],
@@ -449,7 +534,7 @@ def validate_fptk_file(
         "vacancy": ["Vacancy", "Jumlah Posisi", "Jumlah FPTK"],
         "status": ["Status", "FPTK Status"],
     }
-    
+
     optional_mappings = {
         "level_number": ["Level Number", "Level FPTK Number"],
         "filter_kategorisasi_fptk": ["Filter Kategorisasi FPTK", "Filter Kategorisasi"],
@@ -474,38 +559,46 @@ def validate_fptk_file(
         "remark": ["Remark", "Catatan"],
         "source_file": ["Source File", "File Sumber"],
     }
-    
+
     all_mappings = {**required_mappings, **optional_mappings}
     column_mapping = find_column_mapping(df, all_mappings)
-    
+
+    # ============================================================
+    # CEK KOLOM YANG HILANG — PAKAI FRIENDLY ERROR
+    # ============================================================
     missing_columns = []
     for field_key in required_mappings.keys():
         if field_key not in column_mapping:
-            missing_columns.append({
-                "field": field_key,
-                "possible": required_mappings[field_key],
-                "error": f"Kolom untuk '{field_key}' tidak ditemukan"
-            })
-    
+            missing_columns.append(field_key)
+
     if missing_columns:
+        friendly = build_friendly_header_error(
+            df_columns=list(df.columns),
+            missing_fields=missing_columns,
+            required_mappings=required_mappings
+        )
+
         errors.append({
             "row": 0,
             "field": "HEADER",
-            "value": list(df.columns),
-            "error": f"Kolom wajib tidak ditemukan: {', '.join([m['field'] for m in missing_columns])}",
-            "expected": f"Butuh {len(required_mappings)} kolom wajib",
-            "found_columns": list(df.columns)
+            "value": friendly,
+            "error": friendly["summary"],
+            "expected": "Cek daftar kolom di bawah",
+            "warning": False
         })
         return False, errors
-    
+
+    # ============================================================
+    # RENAME KOLOM
+    # ============================================================
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
-    
+
     for col in df.columns:
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
-    
+
     for idx, row in df.iterrows():
         row_num = idx + 2
 
@@ -533,7 +626,7 @@ def validate_fptk_file(
                 "expected": "Kode Angka dari kolom Kode Angka (ID)"
             })
             continue
-        
+
         if kode_pic is None or pd.isna(kode_pic) or str(kode_pic).strip() == "":
             df.at[idx, 'kode_pic'] = "ADM"
             kode_pic = "ADM"
@@ -545,7 +638,7 @@ def validate_fptk_file(
                 "error": "Kode PIC kosong, auto-set menjadi ADM",
                 "expected": "Kode PIC (contoh: CORPOme, MPPau)"
             })
-        
+
         if fptk_date is None or pd.isna(fptk_date) or str(fptk_date).strip() == "":
             errors.append({
                 "row": row_num,
@@ -569,7 +662,7 @@ def validate_fptk_file(
                     "expected": "Format DD/MM/YYYY, DD-MM-YYYY, atau serial Excel"
                 })
                 continue
-        
+
         if fptk_date_kode is None or pd.isna(fptk_date_kode) or str(fptk_date_kode).strip() == "":
             if fptk_date:
                 df.at[idx, 'fptk_date_kode'] = fptk_date
@@ -596,7 +689,7 @@ def validate_fptk_file(
             if parsed_kode:
                 df.at[idx, 'fptk_date_kode'] = parsed_kode
                 fptk_date_kode = parsed_kode
-        
+
         if kode_unik is None or pd.isna(kode_unik) or str(kode_unik).strip() == "":
             if kode_pic and kode_angka and fptk_date_kode:
                 kode_unik_baru = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
@@ -623,7 +716,7 @@ def validate_fptk_file(
                 FPTK.kode_unik == kode_unik_clean,
                 FPTK.posisi == posisi
             ).first()
-            
+
             if existing_same_code:
                 errors.append({
                     "row": row_num,
@@ -633,7 +726,7 @@ def validate_fptk_file(
                     "error": f"Kode Unik '{kode_unik}' dengan posisi '{posisi}' sudah ada di database! Data akan tetap diproses dengan auto-increment.",
                     "expected": "Kode Unik akan di-auto-increment oleh sistem"
                 })
-        
+
         if posisi is None or pd.isna(posisi) or str(posisi).strip() == "":
             errors.append({
                 "row": row_num,
@@ -642,7 +735,7 @@ def validate_fptk_file(
                 "error": "Posisi tidak boleh kosong",
                 "expected": "Nama posisi minimal 3 karakter"
             })
-        
+
         if bu is None or pd.isna(bu) or str(bu).strip() == "":
             errors.append({
                 "row": row_num,
@@ -651,7 +744,7 @@ def validate_fptk_file(
                 "error": "Business Unit tidak boleh kosong",
                 "expected": "Business Unit yang valid"
             })
-        
+
         if direktorat is None or pd.isna(direktorat) or str(direktorat).strip() == "":
             errors.append({
                 "row": row_num,
@@ -660,7 +753,7 @@ def validate_fptk_file(
                 "error": "Direktorat tidak boleh kosong",
                 "expected": "Nama Direktorat yang valid"
             })
-        
+
         if level is None or pd.isna(level) or str(level).strip() == "":
             errors.append({
                 "row": row_num,
@@ -709,7 +802,7 @@ def validate_fptk_file(
                         "error": f"Level FPTK '{level}' tidak valid",
                         "expected": "Level FPTK harus format [1-5][A-C]"
                     })
-        
+
         if vacancy is None or pd.isna(vacancy) or safe_int(vacancy) <= 0:
             errors.append({
                 "row": row_num,
@@ -718,7 +811,7 @@ def validate_fptk_file(
                 "error": f"Vacancy '{vacancy}' tidak valid",
                 "expected": "Angka positif (minimal 1)"
             })
-        
+
         if status is None or pd.isna(status) or str(status).strip() == "":
             errors.append({
                 "row": row_num,
@@ -737,7 +830,7 @@ def validate_fptk_file(
                     "error": f"Status '{status}' tidak valid",
                     "expected": "Status harus: OP, Closed, atau Cancel"
                 })
-        
+
         if str(status).strip() == "Closed":
             if offering_date is None or pd.isna(offering_date) or str(offering_date).strip() == "":
                 errors.append({
@@ -755,7 +848,7 @@ def validate_fptk_file(
                     "error": f"Format Offering Date '{offering_date}' tidak valid",
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
                 })
-        
+
         if str(status).strip() == "Cancel":
             if cancel_date is None or pd.isna(cancel_date) or str(cancel_date).strip() == "":
                 errors.append({
@@ -773,13 +866,13 @@ def validate_fptk_file(
                     "error": f"Format Cancel Date '{cancel_date}' tidak valid",
                     "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
                 })
-        
+
         level_num = safe_level_number_from_string(raw_level_number)
-        
+
         if level_num is None:
             level_fptk_val = get_single_value(row.get("level_fptk"))
             level_num = safe_level_number_from_string(level_fptk_val)
-            
+
             if level_num is not None:
                 df.at[idx, 'level_number'] = level_num
             else:
@@ -794,10 +887,10 @@ def validate_fptk_file(
                 })
         else:
             df.at[idx, 'level_number'] = level_num
-    
+
     warnings = [e for e in errors if e.get("warning", False)]
     critical_errors = [e for e in errors if not e.get("warning", False)]
-    
+
     if critical_errors:
         error_count = len(critical_errors)
         unique_rows = len(set(e["row"] for e in critical_errors if e["row"] > 0))
@@ -811,12 +904,12 @@ def validate_fptk_file(
             "example": "Perbaiki error di bawah ini"
         })
         return False, errors
-    
+
     return True, warnings
 
 
 # ============================================================
-# VALIDATE DB SOURCING FILE - DIPERBAIKI
+# VALIDATE DB SOURCING FILE
 # ============================================================
 
 def validate_db_sourcing_file(
@@ -824,20 +917,9 @@ def validate_db_sourcing_file(
     db,
     user_id: int
 ) -> Tuple[bool, List[Dict[str, Any]]]:
-    """
-    Validasi file DB Sourcing
-    - Kode Unik BOLEH kosong (warning)
-    - Sourcing Date: WARNING (bukan error) jika kosong
-    - TIDAK ADA CEK DUPLIKAT Kode Unik
-    
-    PENTING: Fungsi ini rename kolom df in-place dengan mapping:
-      - 'Kode Unik' / 'Kode Unik (copy value dari FPTK)' → 'kode_unik'
-      - 'Nama' / 'Nama Kandidat' → 'nama'
-      - 'Sourcing Date' → 'sourcing_date'
-      - dst.
-    """
+    """Validasi file DB Sourcing"""
     errors = []
-    
+
     if df.empty:
         errors.append({
             "row": 0,
@@ -847,12 +929,7 @@ def validate_db_sourcing_file(
             "expected": "Minimal 1 baris data DB Sourcing"
         })
         return False, errors
-    
-    # ============================================================
-    # REQUIRED MAPPINGS — DIPERBAIKI
-    # ============================================================
-    # PENTING: 'kode_unik' HANYA boleh match "Kode Unik" variants.
-    # JANGAN tambahkan 'KODE' atau 'ID FPTK' — bisa salah match.
+
     required_mappings = {
         "kode_unik": [
             "Kode Unik",
@@ -883,7 +960,7 @@ def validate_db_sourcing_file(
             "Tanggal Sourcing Kandidat",
         ],
     }
-    
+
     optional_mappings = {
         "posisi": ["Posisi", "Position", "Jabatan", "Posisi Dilamar"],
         "model_rekrutmen": [
@@ -970,51 +1047,59 @@ def validate_db_sourcing_file(
         "detail_keterangan_day1": ["Detail Keterangan Day 1"],
         "tanggal_day1": ["Tanggal Day 1"],
     }
-    
+
     all_mappings = {**required_mappings, **optional_mappings}
     column_mapping = find_column_mapping(df, all_mappings)
-    
+
+    # ============================================================
+    # CEK KOLOM YANG HILANG — PAKAI FRIENDLY ERROR
+    # ============================================================
     missing_columns = []
     for field_key in required_mappings.keys():
         if field_key not in column_mapping:
             missing_columns.append(field_key)
-    
+
     if missing_columns:
+        friendly = build_friendly_header_error(
+            df_columns=list(df.columns),
+            missing_fields=missing_columns,
+            required_mappings=required_mappings
+        )
+
         errors.append({
             "row": 0,
-            "field": "SUMMARY",
-            "value": "",
-            "error": f"Kolom wajib hilang: {', '.join(missing_columns)}",
-            "expected": f"Kolom wajib: {', '.join(required_mappings.keys())}",
-            "example": f"Periksa header file DB Sourcing. Kolom yang ditemukan: {list(df.columns)}"
+            "field": "HEADER",
+            "value": friendly,
+            "error": friendly["summary"],
+            "expected": "Cek daftar kolom di bawah",
+            "warning": False
         })
         return False, errors
-    
+
     # ============================================================
-    # RENAME KOLOM in-place
+    # RENAME KOLOM
     # ============================================================
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
-    
+
     for col in df.columns:
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
-    
+
     valid_models = ["Model 1", "Model 2", "Model 3", "Model 4"]
-    
+
     valid_sumber = [
         "Jobstreet", "LinkedIn", "Google Form",
         "Referensi User", "Referensi Karyawan", "Campus Hiring",
         "Google Form RWC",
     ]
     valid_sumber_lower = [s.lower() for s in valid_sumber]
-    
+
     for idx, row in df.iterrows():
         row_num = idx + 2
         row_errors = []
-        
-        # KODE UNIK - TIDAK ADA CEK FPTK, hanya warning jika kosong
+
         kode_unik = get_single_value(row.get("kode_unik"))
         if kode_unik is None or pd.isna(kode_unik) or str(kode_unik).strip() == "":
             row_errors.append({
@@ -1025,8 +1110,7 @@ def validate_db_sourcing_file(
                 "error": "Kode Unik kosong, data tetap akan disimpan",
                 "expected": "Kode Unik yang terdaftar di FPTK (opsional)"
             })
-        
-        # NAMA - ERROR (WAJIB)
+
         nama = get_single_value(row.get("nama"))
         if nama is None or pd.isna(nama) or str(nama).strip() == "":
             row_errors.append({
@@ -1036,8 +1120,7 @@ def validate_db_sourcing_file(
                 "error": "Nama tidak boleh kosong",
                 "expected": "Nama kandidat"
             })
-        
-        # SOURCING DATE - WARNING (bukan error)
+
         sourcing_date = get_single_value(row.get("sourcing_date"))
         if sourcing_date is None or pd.isna(sourcing_date) or str(sourcing_date).strip() == "":
             row_errors.append({
@@ -1057,20 +1140,19 @@ def validate_db_sourcing_file(
                 "error": f"Format Sourcing Date '{sourcing_date}' tidak valid",
                 "expected": "Format DD/MM/YYYY atau DD-MM-YYYY"
             })
-        
-        # MODEL REKRUTMEN - WARNING (TIDAK WAJIB)
+
         model = get_single_value(row.get("model_rekrutmen"))
         if model is not None and not pd.isna(model) and str(model).strip():
             model_val = str(model).strip()
             is_valid = False
-            
+
             if model_val in valid_models:
                 is_valid = True
             elif model_val.lower() in [m.lower() for m in valid_models]:
                 is_valid = True
             elif re.match(r'^Model\s*[1-4]$', model_val, re.IGNORECASE):
                 is_valid = True
-            
+
             if not is_valid:
                 row_errors.append({
                     "row": row_num,
@@ -1080,18 +1162,17 @@ def validate_db_sourcing_file(
                     "error": f"Model Rekrutmen '{model}' tidak dikenal",
                     "expected": "Model 1, Model 2, Model 3, atau Model 4"
                 })
-        
-        # SUMBER SOURCING - WARNING (TIDAK WAJIB)
+
         sumber = get_single_value(row.get("sumber_sourcing"))
         if sumber is not None and not pd.isna(sumber) and str(sumber).strip():
             sumber_val = str(sumber).strip()
             is_valid_sumber = False
-            
+
             if sumber_val in valid_sumber:
                 is_valid_sumber = True
             elif sumber_val.lower() in valid_sumber_lower:
                 is_valid_sumber = True
-            
+
             if not is_valid_sumber:
                 row_errors.append({
                     "row": row_num,
@@ -1101,8 +1182,7 @@ def validate_db_sourcing_file(
                     "error": f"Sumber Sourcing '{sumber}' tidak dikenal",
                     "expected": f"Salah satu: {', '.join(valid_sumber)}"
                 })
-        
-        # EMAIL - WARNING (TIDAK WAJIB)
+
         email = get_single_value(row.get("email"))
         if email is not None and not pd.isna(email) and str(email).strip():
             if not is_valid_email(str(email).strip()):
@@ -1114,8 +1194,7 @@ def validate_db_sourcing_file(
                     "error": f"Format email '{email}' tidak valid",
                     "expected": "Format email yang valid (contoh: nama@domain.com)"
                 })
-        
-        # IPK - WARNING (TIDAK WAJIB)
+
         ipk = get_single_value(row.get("ipk"))
         if ipk is not None and not pd.isna(ipk):
             try:
@@ -1138,21 +1217,21 @@ def validate_db_sourcing_file(
                     "error": f"IPK '{ipk}' tidak valid",
                     "expected": "Format angka (contoh: 3.5)"
                 })
-        
+
         errors.extend(row_errors)
-    
+
     warnings = [e for e in errors if e.get("warning", False)]
     critical_errors = [e for e in errors if not e.get("warning", False)]
-    
+
     if critical_errors:
         error_count = len(critical_errors)
         warning_count = len(warnings)
         unique_rows = len(set(e["row"] for e in critical_errors if e["row"] > 0))
-        
+
         summary_msg = f"Total {error_count} ERROR KRITIS pada {unique_rows} baris data DB Sourcing"
         if warning_count > 0:
             summary_msg += f" (plus {warning_count} warning)"
-        
+
         errors = [e for e in errors if e.get("field") != "SUMMARY"]
         errors.insert(0, {
             "row": 0,
@@ -1162,7 +1241,7 @@ def validate_db_sourcing_file(
             "expected": "Perbaiki error kritis, warning boleh diabaikan"
         })
         return False, errors
-    
+
     return True, warnings
 
 
@@ -1177,7 +1256,7 @@ def validate_db_kode_posisi_file(
 ) -> Tuple[bool, List[Dict[str, Any]]]:
     """Validasi file DB Kode Posisi"""
     errors = []
-    
+
     if df.empty:
         errors.append({
             "row": 0,
@@ -1187,7 +1266,7 @@ def validate_db_kode_posisi_file(
             "expected": "Minimal 1 baris data"
         })
         return False, errors
-    
+
     required_mappings = {
         "position": ["POSITION", "Position", "Posisi"],
         "kode": [
@@ -1198,7 +1277,7 @@ def validate_db_kode_posisi_file(
             "Kode ID",
         ],
     }
-    
+
     optional_mappings = {
         "location": ["LOCATION", "Location", "Lokasi", "Lokasi Kerja"],
         "business_unit": ["BUSINESS UNIT", "Business Unit", "BU"],
@@ -1209,37 +1288,46 @@ def validate_db_kode_posisi_file(
         "directorate": ["DIRECTORATE", "Directorate", "Direktorat"],
         "year": ["YEAR", "Year", "Tahun"],
     }
-    
+
     all_mappings = {**required_mappings, **optional_mappings}
     column_mapping = find_column_mapping(df, all_mappings)
-    
+
+    # ============================================================
+    # CEK KOLOM YANG HILANG — PAKAI FRIENDLY ERROR
+    # ============================================================
     missing_columns = []
     for field_key in required_mappings.keys():
         if field_key not in column_mapping:
             missing_columns.append(field_key)
-    
+
     if missing_columns:
+        friendly = build_friendly_header_error(
+            df_columns=list(df.columns),
+            missing_fields=missing_columns,
+            required_mappings=required_mappings
+        )
+
         errors.append({
             "row": 0,
-            "field": "SUMMARY",
-            "value": "",
-            "error": f"Kolom wajib hilang: {', '.join(missing_columns)}",
-            "expected": f"Kolom wajib: {', '.join(required_mappings.keys())}",
-            "example": f"Header yang ditemukan: {list(df.columns)}"
+            "field": "HEADER",
+            "value": friendly,
+            "error": friendly["summary"],
+            "expected": "Cek daftar kolom di bawah",
+            "warning": False
         })
         return False, errors
-    
+
     rename_map = {}
     for field_key, col_name in column_mapping.items():
         rename_map[col_name] = field_key
-    
+
     for col in df.columns:
         if col in rename_map:
             df.rename(columns={col: rename_map[col]}, inplace=True)
-    
+
     for idx, row in df.iterrows():
         row_num = idx + 2
-        
+
         position = get_single_value(row.get("position"))
         if position is None or pd.isna(position) or str(position).strip() == "":
             errors.append({
@@ -1249,7 +1337,7 @@ def validate_db_kode_posisi_file(
                 "error": "Position tidak boleh kosong",
                 "expected": "Nama posisi"
             })
-        
+
         kode = get_single_value(row.get("kode"))
         if kode is None or pd.isna(kode) or str(kode).strip() == "":
             errors.append({
@@ -1259,7 +1347,7 @@ def validate_db_kode_posisi_file(
                 "error": "Kode tidak boleh kosong",
                 "expected": "Kode posisi"
             })
-    
+
     if errors:
         error_count = len(errors)
         unique_rows = len(set(e["row"] for e in errors if e["row"] > 0))
@@ -1271,5 +1359,5 @@ def validate_db_kode_posisi_file(
             "expected": f"Semua {len(df)} baris harus valid"
         })
         return False, errors
-    
+
     return True, []
