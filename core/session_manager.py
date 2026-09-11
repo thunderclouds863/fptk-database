@@ -8,8 +8,9 @@ from core.models import User
 # CONFIG
 # ============================================================
 
-# Idle timeout dalam menit
+# Idle timeout dalam menit — setelah ini user auto-logout
 IDLE_TIMEOUT_MINUTES = 30
+IDLE_TIMEOUT_SECONDS = IDLE_TIMEOUT_MINUTES * 60  # 1800 detik
 
 
 # ============================================================
@@ -49,7 +50,7 @@ class SessionManager:
         if "user_display" not in st.session_state:
             st.session_state.user_display = None
 
-        # ⭐ BARU: timestamp aktivitas terakhir
+        # Timestamp aktivitas terakhir
         if "last_activity" not in st.session_state:
             st.session_state.last_activity = None
 
@@ -87,10 +88,8 @@ class SessionManager:
 
         last = st.session_state.get("last_activity")
         if not last:
-            # Kalau gak ada timestamp, anggap expired
             return True
 
-        # Cek idle
         idle_duration = datetime.now() - last
         return idle_duration > timedelta(minutes=IDLE_TIMEOUT_MINUTES)
 
@@ -104,9 +103,8 @@ class SessionManager:
         if not last:
             return 0
 
-        elapsed = (datetime.now() - last).seconds
-        total = IDLE_TIMEOUT_MINUTES * 60
-        return max(0, total - elapsed)
+        elapsed = (datetime.now() - last).total_seconds()
+        return max(0, int(IDLE_TIMEOUT_SECONDS - elapsed))
 
     @property
     def is_logged_in(self):
@@ -170,7 +168,7 @@ def get_current_user_id():
 
 
 # ============================================================
-# ⭐ BARU: AUTO-LOGOUT CHECKER
+# IDLE TIMEOUT HELPERS
 # ============================================================
 
 def check_idle_timeout():
@@ -179,8 +177,6 @@ def check_idle_timeout():
     - Clear session
     - Set flag di session_state supaya bisa tampilkan pesan
     - Return True kalau expired
-
-    Panggil fungsi ini di awal app.py setelah login check.
     """
 
     session = get_session_manager()
@@ -189,7 +185,6 @@ def check_idle_timeout():
         return False
 
     if session.is_idle_expired():
-        # Simpan info username untuk pesan
         st.session_state.session_expired_username = st.session_state.get("username", "")
         session.logout()
         st.session_state.session_expired_message = (
@@ -198,6 +193,14 @@ def check_idle_timeout():
         )
         return True
 
-    # Update aktivitas setiap kali dipanggil
-    session.touch()
     return False
+
+
+def touch_session():
+    """
+    Update last_activity untuk reset idle timer.
+    Panggil setiap kali user interaksi (klik, submit, dll).
+    """
+    session = get_session_manager()
+    if session.is_logged_in:
+        session.touch()
