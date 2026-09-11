@@ -14,7 +14,36 @@ import time
 # CACHE FUNCTIONS (DIPINDAHKAN KE ATAS AGAR BISA DIIMPORT)
 # ============================================================
 
-# 1. CACHE UNTUK DATA FPTK (5 menit auto refresh)
+# ============================================================
+# BACKWARD COMPATIBILITY: get_filter_options (alias)
+# ============================================================
+# Fungsi ini dipertahankan supaya app.py lama yang masih
+# import `get_filter_options` tidak error.
+# ============================================================
+
+@st.cache_data(ttl=3600)
+def get_filter_options():
+    """
+    BACKWARD COMPATIBILITY.
+    Mengembalikan tuple (pic_options, bu_options, dir_options)
+    yang sudah termasuk "Semua" di depan.
+
+    Sekarang ambil dari core.utils.get_filter_options_from_db().
+    """
+    try:
+        opts = get_filter_options_from_db()
+        pic_options = ["Semua"] + opts.get("pic_options", [])
+        bu_options = ["Semua"] + opts.get("bu_options", [])
+        dir_options = ["Semua"] + opts.get("direktorat_options", [])
+        return pic_options, bu_options, dir_options
+    except Exception:
+        return ["Semua"], ["Semua"], ["Semua"]
+
+
+# ============================================================
+# CACHE UNTUK DATA FPTK (5 menit auto refresh)
+# ============================================================
+
 @st.cache_data(ttl=300, show_spinner=False)
 def load_fptk_data(
     pic_filter=None,
@@ -49,7 +78,6 @@ def load_fptk_data(
 
         df = pd.read_sql(query.statement, db.bind)
 
-        # Simpan timestamp terakhir query ke session state
         st.session_state['last_fptk_load'] = datetime.now()
 
         return df
@@ -58,7 +86,10 @@ def load_fptk_data(
         return pd.DataFrame()
 
 
-# 2. CACHE UNTUK DATA SOURCING (5 menit auto refresh)
+# ============================================================
+# CACHE UNTUK DATA SOURCING (5 menit auto refresh)
+# ============================================================
+
 @st.cache_data(ttl=300, show_spinner=False)
 def load_sourcing_data(
     pic_filter=None,
@@ -79,7 +110,6 @@ def load_sourcing_data(
 
         df = pd.read_sql(query.statement, db.bind)
 
-        # Simpan timestamp terakhir query ke session state
         st.session_state['last_sourcing_load'] = datetime.now()
 
         return df
@@ -87,7 +117,10 @@ def load_sourcing_data(
         return pd.DataFrame()
 
 
-# 3. CACHE UNTUK METRIK (tergantung data FPTK)
+# ============================================================
+# CACHE UNTUK METRIK (tergantung data FPTK)
+# ============================================================
+
 @st.cache_data(ttl=300)
 def calculate_metrics(df):
     """
@@ -104,11 +137,9 @@ def calculate_metrics(df):
     closed = len(df[df['status'] == 'Closed'])
     cancel = len(df[df['status'] == 'Cancel'])
 
-    # Fulfillment Rate
     denominator = total - cancel
     fulfillment_rate = (closed / denominator * 100) if denominator > 0 else 0
 
-    # SLA Rate
     if 'detail_sla' in df.columns:
         closed_df = df[df['status'] == 'Closed']
         closed_lulus = len(closed_df[closed_df['detail_sla'] == 'Closed Lulus SLA'])
@@ -127,7 +158,10 @@ def calculate_metrics(df):
     }
 
 
-# 4. CACHE UNTUK UPLOAD CYCLE (1 menit - lebih dinamis)
+# ============================================================
+# CACHE UNTUK UPLOAD CYCLE (1 menit - lebih dinamis)
+# ============================================================
+
 @st.cache_data(ttl=60)
 def get_upload_cycle_progress():
     """Mendapatkan progress upload cycle - cache 1 menit"""
@@ -155,7 +189,10 @@ def get_upload_cycle_progress():
         return pd.DataFrame()
 
 
-# 5. CACHE UNTUK ROLE ADMIN (5 menit)
+# ============================================================
+# CACHE UNTUK ROLE ADMIN (5 menit)
+# ============================================================
+
 @st.cache_data(ttl=300)
 def check_admin_role():
     """Cek apakah user admin - cache 5 menit"""
@@ -191,43 +228,31 @@ def show_dashboard():
         with col2:
             date_to = st.date_input("Sampai", datetime.now())
 
-        # ============================================================
         # PIC Recruiter (DINAMIS dari tabel users)
-        # ============================================================
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
         pic_filter = st.selectbox("PIC Recruiter", pic_options)
 
-        # ============================================================
         # Status (HARDCODED - enum tetap)
-        # ============================================================
         status_options = ["Semua"] + filter_opts.get("status_options", ["OP", "Closed", "Cancel"])
         status_filter = st.selectbox("Status", status_options)
 
-        # ============================================================
         # Business Unit (DINAMIS dari master_dropdown)
-        # ============================================================
         bu_options = ["Semua"] + filter_opts.get("bu_options", [])
         bu_filter = st.selectbox("Business Unit", bu_options)
 
-        # ============================================================
         # Direktorat (DINAMIS dari master_dropdown)
-        # ============================================================
         dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
         dir_filter = st.selectbox("Direktorat", dir_options)
 
-        # ============================================================
         # Filter Kategorisasi (DINAMIS dari master_dropdown)
-        # ============================================================
         filter_kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
         filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options)
 
         st.markdown("---")
 
-        # Export
         if st.button("📥 Export CSV", use_container_width=True):
             st.session_state.export_data = True
 
-        # Refresh Filter Options
         if st.button("🔄 Refresh Filter Options", use_container_width=True):
             get_filter_options_from_db.clear()
             st.success("✅ Filter refreshed!")
@@ -237,10 +262,9 @@ def show_dashboard():
         st.caption("💡 Filter diambil langsung dari database")
 
     # ============================================================
-    # LOAD DATA (dengan spinner & cache)
+    # LOAD DATA
     # ============================================================
     with st.spinner("📊 Memuat data..."):
-        # Load FPTK data dari cache
         df = load_fptk_data(
             pic_filter=pic_filter,
             status_filter=status_filter,
@@ -251,14 +275,12 @@ def show_dashboard():
             date_to=date_to
         )
 
-        # Load Sourcing data dari cache
         df_sourcing = load_sourcing_data(
             pic_filter=pic_filter,
             date_from=date_from,
             date_to=date_to
         )
 
-    # Cek admin role dari cache
     admin = check_admin_role()
 
     # ============================================================
