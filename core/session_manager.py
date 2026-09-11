@@ -23,10 +23,8 @@ def get_session_manager():
     Jangan gunakan st.cache_resource karena sifatnya global
     dan akan share login antar user.
     """
-
     if "session_manager" not in st.session_state:
         st.session_state.session_manager = SessionManager()
-
     return st.session_state.session_manager
 
 
@@ -37,7 +35,6 @@ class SessionManager:
 
     def _init_state(self):
         """Inisialisasi session state."""
-
         if "user_id" not in st.session_state:
             st.session_state.user_id = None
 
@@ -54,35 +51,56 @@ class SessionManager:
         if "last_activity" not in st.session_state:
             st.session_state.last_activity = None
 
+        # ⚠️ Track halaman aktif biar gak reset ke dashboard
+        if "current_page" not in st.session_state:
+            st.session_state.current_page = "dashboard"
+
+    # ------------------------------------------------------------
+    # LOGIN / LOGOUT
+    # ------------------------------------------------------------
+
     def login(self, user_id, username, role, display_name):
         """Simpan login user + set waktu aktivitas."""
-
         st.session_state.user_id = user_id
         st.session_state.username = username
         st.session_state.role = role
         st.session_state.user_display = display_name
         st.session_state.last_activity = datetime.now()
+        # Reset ke dashboard saat login baru
+        st.session_state.current_page = "dashboard"
 
     def logout(self):
         """Hapus session login."""
-
         st.session_state.user_id = None
         st.session_state.username = None
         st.session_state.role = None
         st.session_state.user_display = None
         st.session_state.last_activity = None
+        st.session_state.current_page = "dashboard"
 
     def touch(self):
-        """Update waktu aktivitas terakhir. Dipanggil setiap interaksi."""
+        """Update waktu aktivitas terakhir."""
         if self.is_logged_in:
             st.session_state.last_activity = datetime.now()
 
-    def is_idle_expired(self):
-        """
-        Cek apakah user sudah idle lebih dari IDLE_TIMEOUT_MINUTES.
-        Return True kalau expired.
-        """
+    # ------------------------------------------------------------
+    # PAGE TRACKING
+    # ------------------------------------------------------------
 
+    def set_page(self, page_key):
+        """Simpan halaman aktif."""
+        st.session_state.current_page = page_key
+
+    @property
+    def current_page(self):
+        return st.session_state.get("current_page", "dashboard")
+
+    # ------------------------------------------------------------
+    # IDLE TIMEOUT
+    # ------------------------------------------------------------
+
+    def is_idle_expired(self):
+        """Cek apakah user sudah idle lebih dari IDLE_TIMEOUT_MINUTES."""
         if not self.is_logged_in:
             return False
 
@@ -95,7 +113,6 @@ class SessionManager:
 
     def get_idle_remaining_seconds(self):
         """Sisa waktu sebelum auto-logout (dalam detik)."""
-
         if not self.is_logged_in:
             return 0
 
@@ -106,25 +123,29 @@ class SessionManager:
         elapsed = (datetime.now() - last).total_seconds()
         return max(0, int(IDLE_TIMEOUT_SECONDS - elapsed))
 
+    # ------------------------------------------------------------
+    # PROPERTIES
+    # ------------------------------------------------------------
+
     @property
     def is_logged_in(self):
-        return st.session_state.user_id is not None
+        return st.session_state.get("user_id") is not None
 
     @property
     def user_id(self):
-        return st.session_state.user_id
+        return st.session_state.get("user_id")
 
     @property
     def username(self):
-        return st.session_state.username
+        return st.session_state.get("username")
 
     @property
     def role(self):
-        return st.session_state.role
+        return st.session_state.get("role")
 
     @property
     def user_display(self):
-        return st.session_state.user_display
+        return st.session_state.get("user_display")
 
 
 # ============================================================
@@ -144,10 +165,8 @@ def logout_user():
 def get_current_user(db):
     """Ambil user dari session."""
     session = get_session_manager()
-
     if not session.is_logged_in:
         return None
-
     user = db.query(User).filter(User.id == session.user_id).first()
     return user
 
@@ -178,7 +197,6 @@ def check_idle_timeout():
     - Set flag di session_state supaya bisa tampilkan pesan
     - Return True kalau expired
     """
-
     session = get_session_manager()
 
     if not session.is_logged_in:
