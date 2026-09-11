@@ -116,7 +116,7 @@ if "user_display" not in st.session_state:
     st.session_state.user_display = session_mgr.user_display
 
 if "page" not in st.session_state:
-    st.session_state.page = "Dashboard"
+    st.session_state.page = "dashboard"
 
 if "filter_stack" not in st.session_state:
     st.session_state.filter_stack = []
@@ -629,13 +629,26 @@ with st.sidebar:
         pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
 
     # ========================================================
-    # NAVIGATION RADIO
+    # NAVIGATION RADIO - PERSISTENT
     # ========================================================
+    # PENTING: Biar halaman gak balik ke Dashboard saat auto-refresh
+    # ========================================================
+
+    page_list = list(pages.keys())
+
+    # Cari index sesuai dengan page aktif
+    current_page_key = st.session_state.get("page", "dashboard")
+    default_index = 0
+    for i, page_name in enumerate(page_list):
+        if pages[page_name] == current_page_key:
+            default_index = i
+            break
 
     selected = st.radio(
         "Navigasi",
-        list(pages.keys()),
-        index=0
+        page_list,
+        index=default_index,
+        key="nav_radio"
     )
 
     st.session_state.page = pages[selected]
