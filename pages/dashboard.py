@@ -204,7 +204,55 @@ def show_dashboard():
     # LOAD FILTER OPTIONS DARI DATABASE (DINAMIS)
     # ============================================================
     filter_opts = get_filter_options_from_db()
-
+# ============================================================
+# 🐛 DEBUG KONEKSI DATABASE — HAPUS SETELAH SELESAI
+# ============================================================
+with st.expander("🐛 DEBUG KONEKSI DB", expanded=True):
+    import os
+    from sqlalchemy import create_engine, text
+    
+    # 1. Tampilkan connection string (sensor password)
+    db_url = os.getenv("DATABASE_URL") or "TIDAK ADA ENV VAR"
+    if db_url and "@" in db_url:
+        # Sensor password
+        parts = db_url.split("@")
+        safe_url = parts[0].split(":")[0] + ":***@" + parts[1]
+    else:
+        safe_url = db_url
+    st.write(f"**Connection String:** `{safe_url}`")
+    
+    # 2. Test koneksi langsung
+    try:
+        from core.database import engine
+        with engine.connect() as conn:
+            result = conn.execute(text("SELECT current_database(), current_user, version()"))
+            row = result.fetchone()
+            st.write(f"**Database:** `{row[0]}`")
+            st.write(f"**User:** `{row[1]}`")
+            st.write(f"**Version:** `{row[2][:50]}...`")
+            
+            # Cek jumlah row di tabel fptk
+            result2 = conn.execute(text("SELECT COUNT(*) FROM fptk"))
+            count_fptk = result2.scalar()
+            st.write(f"**Jumlah row di tabel `fptk`:** `{count_fptk}`")
+            
+            # Cek sample PIC
+            result3 = conn.execute(text(
+                "SELECT DISTINCT pic_recruiter FROM fptk "
+                "WHERE pic_recruiter IS NOT NULL LIMIT 10"
+            ))
+            pics = [r[0] for r in result3.fetchall()]
+            st.write(f"**Sample PIC:** `{pics}`")
+            
+            # List semua tabel
+            result4 = conn.execute(text(
+                "SELECT tablename FROM pg_tables WHERE schemaname='public' ORDER BY tablename"
+            ))
+            tables = [r[0] for r in result4.fetchall()]
+            st.write(f"**Tabel yang ada:** `{tables}`")
+    except Exception as e:
+        st.error(f"❌ Gagal konek: {e}")
+# ============================================================
     # ============================================================
     # SIDEBAR FILTERS
     # ============================================================
