@@ -328,3 +328,33 @@ class TransferHistory(Base):
     # Relasi ke FPTK
     fptk = relationship("FPTK", backref="transfers")
     user = relationship("User", backref="transfers")
+
+class FPTKDeleteRequest(Base):
+    __tablename__ = "fptk_delete_requests"
+    __table_args__ = {"extend_existing": True}
+    
+    id = Column(Integer, primary_key=True, index=True)
+    fptk_id = Column(Integer, ForeignKey("fptk.id", ondelete="CASCADE"))
+    kode_unik = Column(String(50), nullable=False, index=True)
+    posisi = Column(String(255))
+    pic_recruiter = Column(String(100), index=True)
+    
+    # Alasan dari PIC
+    reason = Column(Text, nullable=False)
+    
+    # Status: PENDING, APPROVED, REJECTED
+    status = Column(String(20), default="PENDING", index=True)
+    
+    # Audit
+    requested_by = Column(Integer, ForeignKey("users.id"))
+    requested_by_name = Column(String(100))
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    
+    # Admin review
+    reviewed_by = Column(Integer, ForeignKey("users.id"))
+    reviewed_by_name = Column(String(100))
+    reviewed_at = Column(TIMESTAMP)
+    admin_notes = Column(Text)
+    
+    # Relasi
+    fptk = relationship("FPTK", backref="delete_requests")
