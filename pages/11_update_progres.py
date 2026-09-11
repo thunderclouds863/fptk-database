@@ -7,6 +7,12 @@ from core.auth import get_current_user, is_admin
 from core.utils import get_filter_options_from_db
 import time
 
+# ⭐ TAMBAHAN UNTUK EXPORT EXCEL
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
+
 
 # ============================================================
 # HELPER: GET WEEK NUMBER
@@ -34,6 +40,100 @@ def get_week_range(week_num, year):
         return week_start, week_end
     except Exception:
         return None, None
+
+
+# ============================================================
+# ⭐ HELPER: GENERATE EXCEL PROGRESS RECRUITMENT
+# ============================================================
+
+def generate_progress_recruitment_excel(df, week_label="", year=""):
+    """
+    Generate Excel file dengan format Update Progress Recruitment.
+    
+    Parameters:
+    df : DataFrame dengan kolom:
+         ['No', 'Tanggal FPTK', 'kode unik', 'Posisi', 'Level', 
+          'Business Unit', 'Kategori', 'SLA Target Pemenuhan', 
+          'PIC TA', 'Jumlah Permintaan', 'Status Rekrutmen', 'Recruitment Update']
+    week_label : str, contoh "Week 37, 2026"
+    year : str/int
+    
+    Returns:
+    BytesIO : buffer file Excel siap download
+    """
+    output = BytesIO()
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Update Progress Recruitment"
+    
+    headers = [
+        'No', 'Tanggal FPTK', 'kode unik', 'Posisi', 'Level',
+        'Business Unit', 'Kategori', 'SLA Target Pemenuhan',
+        'PIC TA', 'Jumlah Permintaan', 'Status Rekrutmen', 'Recruitment Update'
+    ]
+    
+    # ===== TULIS HEADER =====
+    for col_idx, header in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
+        cell.fill = PatternFill(
+            start_color="1F4E78", end_color="1F4E78", fill_type="solid"
+        )
+        cell.alignment = Alignment(
+            horizontal="center", vertical="center", wrap_text=True
+        )
+        cell.border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+    
+    # ===== TULIS DATA =====
+    for row_idx, row in df.iterrows():
+        for col_idx, value in enumerate(row, start=1):
+            cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
+            cell.alignment = Alignment(vertical="top", wrap_text=True)
+            cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+            
+            # Format tanggal
+            header_name = headers[col_idx - 1]
+            if header_name in ('Tanggal FPTK', 'SLA Target Pemenuhan'):
+                if isinstance(value, (datetime, date, pd.Timestamp)):
+                    cell.number_format = 'DD-MM-YYYY'
+    
+    # ===== ATUR LEBAR KOLOM =====
+    column_widths = {
+        'A': 5,    # No
+        'B': 14,   # Tanggal FPTK
+        'C': 20,   # kode unik
+        'D': 35,   # Posisi
+        'E': 6,    # Level
+        'F': 32,   # Business Unit
+        'G': 12,   # Kategori
+        'H': 14,   # SLA Target Pemenuhan
+        'I': 14,   # PIC TA
+        'J': 8,    # Jumlah Permintaan
+        'K': 12,   # Status Rekrutmen
+        'L': 70,   # Recruitment Update
+    }
+    
+    for col_letter, width in column_widths.items():
+        ws.column_dimensions[col_letter].width = width
+    
+    # Freeze header + auto filter
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:L{len(df) + 1}"
+    
+    wb.save(output)
+    output.seek(0)
+    return output
 
 
 # ============================================================
@@ -81,9 +181,6 @@ def upsert_progress(db, fptk, week_num, year, progress_text, next_action=""):
 def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     """Tab untuk update manual per FPTK"""
 
-    # ============================================================
-    # BUILD QUERY — HANYA STATUS = OP
-    # ============================================================
     query = db.query(FPTK).filter(FPTK.status == "OP")
 
     if st.session_state.get("search_progres"):
@@ -113,9 +210,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     query = query.order_by(FPTK.fptk_date_real.desc())
     total = query.count()
 
-    # ============================================================
-    # STATISTIK
-    # ============================================================
     st.markdown("### 📈 Statistik")
 
     col1, col2, col3, col4 = st.columns(4)
@@ -142,9 +236,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
         st.info("Tidak ada FPTK dengan status **OP** yang sesuai filter.")
         return
 
-    # ============================================================
-    # TABEL
-    # ============================================================
     page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
     page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
     offset = (page - 1) * page_size
@@ -169,9 +260,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
 
         st.dataframe(pd.DataFrame(display_data), use_container_width=True, height=400, hide_index=True)
 
-    # ============================================================
-    # FORM UPDATE
-    # ============================================================
     st.markdown("---")
     st.markdown("### ✏️ Update Progress FPTK")
 
@@ -199,7 +287,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
         st.warning("⚠️ Anda hanya bisa update progress FPTK milik PIC Anda sendiri.")
         return
 
-    # Info FPTK
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(f"**Kode Unik:** {detail.kode_unik}")
@@ -211,7 +298,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
         st.markdown(f"**Level:** {detail.level_fptk}")
         st.markdown(f"**Status:** {detail.status}")
 
-    # Load existing progress
     existing = db.query(RecruitmentProgress).filter(
         RecruitmentProgress.fptk_id == selected_id,
         RecruitmentProgress.week_number == current_week,
@@ -221,7 +307,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     default_progress = existing.progress_this_week if existing else ""
     default_next = existing.next_action if existing else ""
 
-    # ⭐ FORM STATE PERSISTENCE - pakai session_state biar gak reset saat refresh
     form_key_progress = f"form_progress_text_{selected_id}"
     form_key_next = f"form_next_text_{selected_id}"
 
@@ -269,7 +354,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
                     progress.created_by_name = user.display_name or user.username
                     db.commit()
 
-                    # Clear form state
                     st.session_state[form_key_progress] = ""
                     st.session_state[form_key_next] = ""
 
@@ -281,9 +365,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
                     st.error(f"❌ Error: {str(e)}")
                     db.rollback()
 
-    # ============================================================
-    # HISTORY
-    # ============================================================
     st.markdown("---")
     st.markdown(f"### 📜 History Progress — {detail.kode_unik}")
 
@@ -372,7 +453,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             st.markdown("**Preview 5 rows:**")
             st.dataframe(df.head(5), use_container_width=True)
 
-            # Cari kolom otomatis
             kolom_kode = None
             kolom_progress = None
             kolom_next_action = None
@@ -529,6 +609,183 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
 
 
 # ============================================================
+# ⭐ TAB 3: EXPORT EXCEL
+# ============================================================
+
+def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
+    """Tab untuk export progress ke Excel dengan format Update Progress Recruitment."""
+
+    st.markdown("### 📥 Export Excel Update Progress Recruitment")
+    st.caption("Download data progress recruitment dalam format Excel yang siap dipakai.")
+
+    # ===== FILTER TAMBAHAN =====
+    st.markdown("#### 🔍 Filter Data yang Akan Di-export")
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        status_filter = st.selectbox(
+            "Status Rekrutmen",
+            ["OP", "CLOSED", "CANCEL", "Semua"],
+            index=0,
+            key="export_status_filter"
+        )
+
+    with col2:
+        # Ambil daftar PIC dari filter_opts
+        pic_options = ["Semua"] + filter_opts.get("pic_options", [])
+        pic_export = st.selectbox(
+            "PIC Recruiter",
+            pic_options,
+            key="export_pic_filter"
+        )
+
+    with col3:
+        bu_options = ["Semua"] + filter_opts.get("bu_options", [])
+        bu_export = st.selectbox(
+            "Business Unit",
+            bu_options,
+            key="export_bu_filter"
+        )
+
+    col4, col5 = st.columns(2)
+    with col4:
+        week_export = st.number_input(
+            "Week Number",
+            min_value=1, max_value=53,
+            value=current_week,
+            key="export_week_num"
+        )
+    with col5:
+        year_export = st.number_input(
+            "Year",
+            min_value=2024, max_value=2030,
+            value=current_year,
+            key="export_year"
+        )
+
+    only_with_progress = st.checkbox(
+        "Hanya tampilkan FPTK yang sudah ada progress di week ini",
+        value=True,
+        key="export_only_with_progress"
+    )
+
+    st.markdown("---")
+
+    # ===== BUILD QUERY =====
+    query = db.query(FPTK)
+
+    if status_filter != "Semua":
+        query = query.filter(FPTK.status == status_filter)
+
+    if pic_export != "Semua":
+        query = query.filter(FPTK.pic_recruiter == pic_export)
+
+    if bu_export != "Semua":
+        query = query.filter(FPTK.business_unit == bu_export)
+
+    if not admin:
+        query = query.filter(FPTK.pic_recruiter == user.pic_recruiter)
+
+    # Ambil semua FPTK sesuai filter
+    fptk_list = query.order_by(FPTK.fptk_date_real.desc()).all()
+
+    if not fptk_list:
+        st.warning("⚠️ Tidak ada FPTK yang sesuai filter.")
+        return
+
+    # Ambil progress untuk week yang dipilih
+    progress_map = {}
+    if only_with_progress:
+        progress_records = db.query(RecruitmentProgress).filter(
+            RecruitmentProgress.week_number == week_export,
+            RecruitmentProgress.year == year_export
+        ).all()
+        progress_map = {p.fptk_id: p for p in progress_records}
+
+    # ===== BUILD DATAFRAME =====
+    rows = []
+    no = 1
+    for fptk in fptk_list:
+        progress = progress_map.get(fptk.id)
+        
+        if only_with_progress and not progress:
+            continue
+
+        # Gabungkan progress + next action
+        progress_text = ""
+        if progress:
+            progress_text = progress.progress_this_week or ""
+            if progress.next_action:
+                progress_text += f"\n\nNext Action:\n{progress.next_action}"
+
+        rows.append({
+            'No': no,
+            'Tanggal FPTK': fptk.fptk_date_real,
+            'kode unik': fptk.kode_unik,
+            'Posisi': fptk.posisi,
+            'Level': fptk.level_fptk,
+            'Business Unit': fptk.business_unit,
+            'Kategori': fptk.category_fptk or fptk.filter_kategorisasi_fptk or "",
+            'SLA Target Pemenuhan': fptk.deadline_pemenuhan_sla,
+            'PIC TA': fptk.pic_recruiter,
+            'Jumlah Permintaan': fptk.vacancy or 1,
+            'Status Rekrutmen': fptk.status,
+            'Recruitment Update': progress_text,
+        })
+        no += 1
+
+    df_export = pd.DataFrame(rows)
+
+    if df_export.empty:
+        st.warning("⚠️ Tidak ada data untuk di-export.")
+        return
+
+    # ===== PREVIEW =====
+    st.markdown(f"#### 👀 Preview ({len(df_export)} baris)")
+    st.dataframe(df_export.head(20), use_container_width=True, hide_index=True)
+
+    if len(df_export) > 20:
+        st.caption(f"... dan {len(df_export) - 20} baris lainnya")
+
+    st.markdown("---")
+
+    # ===== GENERATE & DOWNLOAD =====
+    week_label = get_week_label(week_export, year_export)
+
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("📊 Generate Excel", type="primary", use_container_width=True, key="btn_generate_excel"):
+            with st.spinner("Membuat file Excel..."):
+                try:
+                    excel_buffer = generate_progress_recruitment_excel(
+                        df_export, week_label, year_export
+                    )
+                    st.session_state["excel_buffer"] = excel_buffer.getvalue()
+                    st.session_state["excel_filename"] = (
+                        f"Update_Progres_Recruitment_{week_label.replace(' ', '_').replace(',', '')}.xlsx"
+                    )
+                    st.success("✅ Excel berhasil di-generate!")
+                except Exception as e:
+                    st.error(f"❌ Error generate Excel: {str(e)}")
+                    import traceback
+                    with st.expander("🔍 Detail error"):
+                        st.code(traceback.format_exc())
+
+    with col2:
+        if "excel_buffer" in st.session_state:
+            st.download_button(
+                label="⬇️ Download Excel",
+                data=st.session_state["excel_buffer"],
+                file_name=st.session_state["excel_filename"],
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                type="primary",
+                use_container_width=True,
+                key="btn_download_excel"
+            )
+
+
+# ============================================================
 # MAIN FUNCTION
 # ============================================================
 
@@ -547,10 +804,8 @@ def show_update_progres():
     week_label = get_week_label(current_week, current_year)
     week_start, week_end = get_week_range(current_week, current_year)
 
-    # Load filter options
     filter_opts = get_filter_options_from_db()
 
-    # Header
     col1, col2, col3 = st.columns(3)
     col1.metric("📅 Week Ini", week_label)
     if week_start and week_end:
@@ -559,20 +814,15 @@ def show_update_progres():
 
     st.markdown("---")
 
-    # ============================================================
-    # SIDEBAR FILTER (RENDER SEKALI AJA)
-    # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filter FPTK OP")
 
-        # Search
         st.text_input(
             "🔎 Cari (Kode Unik / Posisi)",
             key="search_progres",
             placeholder="Ketik keyword..."
         )
 
-        # PIC
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
         default_pic_idx = 0
         if not admin and user.pic_recruiter in pic_options:
@@ -584,7 +834,6 @@ def show_update_progres():
             key="pic_progres"
         )
 
-        # BU
         bu_options = ["Semua"] + filter_opts.get("bu_options", [])
         st.selectbox(
             "Business Unit",
@@ -592,7 +841,6 @@ def show_update_progres():
             key="bu_progres"
         )
 
-        # Direktorat
         dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
         st.selectbox(
             "Direktorat",
@@ -600,7 +848,6 @@ def show_update_progres():
             key="dir_progres"
         )
 
-        # Filter Kategorisasi
         kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
         st.selectbox(
             "Filter Kategorisasi",
@@ -608,7 +855,6 @@ def show_update_progres():
             key="kat_progres"
         )
 
-        # Level
         level_options = ["Semua", "1A", "1B", "1C", "2A", "2B", "2C",
                          "3A", "3B", "3C", "4A", "4B", "5A", "5B"]
         st.selectbox(
@@ -619,7 +865,6 @@ def show_update_progres():
 
         st.markdown("---")
 
-        # Show mine
         st.checkbox(
             "Hanya FPTK saya",
             value=not admin,
@@ -635,12 +880,19 @@ def show_update_progres():
         st.caption("💡 Hanya FPTK dengan status **OP** yang ditampilkan")
 
     # ============================================================
-    # TABS
+    # TABS — SEKARANG ADA 3 TAB
     # ============================================================
-    tab1, tab2 = st.tabs(["✏️ Update Manual", "📤 Upload Excel Massal"])
+    tab1, tab2, tab3 = st.tabs([
+        "✏️ Update Manual",
+        "📤 Upload Excel Massal",
+        "📥 Export Excel"
+    ])
 
     with tab1:
         tab_update_manual(db, user, admin, current_week, current_year, filter_opts)
 
     with tab2:
         tab_upload_excel(db, user, admin, current_week, current_year)
+
+    with tab3:
+        tab_export_excel(db, user, admin, current_week, current_year, filter_opts)
