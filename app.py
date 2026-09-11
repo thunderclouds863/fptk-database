@@ -2,11 +2,11 @@ import streamlit as st
 import importlib
 import time
 import base64
-from core.session_manager import get_session_manager, check_idle_timeout
 import os
 import pandas as pd
 from datetime import datetime, timedelta
 
+from core.session_manager import get_session_manager, check_idle_timeout
 from core.database import SessionLocal, init_db
 from core.auth import (
     login_user,
@@ -34,16 +34,9 @@ st.set_page_config(
 # ============================================================
 # AUTO-REFRESH VIA JAVASCRIPT (CLIENT-SIDE)
 # ============================================================
-# ⚠️ PENTING: Auto-refresh JANGAN pakai st.rerun() di atas app.py
-# karena bakal RESET session_state & bikin halaman balik ke Dashboard.
-#
-# Solusi: pakai JavaScript `location.reload()` yang TIDAK
-# reset session_state Streamlit (WebSocket tetap jalan).
-#
-# Logic:
-#   - Cek idle pakai JS (detect mouse/keyboard/scroll)
-#   - Kalau user idle > 4 menit, reload halaman
-#   - User yang aktif → gak reload → form aman
+# Reload halaman HANYA kalau user idle > 15 menit
+# (sebelum auto-logout di 30 menit)
+# Ini TIDAK reset session state Streamlit karena pakai location.reload()
 # ============================================================
 
 if st.session_state.get("user_id"):
@@ -53,19 +46,15 @@ if st.session_state.get("user_id"):
         (function() {
             let lastInteraction = Date.now();
 
-            const updateActivity = () => {
-                lastInteraction = Date.now();
-            };
+            const updateActivity = () => { lastInteraction = Date.now(); };
 
-            // Listen semua event interaksi user
             ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click']
                 .forEach(evt => document.addEventListener(evt, updateActivity, {passive: true}));
 
-            // Cek tiap 60 detik — kalau idle > 4 menit, reload halaman
             setInterval(function() {
                 const idle = Date.now() - lastInteraction;
-                // 4 menit = 240000 ms
-                if (idle > 4 * 60 * 1000) {
+                // 15 menit = 900000 ms
+                if (idle > 15 * 60 * 1000) {
                     window.parent.location.reload();
                 }
             }, 60 * 1000);
@@ -556,13 +545,11 @@ if not st.session_state.user_id:
                         # Reset halaman ke dashboard saat login baru
                         st.session_state.page = "dashboard"
 
-                        # ⭐ Clear pages_dict & user_is_admin biar di-rebuild
+                        # Clear pages_dict biar di-rebuild dengan user baru
                         if "pages_dict" in st.session_state:
                             del st.session_state.pages_dict
                         if "user_is_admin" in st.session_state:
                             del st.session_state.user_is_admin
-                        if "nav_page_label" in st.session_state:
-                            del st.session_state.nav_page_label
 
                         st.success(
                             f"✅ Selamat datang, "
@@ -620,8 +607,8 @@ with st.sidebar:
     # ========================================================
     # BUILD PAGES DICT — SEKALI SAJA (STABLE)
     # ========================================================
-    # ⚠️ PENTING: pages_dict disimpan di session_state biar
-    # gak berubah-ubah tiap rerun (yang bikin radio reset).
+    # PENTING: pages_dict disimpan di session_state biar
+    # gak berubah-ubah tiap rerun (yang bikin navigasi reset).
     # ========================================================
 
     if "pages_dict" not in st.session_state:
@@ -657,39 +644,40 @@ with st.sidebar:
         st.session_state.pages_dict = base_pages
 
     pages = st.session_state.pages_dict
-    page_labels = list(pages.keys())
 
     # ========================================================
-    # NAVIGATION RADIO — PERSISTENT
+    # NAVIGATION — PAKAI BUTTONS (BUKAN RADIO)
+    # ========================================================
+    # Buttons lebih STABIL dari radio karena:
+    #   1. Gak ada widget state yang bisa reset
+    #   2. Cuma trigger saat user klik
+    #   3. Gak dipengaruhi perubahan options/urutan
     # ========================================================
 
-    # Cari label aktif dari page key
-    current_page_key = st.session_state.get("page", "dashboard")
-    current_label = page_labels[0]
-    for label, key in pages.items():
-        if key == current_page_key:
-            current_label = label
-            break
+    st.markdown("### 📋 Navigasi")
 
-    # Init nav_page_label
-    if "nav_page_label" not in st.session_state:
-        st.session_state.nav_page_label = current_label
+    current_page = st.session_state.get("page", "dashboard")
 
-    # Kalau label tersimpan gak ada di list → reset ke current_label
-    if st.session_state.nav_page_label not in page_labels:
-        st.session_state.nav_page_label = current_label
+    # Tampilkan buttons untuk setiap halaman
+    for label, page_key in pages.items():
+        is_active = (page_key == current_page)
 
-    # Kalau page diubah programmatic, sync radio
-    elif st.session_state.nav_page_label != current_label:
-        st.session_state.nav_page_label = current_label
+        # Style: tombol aktif pakai type="primary"
+        if is_active:
+            btn_type = "primary"
+            btn_label = f"▶ {label}"
+        else:
+            btn_type = "secondary"
+            btn_label = f"   {label}"
 
-    selected = st.radio(
-        "Navigasi",
-        page_labels,
-        key="nav_page_label"
-    )
-
-    st.session_state.page = pages[selected]
+        if st.button(
+            btn_label,
+            key=f"nav_btn_{page_key}",
+            use_container_width=True,
+            type=btn_type,
+        ):
+            st.session_state.page = page_key
+            st.rerun()
 
     st.markdown("---")
 
