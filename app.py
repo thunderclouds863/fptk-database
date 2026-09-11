@@ -534,6 +534,7 @@ with st.sidebar:
         "📊 Dashboard": "dashboard",
         "📤 Upload & Compile FPTK": "upload_compile",
         "📋 FPTK View": "fptk_view",
+        "📝 Update Progres Recruitment": "update_progres",  # ← NEW
         "👤 Sourcing Input": "sourcing_input",
         "👩🏻‍💻 Sourcing View": "sourcing_view",
         "🏢 DB Kode Posisi": "db_kode_posisi",
