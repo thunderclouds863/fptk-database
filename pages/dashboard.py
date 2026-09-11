@@ -202,6 +202,9 @@ def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
     st.markdown("---")
 
+    # ⭐ Clear cache dulu biar filter fresh
+    get_filter_options_from_db.clear()
+
     # ============================================================
     # LOAD FILTER OPTIONS DARI DATABASE (DINAMIS)
     # ============================================================
