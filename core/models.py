@@ -358,3 +358,38 @@ class FPTKDeleteRequest(Base):
     
     # Relasi
     fptk = relationship("FPTK", backref="delete_requests")
+
+class RecruitmentProgress(Base):
+    """
+    Progress recruitment per FPTK per week.
+    Menyimpan progress week ini + next action week depan.
+    """
+    __tablename__ = "recruitment_progress"
+    __table_args__ = {"extend_existing": True}
+
+    id = Column(Integer, primary_key=True, index=True)
+    fptk_id = Column(Integer, ForeignKey("fptk.id", ondelete="CASCADE"), index=True)
+    kode_unik = Column(String(50), nullable=False, index=True)
+    posisi = Column(String(255))
+    pic_recruiter = Column(String(100), index=True)
+
+    # Info week
+    week_number = Column(Integer, index=True)  # ISO week number
+    year = Column(Integer, index=True)
+    week_label = Column(String(20))  # "Week 36, 2026"
+
+    # Progress
+    progress_this_week = Column(Text)  # "Send 25 CV di Week 36..."
+    next_action = Column(Text)         # "Follow up user di Week 37..."
+
+    # Status
+    status = Column(String(20), default="DRAFT")  # DRAFT, SUBMITTED, APPROVED
+
+    # Audit
+    created_by = Column(Integer, ForeignKey("users.id"))
+    created_by_name = Column(String(100))
+    created_at = Column(TIMESTAMP, server_default=func.now())
+    updated_at = Column(TIMESTAMP)
+
+    # Relasi
+    fptk = relationship("FPTK", backref="progress_entries")
