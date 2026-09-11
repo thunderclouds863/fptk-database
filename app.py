@@ -927,6 +927,12 @@ elif page == "sourcing_input":
     except ModuleNotFoundError:
         st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
 
+elif page == "update_progres":
+    try:
+        update_progres = importlib.import_module("pages.11_update_progres")
+        update_progres.show_update_progres()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/11_update_progres.py tidak ditemukan!")
 
 # ============================================================
 # FUNNEL REPORT
