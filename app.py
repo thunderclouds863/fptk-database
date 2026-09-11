@@ -2,10 +2,10 @@ import streamlit as st
 import importlib
 import time
 import base64
-from core.session_manager import get_session_manager
+from core.session_manager import get_session_manager, check_idle_timeout
 import os
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from core.database import SessionLocal, init_db
 from core.auth import (
@@ -32,23 +32,59 @@ st.set_page_config(
 
 
 # ============================================================
-# OPTIMASI: CACHE RESOURCE UNTUK DATABASE
+# AUTO-REFRESH UNTUK UPDATE COUNTDOWN IDLE
+# ============================================================
+# Logic:
+#   - Idle timeout: 30 MENIT (1800 detik) → auto-logout
+#   - Auto-refresh UI: kalau user idle > 30 DETIK → refresh tiap 60 detik
+#   - Tujuan: countdown di sidebar update real-time
+#   - User yang masih aktif (< 30 detik) → gak refresh → form aman
+# ============================================================
+
+if st.session_state.get("user_id"):
+    last_activity = st.session_state.get("last_activity")
+
+    if last_activity:
+        idle_seconds = (datetime.now() - last_activity).total_seconds()
+
+        # Cuma auto-refresh kalau user idle > 30 detik
+        if idle_seconds > 30:
+            if "last_auto_refresh" not in st.session_state:
+                st.session_state.last_auto_refresh = time.time()
+
+            elapsed = time.time() - st.session_state.last_auto_refresh
+
+            if elapsed >= 60:
+                st.session_state.last_auto_refresh = time.time()
+                st.rerun()
+
+
+# ============================================================
+# OPTIMASI: DATABASE SESSION
+# ============================================================
+# ⚠️ JANGAN pakai @st.cache_resource untuk Session!
+# Karena bakal share 1 session ke semua user & bikin
+# IllegalStateChangeError.
+# Setiap user harus punya session sendiri.
 # ============================================================
 
 def get_cached_db():
+    """Buat session database baru. Setiap user punya session sendiri."""
     return SessionLocal()
+
 
 @st.cache_resource
 def initialize_system():
-    """Inisialisasi sistem sekali saja"""
+    """Inisialisasi sistem sekali saja (bikin session terpisah)"""
     init_db()
-    db = get_cached_db()
+    db = SessionLocal()
     try:
         init_default_users(db)
         init_master_dropdown(db)
     finally:
         db.close()
     return True
+
 
 # Initialize system
 if 'system_initialized' not in st.session_state:
@@ -118,6 +154,9 @@ if "search_keyword" not in st.session_state:
 if "filter_applied" not in st.session_state:
     st.session_state.filter_applied = False
 
+if "last_activity" not in st.session_state:
+    st.session_state.last_activity = None
+
 
 # ============================================================
 # SESSION PERSISTENCE - CEK SETIAP LOAD
@@ -136,6 +175,24 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.username = session_mgr.username
     st.session_state.role = session_mgr.role
     st.session_state.user_display = session_mgr.user_display
+
+
+# ============================================================
+# ⭐ IDLE TIMEOUT CHECK
+# ============================================================
+
+if st.session_state.user_id:
+    expired = check_idle_timeout()
+    if expired:
+        # User udah di-logout, redirect ke login
+        st.rerun()
+
+# Tampilkan pesan session expired (kalau ada)
+if "session_expired_message" in st.session_state and not st.session_state.user_id:
+    st.warning(st.session_state.session_expired_message)
+    del st.session_state.session_expired_message
+    if "session_expired_username" in st.session_state:
+        del st.session_state.session_expired_username
 
 
 # ============================================================
@@ -481,6 +538,7 @@ if not st.session_state.user_id:
                             user.display_name
                             or user.username
                         )
+                        st.session_state.last_activity = datetime.now()
 
                         st.success(
                             f"✅ Selamat datang, "
@@ -522,6 +580,17 @@ with st.sidebar:
         f"Role: {st.session_state.role}"
     )
 
+    # ⭐ Countdown idle timer
+    if session_mgr.is_logged_in:
+        remaining = session_mgr.get_idle_remaining_seconds()
+        if remaining > 0:
+            mins = remaining // 60
+            secs = remaining % 60
+            if remaining < 300:
+                st.caption(f"⏰ Auto-logout dalam **{mins}m {secs}s**")
+            else:
+                st.caption(f"⏰ Auto-logout dalam {mins}m {secs}s")
+
     st.markdown("---")
 
     # ========================================================
@@ -532,7 +601,7 @@ with st.sidebar:
         "📊 Dashboard": "dashboard",
         "📤 Upload & Compile FPTK": "upload_compile",
         "📋 FPTK View": "fptk_view",
-        "📝 Update Progres Recruitment": "update_progres",  # ← NEW
+        "📝 Update Progres Recruitment": "update_progres",
         "👤 Sourcing Input": "sourcing_input",
         "👩🏻‍💻 Sourcing View": "sourcing_view",
         "🏢 DB Kode Posisi": "db_kode_posisi",
@@ -845,6 +914,21 @@ elif page == "fptk_view":
 
 
 # ============================================================
+# UPDATE PROGRES RECRUITMENT (NEW)
+# ============================================================
+
+elif page == "update_progres":
+
+    try:
+        update_progres = importlib.import_module(
+            "pages.11_update_progres"
+        )
+        update_progres.show_update_progres()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/11_update_progres.py tidak ditemukan!")
+
+
+# ============================================================
 # SOURCING VIEW
 # ============================================================
 
@@ -925,12 +1009,6 @@ elif page == "sourcing_input":
     except ModuleNotFoundError:
         st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
 
-elif page == "update_progres":
-    try:
-        update_progres = importlib.import_module("pages.11_update_progres")
-        update_progres.show_update_progres()
-    except ModuleNotFoundError:
-        st.error("❌ File pages/11_update_progres.py tidak ditemukan!")
 
 # ============================================================
 # FUNNEL REPORT
