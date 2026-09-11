@@ -48,7 +48,7 @@ def load_fptk_data(
         query = db.query(FPTK)
 
         if pic_filter and pic_filter != "Semua":
-            query = query.filter(Master_Dropdown.pic_recruiter == pic_filter)
+            query = query.filter(master_dropdown.pic_recruiter == pic_filter)
         if status_filter and status_filter != "Semua":
             query = query.filter(FPTK.status == status_filter)
         if bu_filter and bu_filter != "Semua":
