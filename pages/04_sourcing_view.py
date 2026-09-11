@@ -70,35 +70,6 @@ def show_sourcing_view():
         pipeline_stages = get_pipeline_stages_view()
 
     # ============================================================
-    #  AMBIL OPSI PIC/REKRUTER — GABUNGKAN DARI USERS + MASTER DROPDOWN
-    # ============================================================
-    # Sumber utama: User.pic_recruiter (dari tabel users)
-    pic_from_users = filter_opts.get("pic_options", [])
-
-    # Fallback: MasterDropdown.pic_recruiter
-    if not pic_from_users:
-        try:
-            master_pics = db.query(MasterDropdown.pic_recruiter).filter(
-                MasterDropdown.pic_recruiter.isnot(None),
-                MasterDropdown.pic_recruiter != "",
-                MasterDropdown.is_active == True
-            ).distinct().all()
-            pic_from_users = sorted(set([r[0] for r in master_pics if r[0]]))
-        except Exception:
-            pic_from_users = []
-
-    # Fallback: DBSourcing.rekruter (kalau dua-duanya kosong)
-    if not pic_from_users:
-        try:
-            rekruter_from_db = db.query(DBSourcing.rekruter).filter(
-                DBSourcing.rekruter.isnot(None),
-                DBSourcing.rekruter != ""
-            ).distinct().all()
-            pic_from_users = sorted(set([r[0] for r in rekruter_from_db if r[0]]))
-        except Exception:
-            pic_from_users = []
-
-    # ============================================================
     #  SIDEBAR FILTERS
     # ============================================================
     with st.sidebar:
@@ -108,16 +79,22 @@ def show_sourcing_view():
         search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
 
         # ============================================================
-        # PIC Recruiter / Rekruter (SATU FILTER AJA)
+        # PIC Filter (DINAMIS dari tabel users)
         # ============================================================
-        pic_options = ["Semua"] + pic_from_users
-        pic_filter = st.selectbox("PIC Recruiter / Rekruter", pic_options)
+        pic_options = ["Semua"] + filter_opts.get("pic_options", [])
+        pic_filter = st.selectbox("PIC Recruiter", pic_options)
+
+        # ============================================================
+        # Rekruter Filter (DINAMIS dari DBSourcing)
+        # ============================================================
+        rekruter_options = ["Semua"] + filter_opts.get("rekruter_options", [])
+        rekruter_filter = st.selectbox("Rekruter", rekruter_options)
 
         # ============================================================
         # Sumber Filter (DINAMIS dari master_dropdown)
         # ============================================================
         sumber_options = ["Semua"] + filter_opts.get("sumber_options", [])
-        if len(sumber_options) == 1:
+        if len(sumber_options) == 1:  # fallback kalau kosong
             sumber_options = ["Semua"] + sourcing_options['sumber_options']
         sumber_filter = st.selectbox("Sumber Sourcing", sumber_options)
 
@@ -125,7 +102,7 @@ def show_sourcing_view():
         # Model Filter (DINAMIS dari master_dropdown)
         # ============================================================
         model_options = ["Semua"] + filter_opts.get("model_options", [])
-        if len(model_options) == 1:
+        if len(model_options) == 1:  # fallback kalau kosong
             model_options = ["Semua"] + sourcing_options['model_options']
         model_filter = st.selectbox("Model Rekrutmen", model_options)
 
@@ -168,11 +145,11 @@ def show_sourcing_view():
             (DBSourcing.kode_unik.ilike(f"%{search_term}%"))
         )
 
-    # ============================================================
-    # FILTER REKRUTER — SATU SAJA
-    # ============================================================
     if pic_filter != "Semua":
         query = query.filter(DBSourcing.rekruter == pic_filter)
+
+    if rekruter_filter != "Semua":
+        query = query.filter(DBSourcing.rekruter == rekruter_filter)
 
     if sumber_filter != "Semua":
         query = query.filter(DBSourcing.sumber_sourcing == sumber_filter)
@@ -211,6 +188,7 @@ def show_sourcing_view():
                        'source_file', 'source_file_hash', 'source_user_id', 'source_cycle_id']
         display_cols = [c for c in df.columns if c not in exclude_cols]
 
+        # Remove blacklisted_by from display
         if 'blacklisted_by' in display_cols:
             display_cols.remove('blacklisted_by')
 
