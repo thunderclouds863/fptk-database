@@ -4,14 +4,12 @@ from datetime import datetime, date, timedelta
 from core.database import get_db
 from core.models import FPTK, User, RecruitmentProgress
 from core.auth import get_current_user, is_admin
-from core.utils import get_filter_options_from_db
 import time
 
-# ⭐ TAMBAHAN UNTUK EXPORT EXCEL
+# ⭐ UNTUK EXPORT EXCEL
 from io import BytesIO
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
-from openpyxl.utils import get_column_letter
 
 
 # ============================================================
@@ -43,16 +41,60 @@ def get_week_range(week_num, year):
 
 
 # ============================================================
+# ⭐ HELPER: LOAD FILTER OPTIONS LANGSUNG DARI DB
+# ============================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _load_filter_options():
+    """Ambil distinct values langsung dari tabel FPTK."""
+    db_local = next(get_db())
+    try:
+        pic_opts = sorted([
+            r[0] for r in db_local.query(FPTK.pic_recruiter)
+            .filter(FPTK.pic_recruiter.isnot(None), FPTK.pic_recruiter != "")
+            .distinct().all() if r[0]
+        ])
+        bu_opts = sorted([
+            r[0] for r in db_local.query(FPTK.business_unit)
+            .filter(FPTK.business_unit.isnot(None), FPTK.business_unit != "")
+            .distinct().all() if r[0]
+        ])
+        dir_opts = sorted([
+            r[0] for r in db_local.query(FPTK.direktorat)
+            .filter(FPTK.direktorat.isnot(None), FPTK.direktorat != "")
+            .distinct().all() if r[0]
+        ])
+        kat_opts = sorted([
+            r[0] for r in db_local.query(FPTK.filter_kategorisasi_fptk)
+            .filter(FPTK.filter_kategorisasi_fptk.isnot(None),
+                    FPTK.filter_kategorisasi_fptk != "")
+            .distinct().all() if r[0]
+        ])
+        return {
+            "pic_options": pic_opts,
+            "bu_options": bu_opts,
+            "direktorat_options": dir_opts,
+            "filter_kategorisasi_options": kat_opts,
+        }
+    except Exception as e:
+        st.error(f"⚠️ Gagal load filter options: {e}")
+        return {
+            "pic_options": [],
+            "bu_options": [],
+            "direktorat_options": [],
+            "filter_kategorisasi_options": [],
+        }
+    finally:
+        db_local.close()
+
+
+# ============================================================
 # ⭐ HELPER: GENERATE EXCEL PROGRESS RECRUITMENT
 # ============================================================
 
 def generate_progress_recruitment_excel(df):
     """
     Generate Excel dengan format Update Progress Recruitment (sesuai template).
-    
-    Kolom: No, Tanggal FPTK, Posisi, Level, Business Unit, 
-           Kategori sheet, SLA Target Pemenuhan, PIC TA, 
-           Jumlah Permintaan, Status Rekrutmen, Recruitment Update
     """
     output = BytesIO()
     wb = Workbook()
@@ -83,7 +125,6 @@ def generate_progress_recruitment_excel(df):
     # ===== DATA =====
     for row_idx, row in df.iterrows():
         for col_idx, value in enumerate(row, start=1):
-            # Handle NaN
             if pd.isna(value):
                 value = ""
 
@@ -94,7 +135,6 @@ def generate_progress_recruitment_excel(df):
                 top=Side(style='thin'), bottom=Side(style='thin')
             )
 
-            # Format tanggal
             header_name = headers[col_idx - 1]
             if header_name in ('Tanggal FPTK', 'SLA Target Pemenuhan'):
                 if isinstance(value, (datetime, date, pd.Timestamp)):
@@ -102,25 +142,13 @@ def generate_progress_recruitment_excel(df):
 
     # ===== LEBAR KOLOM =====
     column_widths = {
-        'A': 6,    # No
-        'B': 14,   # Tanggal FPTK
-        'C': 38,   # Posisi
-        'D': 7,    # Level
-        'E': 30,   # Business Unit
-        'F': 14,   # Kategori sheet
-        'G': 14,   # SLA Target Pemenuhan
-        'H': 10,   # PIC TA
-        'I': 12,   # Jumlah Permintaan
-        'J': 12,   # Status Rekrutmen
-        'K': 75,   # Recruitment Update
+        'A': 6, 'B': 14, 'C': 38, 'D': 7, 'E': 30,
+        'F': 14, 'G': 14, 'H': 10, 'I': 12, 'J': 12, 'K': 75,
     }
     for col_letter, width in column_widths.items():
         ws.column_dimensions[col_letter].width = width
 
-    # Header height diperbesar biar muat 2 baris
     ws.row_dimensions[1].height = 35
-
-    # Freeze header + auto filter
     ws.freeze_panes = "A2"
     ws.auto_filter.ref = f"A1:K{len(df) + 1}"
 
@@ -602,7 +630,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
 
 
 # ============================================================
-# ⭐ TAB 3: EXPORT EXCEL
+# TAB 3: EXPORT EXCEL
 # ============================================================
 
 def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
@@ -703,13 +731,11 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
         if only_with_progress and not progress:
             continue
 
-        # Gabungkan progress + next action
         progress_text = ""
         if progress:
             ptw = (progress.progress_this_week or "").strip()
             na = (progress.next_action or "").strip()
 
-            # Bersihkan prefix kalau sudah ada
             if ptw.lower().startswith("progress weekly:"):
                 ptw = ptw[len("progress weekly:"):].strip()
             if na.lower().startswith("next action:"):
@@ -805,7 +831,8 @@ def show_update_progres():
     week_label = get_week_label(current_week, current_year)
     week_start, week_end = get_week_range(current_week, current_year)
 
-    filter_opts = get_filter_options_from_db()
+    # ⭐ Load filter options dari DB langsung
+    filter_opts = _load_filter_options()
 
     col1, col2, col3 = st.columns(3)
     col1.metric("📅 Week Ini", week_label)
@@ -815,8 +842,19 @@ def show_update_progres():
 
     st.markdown("---")
 
+    # ============================================================
+    # SIDEBAR
+    # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filter FPTK OP")
+
+        # Debug counter — hapus kalau sudah berhasil
+        st.caption(
+            f"🔍 PIC: {len(filter_opts.get('pic_options', []))} | "
+            f"BU: {len(filter_opts.get('bu_options', []))} | "
+            f"Dir: {len(filter_opts.get('direktorat_options', []))} | "
+            f"Kat: {len(filter_opts.get('filter_kategorisasi_options', []))}"
+        )
 
         st.text_input(
             "🔎 Cari (Kode Unik / Posisi)",
@@ -873,7 +911,7 @@ def show_update_progres():
         )
 
         if st.button("🔄 Refresh Filter Options", use_container_width=True, key="refresh_filter_progres"):
-            get_filter_options_from_db.clear()
+            _load_filter_options.clear()
             st.success("✅ Filter refreshed!")
             time.sleep(0.3)
             st.rerun()
