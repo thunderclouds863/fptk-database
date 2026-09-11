@@ -27,7 +27,6 @@ def get_week_label(week_num, year):
 def get_week_range(week_num, year):
     """Dapatkan tanggal awal & akhir dari ISO week"""
     try:
-        # ISO week: Senin = day 1
         jan4 = date(year, 1, 4)
         start_of_year_week = jan4 - timedelta(days=jan4.isoweekday() - 1)
         week_start = start_of_year_week + timedelta(weeks=week_num - 1)
@@ -35,6 +34,498 @@ def get_week_range(week_num, year):
         return week_start, week_end
     except Exception:
         return None, None
+
+
+# ============================================================
+# HELPER: UPSERT PROGRESS
+# ============================================================
+
+def upsert_progress(db, fptk, week_num, year, progress_text, next_action=""):
+    """Cari existing atau create baru. Return (progress, action)"""
+    existing = db.query(RecruitmentProgress).filter(
+        RecruitmentProgress.fptk_id == fptk.id,
+        RecruitmentProgress.week_number == week_num,
+        RecruitmentProgress.year == year
+    ).first()
+
+    week_label = f"Week {week_num}, {year}"
+
+    if existing:
+        existing.progress_this_week = progress_text
+        if next_action:
+            existing.next_action = next_action
+        existing.updated_at = datetime.now()
+        return existing, "updated"
+    else:
+        new_progress = RecruitmentProgress(
+            fptk_id=fptk.id,
+            kode_unik=fptk.kode_unik,
+            posisi=fptk.posisi,
+            pic_recruiter=fptk.pic_recruiter,
+            week_number=week_num,
+            year=year,
+            week_label=week_label,
+            progress_this_week=progress_text,
+            next_action=next_action,
+            status="SUBMITTED",
+            created_by_name="Excel Upload",
+        )
+        db.add(new_progress)
+        return new_progress, "created"
+
+
+# ============================================================
+# TAB 1: UPDATE MANUAL
+# ============================================================
+
+def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
+    """Tab untuk update manual per FPTK"""
+
+    # ============================================================
+    # BUILD QUERY — HANYA STATUS = OP
+    # ============================================================
+    query = db.query(FPTK).filter(FPTK.status == "OP")
+
+    if st.session_state.get("search_progres"):
+        s = st.session_state.search_progres.strip()
+        query = query.filter(
+            (FPTK.kode_unik.ilike(f"%{s}%")) | (FPTK.posisi.ilike(f"%{s}%"))
+        )
+
+    if st.session_state.get("pic_progres") and st.session_state.pic_progres != "Semua":
+        query = query.filter(FPTK.pic_recruiter == st.session_state.pic_progres)
+
+    if st.session_state.get("bu_progres") and st.session_state.bu_progres != "Semua":
+        query = query.filter(FPTK.business_unit == st.session_state.bu_progres)
+
+    if st.session_state.get("dir_progres") and st.session_state.dir_progres != "Semua":
+        query = query.filter(FPTK.direktorat == st.session_state.dir_progres)
+
+    if st.session_state.get("kat_progres") and st.session_state.kat_progres != "Semua":
+        query = query.filter(FPTK.filter_kategorisasi_fptk == st.session_state.kat_progres)
+
+    if st.session_state.get("level_progres") and st.session_state.level_progres != "Semua":
+        query = query.filter(FPTK.level_fptk == st.session_state.level_progres)
+
+    if st.session_state.get("show_mine_progres") and not admin:
+        query = query.filter(FPTK.pic_recruiter == user.pic_recruiter)
+
+    query = query.order_by(FPTK.fptk_date_real.desc())
+    total = query.count()
+
+    # ============================================================
+    # STATISTIK
+    # ============================================================
+    st.markdown("### 📈 Statistik")
+
+    col1, col2, col3, col4 = st.columns(4)
+
+    existing_progress = db.query(RecruitmentProgress).filter(
+        RecruitmentProgress.week_number == current_week,
+        RecruitmentProgress.year == current_year
+    ).all()
+    progress_fptk_ids = set([p.fptk_id for p in existing_progress])
+
+    already_updated = 0
+    if progress_fptk_ids:
+        already_updated = query.filter(FPTK.id.in_(progress_fptk_ids)).count()
+    belum_update = total - already_updated
+
+    col1.metric("Total FPTK OP", total)
+    col2.metric("✅ Sudah Update", already_updated)
+    col3.metric("⏳ Belum Update", belum_update)
+    col4.metric("📊 Progress", f"{(already_updated/total*100):.0f}%" if total > 0 else "0%")
+
+    st.markdown("---")
+
+    if total == 0:
+        st.info("Tidak ada FPTK dengan status **OP** yang sesuai filter.")
+        return
+
+    # ============================================================
+    # TABEL
+    # ============================================================
+    page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
+    page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
+    offset = (page - 1) * page_size
+
+    df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
+
+    if not df.empty:
+        fptk_ids_page = df['id'].tolist()
+        progress_map = {p.fptk_id: p for p in existing_progress if p.fptk_id in fptk_ids_page}
+
+        display_data = []
+        for _, row in df.iterrows():
+            has_progress = row['id'] in progress_map
+            display_data.append({
+                "Kode Unik": row.get('kode_unik', ''),
+                "Posisi": (row.get('posisi', '') or '')[:60],
+                "PIC": row.get('pic_recruiter', ''),
+                "BU": (row.get('business_unit', '') or '')[:30],
+                "Level": row.get('level_fptk', ''),
+                "Status Update": "✅ Sudah" if has_progress else "⏳ Belum",
+            })
+
+        st.dataframe(pd.DataFrame(display_data), use_container_width=True, height=400, hide_index=True)
+
+    # ============================================================
+    # FORM UPDATE
+    # ============================================================
+    st.markdown("---")
+    st.markdown("### ✏️ Update Progress FPTK")
+
+    df_all = pd.read_sql(query.statement, db.bind)
+    if df_all.empty:
+        return
+
+    select_options = {}
+    for _, row in df_all.iterrows():
+        kode = row.get('kode_unik', '')
+        posisi = row.get('posisi', '')
+        display = f"{kode} | {posisi[:50]}" if len(str(posisi)) > 50 else f"{kode} | {posisi}"
+        select_options[display] = row.get('id')
+
+    selected_display = st.selectbox("Pilih FPTK", list(select_options.keys()))
+    selected_id = select_options[selected_display]
+
+    detail = db.query(FPTK).filter(FPTK.id == selected_id).first()
+    if not detail:
+        st.error("FPTK tidak ditemukan!")
+        return
+
+    can_edit = admin or (detail.pic_recruiter == user.pic_recruiter)
+    if not can_edit:
+        st.warning("⚠️ Anda hanya bisa update progress FPTK milik PIC Anda sendiri.")
+        return
+
+    # Info FPTK
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.markdown(f"**Kode Unik:** {detail.kode_unik}")
+        st.markdown(f"**Posisi:** {detail.posisi}")
+    with col2:
+        st.markdown(f"**PIC:** {detail.pic_recruiter}")
+        st.markdown(f"**BU:** {detail.business_unit}")
+    with col3:
+        st.markdown(f"**Level:** {detail.level_fptk}")
+        st.markdown(f"**Status:** {detail.status}")
+
+    # Load existing progress
+    existing = db.query(RecruitmentProgress).filter(
+        RecruitmentProgress.fptk_id == selected_id,
+        RecruitmentProgress.week_number == current_week,
+        RecruitmentProgress.year == current_year
+    ).first()
+
+    default_progress = existing.progress_this_week if existing else ""
+    default_next = existing.next_action if existing else ""
+
+    # ⭐ FORM STATE PERSISTENCE - pakai session_state biar gak reset saat refresh
+    form_key_progress = f"form_progress_text_{selected_id}"
+    form_key_next = f"form_next_text_{selected_id}"
+
+    if form_key_progress not in st.session_state:
+        st.session_state[form_key_progress] = default_progress
+    if form_key_next not in st.session_state:
+        st.session_state[form_key_next] = default_next
+
+    with st.form(f"form_progress_{selected_id}", clear_on_submit=False):
+        st.markdown(f"#### 📅 Update untuk **{get_week_label(current_week, current_year)}**")
+
+        if existing:
+            st.info(f"✏️ Sudah ada update sebelumnya.")
+
+        progress_this_week = st.text_area(
+            "📝 **Progress Week Ini**",
+            value=st.session_state[form_key_progress],
+            key=f"text_area_progress_{selected_id}",
+            placeholder="Contoh:\n> Send 25 CV\n> Shortlisted 9 kandidat\n> HR Interview 5 kandidat",
+            height=200
+        )
+
+        next_action = st.text_area(
+            "➡️ **Next Action Week Depan**",
+            value=st.session_state[form_key_next],
+            key=f"text_area_next_{selected_id}",
+            placeholder="Contoh:\n> Send 10 kandidat baru\n> Follow up user interview",
+            height=150
+        )
+
+        submit = st.form_submit_button("💾 Simpan Progress", type="primary", use_container_width=True)
+
+        if submit:
+            if not progress_this_week.strip():
+                st.error("❌ Progress Week Ini wajib diisi!")
+            elif not next_action.strip():
+                st.error("❌ Next Action wajib diisi!")
+            else:
+                try:
+                    progress, action = upsert_progress(
+                        db, detail, current_week, current_year,
+                        progress_this_week.strip(), next_action.strip()
+                    )
+                    progress.created_by = user.id
+                    progress.created_by_name = user.display_name or user.username
+                    db.commit()
+
+                    # Clear form state
+                    st.session_state[form_key_progress] = ""
+                    st.session_state[form_key_next] = ""
+
+                    st.cache_data.clear()
+                    st.success(f"✅ Progress berhasil disimpan!")
+                    time.sleep(0.5)
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"❌ Error: {str(e)}")
+                    db.rollback()
+
+    # ============================================================
+    # HISTORY
+    # ============================================================
+    st.markdown("---")
+    st.markdown(f"### 📜 History Progress — {detail.kode_unik}")
+
+    history = db.query(RecruitmentProgress).filter(
+        RecruitmentProgress.fptk_id == selected_id
+    ).order_by(
+        RecruitmentProgress.year.desc(),
+        RecruitmentProgress.week_number.desc()
+    ).limit(20).all()
+
+    if not history:
+        st.info("Belum ada history progress.")
+    else:
+        for h in history:
+            with st.expander(
+                f"📅 **{h.week_label}** — {h.created_by_name} pada {h.created_at.strftime('%d/%m/%Y %H:%M') if h.created_at else '-'}",
+                expanded=(h.week_number == current_week and h.year == current_year)
+            ):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**📝 Progress:**")
+                    st.info(h.progress_this_week or "-")
+                with col2:
+                    st.markdown("**➡️ Next Action:**")
+                    st.success(h.next_action or "-")
+
+                if admin:
+                    if st.button(f"🗑️ Hapus", key=f"del_prog_{h.id}"):
+                        try:
+                            db.delete(h)
+                            db.commit()
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ {str(e)}")
+                            db.rollback()
+
+
+# ============================================================
+# TAB 2: UPLOAD EXCEL MASSAL
+# ============================================================
+
+def tab_upload_excel(db, user, admin, current_week, current_year):
+    """Tab untuk upload Excel progress massal"""
+
+    st.markdown("### 📤 Upload Excel Progress Massal")
+    st.caption("Upload file Excel untuk import progress sekaligus banyak.")
+
+    st.info(
+        "💡 **Format Excel yang dibutuhkan:**\n"
+        "- Kolom **Kode Unik** (wajib) — harus sama dengan kode unik di database FPTK\n"
+        "- Kolom **Recruitment Update** (wajib) — isi progress text\n"
+        "- Kolom **Next Action** (opsional) — isi next action\n\n"
+        "Contoh sheet: **COPAS yang ini** dari file Update Progres Recruitment.xlsx"
+    )
+
+    col1, col2 = st.columns(2)
+    with col1:
+        week_num = st.number_input(
+            "Week Number",
+            min_value=1, max_value=53,
+            value=current_week
+        )
+    with col2:
+        year = st.number_input(
+            "Year",
+            min_value=2024, max_value=2030,
+            value=current_year
+        )
+
+    uploaded = st.file_uploader("Pilih file Excel", type=["xlsx", "xlsm"])
+
+    if uploaded:
+        try:
+            xls = pd.ExcelFile(uploaded)
+            sheet_names = xls.sheet_names
+
+            selected_sheet = st.selectbox(
+                "Pilih Sheet",
+                sheet_names,
+                index=sheet_names.index("COPAS yang ini") if "COPAS yang ini" in sheet_names else 0
+            )
+
+            df = pd.read_excel(uploaded, sheet_name=selected_sheet)
+
+            st.success(f"✅ File terbaca: {len(df)} rows, {len(df.columns)} kolom")
+            st.markdown("**Preview 5 rows:**")
+            st.dataframe(df.head(5), use_container_width=True)
+
+            # Cari kolom otomatis
+            kolom_kode = None
+            kolom_progress = None
+            kolom_next_action = None
+
+            for col in df.columns:
+                cl = str(col).lower().strip()
+                if "kode" in cl and "unik" in cl:
+                    kolom_kode = col
+                if "recruitment" in cl and "update" in cl:
+                    kolom_progress = col
+                elif "progress" in cl and not kolom_progress:
+                    kolom_progress = col
+                if "next" in cl and "action" in cl:
+                    kolom_next_action = col
+
+            st.markdown("---")
+            st.markdown("#### 🔧 Mapping Kolom")
+
+            col1, col2 = st.columns(2)
+            with col1:
+                kode_col = st.selectbox(
+                    "Kolom **Kode Unik**",
+                    df.columns.tolist(),
+                    index=df.columns.tolist().index(kolom_kode) if kolom_kode in df.columns else 0
+                )
+            with col2:
+                progress_col = st.selectbox(
+                    "Kolom **Recruitment Update**",
+                    df.columns.tolist(),
+                    index=df.columns.tolist().index(kolom_progress) if kolom_progress in df.columns else 0
+                )
+
+            next_action_col = st.selectbox(
+                "Kolom **Next Action** (opsional)",
+                ["(tidak ada)"] + df.columns.tolist(),
+                index=df.columns.tolist().index(kolom_next_action) + 1 if kolom_next_action in df.columns else 0
+            )
+
+            st.markdown("---")
+            st.markdown("#### 👀 Preview Data yang Akan Di-import")
+
+            preview_rows = []
+            for _, row in df.head(10).iterrows():
+                kode = str(row.get(kode_col, '')).strip()
+                progress = str(row.get(progress_col, '')).strip()
+                if kode and kode != 'nan' and progress and progress != 'nan':
+                    preview_rows.append({
+                        "Kode Unik": kode,
+                        "Progress (60 char)": progress[:60] + "..." if len(progress) > 60 else progress
+                    })
+
+            if preview_rows:
+                st.dataframe(pd.DataFrame(preview_rows), use_container_width=True, hide_index=True)
+            else:
+                st.warning("⚠️ Gak ada row yang valid untuk di-import.")
+
+            if st.button("🚀 Mulai Import", type="primary", use_container_width=True):
+                if not preview_rows:
+                    st.error("❌ Tidak ada data valid untuk di-import.")
+                else:
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+
+                    created = 0
+                    updated = 0
+                    skipped_no_fptk = 0
+                    skipped_empty = 0
+                    errors = 0
+                    error_details = []
+
+                    total_rows = len(df)
+
+                    for idx, row in df.iterrows():
+                        progress_bar.progress((idx + 1) / total_rows)
+                        status_text.info(f"Memproses row {idx + 1}/{total_rows}...")
+
+                        kode_unik = str(row.get(kode_col, '')).strip()
+                        progress_text = row.get(progress_col, '')
+
+                        if not kode_unik or kode_unik == 'nan' or kode_unik == '':
+                            skipped_empty += 1
+                            continue
+
+                        if pd.isna(progress_text) or str(progress_text).strip() == '':
+                            skipped_empty += 1
+                            continue
+
+                        progress_text = str(progress_text).strip()
+
+                        next_action_text = ""
+                        if next_action_col and next_action_col != "(tidak ada)":
+                            na = row.get(next_action_col, '')
+                            if not pd.isna(na):
+                                next_action_text = str(na).strip()
+
+                        fptk = db.query(FPTK).filter(FPTK.kode_unik == kode_unik).first()
+
+                        if not fptk:
+                            skipped_no_fptk += 1
+                            error_details.append(f"❌ Kode Unik '{kode_unik}' gak ada di DB FPTK")
+                            continue
+
+                        try:
+                            progress, action = upsert_progress(
+                                db, fptk, week_num, year,
+                                progress_text, next_action_text
+                            )
+                            progress.created_by = user.id
+                            progress.created_by_name = user.display_name or user.username
+
+                            if action == "created":
+                                created += 1
+                            else:
+                                updated += 1
+
+                            if (created + updated) % 10 == 0:
+                                db.commit()
+
+                        except Exception as e:
+                            errors += 1
+                            error_details.append(f"❌ Row {idx+2}: {str(e)}")
+                            db.rollback()
+
+                    db.commit()
+                    progress_bar.empty()
+                    status_text.empty()
+
+                    st.success(f"✅ Import selesai!")
+                    st.markdown("### 📊 Summary")
+                    col1, col2, col3, col4 = st.columns(4)
+                    col1.metric("✅ Created", created)
+                    col2.metric("🔄 Updated", updated)
+                    col3.metric("⚠️ Skip (no FPTK)", skipped_no_fptk)
+                    col4.metric("⚠️ Skip (empty)", skipped_empty)
+
+                    if errors > 0:
+                        st.error(f"❌ {errors} error saat import:")
+
+                    if error_details:
+                        with st.expander("🔍 Detail log"):
+                            for d in error_details[:100]:
+                                st.text(d)
+
+                    st.cache_data.clear()
+
+                    if created + updated > 0:
+                        st.balloons()
+
+        except Exception as e:
+            st.error(f"❌ Error baca Excel: {str(e)}")
+            import traceback
+            with st.expander("🔍 Detail error"):
+                st.code(traceback.format_exc())
 
 
 # ============================================================
@@ -52,67 +543,90 @@ def show_update_progres():
         return
 
     admin = is_admin(db)
-
-    # ============================================================
-    # HEADER: WEEK INFO
-    # ============================================================
     current_week, current_year = get_current_week()
     week_label = get_week_label(current_week, current_year)
     week_start, week_end = get_week_range(current_week, current_year)
 
+    # Load filter options
+    filter_opts = get_filter_options_from_db()
+
+    # Header
     col1, col2, col3 = st.columns(3)
     col1.metric("📅 Week Ini", week_label)
     if week_start and week_end:
         col2.metric("📆 Periode", f"{week_start.strftime('%d/%m')} - {week_end.strftime('%d/%m/%Y')}")
-    col3.metric("👤 Login Sebagai", user.display_name or user.username)
+    col3.metric("👤 Login", user.display_name or user.username)
 
     st.markdown("---")
 
     # ============================================================
-    # LOAD FILTER OPTIONS
-    # ============================================================
-    filter_opts = get_filter_options_from_db()
-
-    # ============================================================
-    # SIDEBAR FILTERS
+    # SIDEBAR FILTER (RENDER SEKALI AJA)
     # ============================================================
     with st.sidebar:
-        st.markdown("### 🔍 Filter FPTK")
+        st.markdown("### 🔍 Filter FPTK OP")
 
         # Search
-        search = st.text_input("🔎 Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...")
+        st.text_input(
+            "🔎 Cari (Kode Unik / Posisi)",
+            key="search_progres",
+            placeholder="Ketik keyword..."
+        )
 
-        # PIC Filter (DINAMIS)
+        # PIC
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
-        # Kalau bukan admin, default ke PIC sendiri
         default_pic_idx = 0
         if not admin and user.pic_recruiter in pic_options:
             default_pic_idx = pic_options.index(user.pic_recruiter)
-        pic_filter = st.selectbox("PIC Recruiter", pic_options, index=default_pic_idx)
+        st.selectbox(
+            "PIC Recruiter",
+            pic_options,
+            index=default_pic_idx,
+            key="pic_progres"
+        )
 
-        # BU Filter (DINAMIS)
+        # BU
         bu_options = ["Semua"] + filter_opts.get("bu_options", [])
-        bu_filter = st.selectbox("Business Unit", bu_options)
+        st.selectbox(
+            "Business Unit",
+            bu_options,
+            key="bu_progres"
+        )
 
-        # Direktorat Filter (DINAMIS)
+        # Direktorat
         dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
-        dir_filter = st.selectbox("Direktorat", dir_options)
+        st.selectbox(
+            "Direktorat",
+            dir_options,
+            key="dir_progres"
+        )
 
-        # Filter Kategorisasi (DINAMIS)
-        filter_kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
-        filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options)
+        # Filter Kategorisasi
+        kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
+        st.selectbox(
+            "Filter Kategorisasi",
+            kat_options,
+            key="kat_progres"
+        )
 
-        # Level Filter
+        # Level
         level_options = ["Semua", "1A", "1B", "1C", "2A", "2B", "2C",
                          "3A", "3B", "3C", "4A", "4B", "5A", "5B"]
-        level_filter = st.selectbox("Level FPTK", level_options)
+        st.selectbox(
+            "Level FPTK",
+            level_options,
+            key="level_progres"
+        )
 
         st.markdown("---")
 
-        # Show only my data
-        show_mine = st.checkbox("Hanya FPTK saya", value=not admin)
+        # Show mine
+        st.checkbox(
+            "Hanya FPTK saya",
+            value=not admin,
+            key="show_mine_progres"
+        )
 
-        if st.button("🔄 Refresh Filter Options", use_container_width=True):
+        if st.button("🔄 Refresh Filter Options", use_container_width=True, key="refresh_filter_progres"):
             get_filter_options_from_db.clear()
             st.success("✅ Filter refreshed!")
             time.sleep(0.3)
@@ -121,301 +635,12 @@ def show_update_progres():
         st.caption("💡 Hanya FPTK dengan status **OP** yang ditampilkan")
 
     # ============================================================
-    # BUILD QUERY — HANYA STATUS = OP
+    # TABS
     # ============================================================
-    query = db.query(FPTK).filter(FPTK.status == "OP")
+    tab1, tab2 = st.tabs(["✏️ Update Manual", "📤 Upload Excel Massal"])
 
-    if search:
-        search_term = search.strip()
-        query = query.filter(
-            (FPTK.kode_unik.ilike(f"%{search_term}%")) |
-            (FPTK.posisi.ilike(f"%{search_term}%"))
-        )
+    with tab1:
+        tab_update_manual(db, user, admin, current_week, current_year, filter_opts)
 
-    if pic_filter != "Semua":
-        query = query.filter(FPTK.pic_recruiter == pic_filter)
-
-    if bu_filter != "Semua":
-        query = query.filter(FPTK.business_unit == bu_filter)
-
-    if dir_filter != "Semua":
-        query = query.filter(FPTK.direktorat == dir_filter)
-
-    if filter_kat != "Semua":
-        query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
-
-    if level_filter != "Semua":
-        query = query.filter(FPTK.level_fptk == level_filter)
-
-    if show_mine and not admin:
-        query = query.filter(FPTK.pic_recruiter == user.pic_recruiter)
-
-    # Order by FPTK date desc
-    query = query.order_by(FPTK.fptk_date_real.desc())
-
-    total = query.count()
-
-    # ============================================================
-    # STATISTIK
-    # ============================================================
-    st.markdown("### 📈 Statistik")
-
-    col1, col2, col3, col4 = st.columns(4)
-
-    # Hitung progress yang udah diisi week ini
-    existing_progress = db.query(RecruitmentProgress).filter(
-        RecruitmentProgress.week_number == current_week,
-        RecruitmentProgress.year == current_year
-    ).all()
-
-    progress_fptk_ids = set([p.fptk_id for p in existing_progress])
-    already_updated = query.filter(FPTK.id.in_(progress_fptk_ids)).count() if progress_fptk_ids else 0
-    belum_update = total - already_updated
-
-    col1.metric("Total FPTK OP", total)
-    col2.metric("✅ Sudah Update", already_updated)
-    col3.metric("⏳ Belum Update", belum_update)
-    col4.metric("📊 Progress", f"{(already_updated/total*100):.0f}%" if total > 0 else "0%")
-
-    st.markdown("---")
-
-    # ============================================================
-    # TAMPILKAN TABEL FPTK
-    # ============================================================
-    if total == 0:
-        st.info("Tidak ada FPTK dengan status **OP** yang sesuai filter.")
-        return
-
-    # Pagination
-    page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
-    page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
-    offset = (page - 1) * page_size
-
-    df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
-
-    if not df.empty:
-        # Ambil progress existing untuk week ini
-        fptk_ids_page = df['id'].tolist()
-        progress_map = {p.fptk_id: p for p in existing_progress if p.fptk_id in fptk_ids_page}
-
-        # Build display dataframe
-        display_data = []
-        for _, row in df.iterrows():
-            fptk_id = row['id']
-            has_progress = fptk_id in progress_map
-
-            display_data.append({
-                "ID": fptk_id,
-                "Kode Unik": row.get('kode_unik', ''),
-                "Posisi": row.get('posisi', '')[:60] + "..." if len(str(row.get('posisi', ''))) > 60 else row.get('posisi', ''),
-                "PIC": row.get('pic_recruiter', ''),
-                "BU": row.get('business_unit', '')[:30] + "..." if len(str(row.get('business_unit', ''))) > 30 else row.get('business_unit', ''),
-                "Level": row.get('level_fptk', ''),
-                "Status Update": "✅ Sudah" if has_progress else "⏳ Belum",
-            })
-
-        df_display = pd.DataFrame(display_data)
-
-        st.dataframe(
-            df_display,
-            use_container_width=True,
-            height=400,
-            hide_index=True,
-            column_config={
-                "ID": st.column_config.NumberColumn("ID", width="small"),
-                "Kode Unik": st.column_config.TextColumn("Kode Unik", width="medium"),
-                "Posisi": st.column_config.TextColumn("Posisi", width="large"),
-                "PIC": st.column_config.TextColumn("PIC", width="small"),
-                "BU": st.column_config.TextColumn("BU", width="medium"),
-                "Level": st.column_config.TextColumn("Level", width="small"),
-                "Status Update": st.column_config.TextColumn("Status Update", width="small"),
-            }
-        )
-
-    # ============================================================
-    # FORM UPDATE PROGRES
-    # ============================================================
-    st.markdown("---")
-    st.markdown("### ✏️ Update Progress FPTK")
-
-    # Pilihan FPTK
-    df_all = pd.read_sql(query.statement, db.bind)
-
-    if df_all.empty:
-        st.info("Tidak ada FPTK untuk diupdate.")
-        return
-
-    select_options = {}
-    for _, row in df_all.iterrows():
-        kode = row.get('kode_unik', '')
-        posisi = row.get('posisi', '')
-        display = f"{kode} | {posisi[:50]}..." if len(str(posisi)) > 50 else f"{kode} | {posisi}"
-        select_options[display] = row.get('id')
-
-    selected_display = st.selectbox(
-        "Pilih FPTK (Kode Unik | Posisi)",
-        list(select_options.keys())
-    )
-    selected_id = select_options[selected_display]
-
-    # Load detail FPTK
-    detail = db.query(FPTK).filter(FPTK.id == selected_id).first()
-    if not detail:
-        st.error("FPTK tidak ditemukan!")
-        return
-
-    # Cek akses
-    can_edit = admin or (detail.pic_recruiter == user.pic_recruiter)
-    if not can_edit:
-        st.warning("⚠️ Anda hanya bisa update progress FPTK milik PIC Anda sendiri.")
-        return
-
-    # ============================================================
-    # INFO FPTK
-    # ============================================================
-    col1, col2, col3 = st.columns(3)
-    with col1:
-        st.markdown(f"**Kode Unik:** {detail.kode_unik}")
-        st.markdown(f"**Posisi:** {detail.posisi}")
-    with col2:
-        st.markdown(f"**PIC:** {detail.pic_recruiter}")
-        st.markdown(f"**BU:** {detail.business_unit}")
-    with col3:
-        st.markdown(f"**Level:** {detail.level_fptk}")
-        st.markdown(f"**Status:** {detail.status}")
-
-    # ============================================================
-    # LOAD EXISTING PROGRESS (kalau udah ada)
-    # ============================================================
-    existing = db.query(RecruitmentProgress).filter(
-        RecruitmentProgress.fptk_id == selected_id,
-        RecruitmentProgress.week_number == current_week,
-        RecruitmentProgress.year == current_year
-    ).first()
-
-    default_progress = existing.progress_this_week if existing else ""
-    default_next = existing.next_action if existing else ""
-
-    # ============================================================
-    # FORM
-    # ============================================================
-    with st.form(f"form_progress_{selected_id}", clear_on_submit=False):
-        st.markdown(f"#### 📅 Update untuk **{week_label}**")
-
-        if existing:
-            st.info(f"✏️ Sudah ada update sebelumnya. Dibuat oleh **{existing.created_by_name}** pada {existing.created_at.strftime('%d/%m/%Y %H:%M') if existing.created_at else '-'}")
-
-        progress_this_week = st.text_area(
-            "📝 **Progress Week Ini**",
-            value=default_progress,
-            placeholder=(
-                "Contoh:\n"
-                "> Send 25 CV di Week 36\n"
-                "> Shortlisted by User 9 kandidat\n"
-                "> HR Interview 5 kandidat\n"
-                "> 2 kandidat DROP, 3 kandidat lanjut user interview"
-            ),
-            height=200,
-            help="Ceritakan progress recruitment untuk FPTK ini di minggu ini"
-        )
-
-        next_action = st.text_area(
-            "➡️ **Next Action Week Depan**",
-            value=default_next,
-            placeholder=(
-                "Contoh:\n"
-                "> Send 10 kandidat baru di Week 37\n"
-                "> Follow up hasil user interview\n"
-                "> Schedule psikotes 3 kandidat\n"
-                "> Approval offering 1 kandidat"
-            ),
-            height=150,
-            help="Rencana / action yang akan dilakukan minggu depan"
-        )
-
-        col1, col2 = st.columns([1, 3])
-        with col1:
-            submit = st.form_submit_button("💾 Simpan Progress", type="primary", use_container_width=True)
-
-        if submit:
-            if not progress_this_week or not progress_this_week.strip():
-                st.error("❌ Progress Week Ini wajib diisi!")
-            elif not next_action or not next_action.strip():
-                st.error("❌ Next Action Week Depan wajib diisi!")
-            else:
-                try:
-                    if existing:
-                        # Update
-                        existing.progress_this_week = progress_this_week.strip()
-                        existing.next_action = next_action.strip()
-                        existing.updated_at = datetime.now()
-                        existing.created_by = user.id
-                        existing.created_by_name = user.display_name or user.username
-                    else:
-                        # Create new
-                        new_progress = RecruitmentProgress(
-                            fptk_id=selected_id,
-                            kode_unik=detail.kode_unik,
-                            posisi=detail.posisi,
-                            pic_recruiter=detail.pic_recruiter,
-                            week_number=current_week,
-                            year=current_year,
-                            week_label=week_label,
-                            progress_this_week=progress_this_week.strip(),
-                            next_action=next_action.strip(),
-                            status="SUBMITTED",
-                            created_by=user.id,
-                            created_by_name=user.display_name or user.username
-                        )
-                        db.add(new_progress)
-
-                    db.commit()
-
-                    st.cache_data.clear()
-                    st.success(f"✅ Progress berhasil disimpan untuk **{week_label}**!")
-                    time.sleep(0.5)
-                    st.rerun()
-
-                except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
-                    db.rollback()
-
-    # ============================================================
-    # HISTORY PROGRESS
-    # ============================================================
-    st.markdown("---")
-    st.markdown(f"### 📜 History Progress — {detail.kode_unik}")
-
-    history = db.query(RecruitmentProgress).filter(
-        RecruitmentProgress.fptk_id == selected_id
-    ).order_by(
-        RecruitmentProgress.year.desc(),
-        RecruitmentProgress.week_number.desc()
-    ).limit(20).all()
-
-    if not history:
-        st.info("Belum ada history progress untuk FPTK ini.")
-    else:
-        for h in history:
-            with st.expander(
-                f"📅 **{h.week_label}** — Updated by {h.created_by_name} pada {h.created_at.strftime('%d/%m/%Y %H:%M') if h.created_at else '-'}",
-                expanded=(h.week_number == current_week and h.year == current_year)
-            ):
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown("**📝 Progress Week Ini:**")
-                    st.info(h.progress_this_week or "-")
-                with col2:
-                    st.markdown("**➡️ Next Action:**")
-                    st.success(h.next_action or "-")
-
-                if admin:
-                    if st.button(f"🗑️ Hapus Progress {h.week_label}", key=f"del_prog_{h.id}"):
-                        try:
-                            db.delete(h)
-                            db.commit()
-                            st.success("✅ Progress dihapus!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                            db.rollback()
+    with tab2:
+        tab_upload_excel(db, user, admin, current_week, current_year)
