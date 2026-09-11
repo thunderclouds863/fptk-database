@@ -1527,94 +1527,282 @@ def show_upload_compile():
                         db.rollback()
 
 
-# ============================================================
-# FUNGSI PARSE EMAIL
-# ============================================================
-
-def parse_email_body(body: str, bu_options: list, alasan_options: list, category_options: list, direktorat_options: list) -> dict:
+def parse_email_body(body: str, bu_options: list = None, alasan_options: list = None, 
+                     category_options: list = None, direktorat_options: list = None) -> dict:
+    """
+    Parse email body dari HR Portal Cimory.
+    Format: Label ada di baris sendiri, value di baris berikutnya.
+    Contoh:
+        Nama Jabatan Yang Dicari (Read only)*
+        Fresh Graduate Development Program
+    """
     result = {
-        "posisi": "",
-        "alasan": "",
-        "business_unit": "",
-        "divisi": "",
-        "department": "",
-        "level_fptk": "1A",
-        "level_number": 1,
-        "lokasi_kerja": "",
-        "lokasi_hr": "",
-        "status_karyawan": "",
-        "vacancy": 1,
-        "pic_email": "",
-        "pic_recruiter": "",
-        "kode_pic": "",
-        "kode_bu": "",
-        "category": "",
-        "direktorat": "",
-        "nama_kandidat": "",
-        "user_manager": "",
-        "indirect_user": "",
-        "fptk_date": datetime.now(),
-        "kode_unik": "",
-        "remark": ""
+        "posisi": "", "alasan": "", "business_unit": "", "divisi": "",
+        "department": "", "level_fptk": "1A", "level_number": 1,
+        "lokasi_kerja": "", "lokasi_hr": "", "status_karyawan": "",
+        "vacancy": 1, "pic_email": "", "pic_recruiter": "",
+        "kode_pic": "", "kode_bu": "", "category": "",
+        "direktorat": "", "nama_kandidat": "", "user_manager": "",
+        "indirect_user": "", "fptk_date": datetime.now(),
+        "kode_unik": "", "remark": ""
     }
-    
+
     if not body:
         return result
-    
+
+    # ============================================================
+    # NORMALIZE: hapus karakter aneh, samakan line break
+    # ============================================================
     text = body.replace('\r\n', '\n').replace('\r', '\n')
-    lines = text.split('\n')
     
-    def find_field(field_names):
+    # Hapus karakter Unicode icon/emoji dari SharePoint
+    # Karakter ini range-nya di atas BMP atau di area symbol
+    text = re.sub(r'[\uE000-\uF8FF]', '', text)  # Private Use Area
+    text = re.sub(r'[\u2000-\u206F]', ' ', text)  # General Punctuation
+    text = re.sub(r'[\u2190-\u21FF]', '', text)   # Arrows
+    text = re.sub(r'[\u2200-\u22FF]', '', text)   # Math Operators
+    text = re.sub(r'[\u2300-\u23FF]', '', text)   # Misc Technical
+    text = re.sub(r'[\u25A0-\u25FF]', '', text)   # Geometric Shapes
+    text = re.sub(r'[\u2600-\u26FF]', '', text)   # Misc Symbols
+    text = re.sub(r'[\u2700-\u27BF]', '', text)   # Dingbats
+    
+    # Replace non-breaking space
+    text = text.replace('\u00a0', ' ').replace('\u2007', ' ').replace('\u202f', ' ')
+    
+    # Collapse multiple spaces
+    text = re.sub(r'[ \t]{2,}', ' ', text)
+    
+    # Split jadi lines dan clean
+    lines = [l.strip() for l in text.split('\n')]
+
+    # ============================================================
+    # HELPER: Normalize label (hapus suffix "(Read only)*" dll)
+    # ============================================================
+    def normalize_label(text_val):
+        """Hapus suffix seperti (Read only)*, *, :, dll dari label"""
+        if not text_val:
+            return ""
+        s = text_val.strip()
+        # Hapus semua dalam kurung
+        s = re.sub(r'\([^)]*\)', '', s)
+        # Hapus kurung siku
+        s = re.sub(r'\[[^\]]*\]', '', s)
+        # Hapus asterisk
+        s = s.replace('*', '')
+        # Hapus separator di akhir
+        s = re.sub(r'[:\-=|]+\s*$', '', s)
+        # Trim dan collapse spasi
+        s = re.sub(r'\s+', ' ', s).strip()
+        return s
+
+    # ============================================================
+    # HELPER: Cek apakah line adalah label (dari field yang dicari)
+    # ============================================================
+    def is_matching_label(line_text, field_names):
+        """Cek apakah line_text adalah label yang match dengan field_names"""
+        if not line_text:
+            return False
+        normalized = normalize_label(line_text).lower()
+        if not normalized:
+            return False
+        for field in field_names:
+            field_norm = normalize_label(field).lower()
+            if normalized == field_norm:
+                return True
+        return False
+
+    # ============================================================
+    # HELPER: Cek apakah line adalah "any label" (untuk stop condition)
+    # ============================================================
+    ALL_KNOWN_LABELS = [
+        "nama jabatan yang dicari", "jabatan yang dicari", "nama jabatan",
+        "jabatan", "position", "posisi", "nama posisi",
+        "alasan permintaan fptk", "alasan fptk", "alasan",
+        "pt/business unit", "pt / business unit", "pt/ business unit",
+        "business unit", "bu",
+        "divisi", "division",
+        "department", "departemen", "dept",
+        "level posisi", "level fptk", "level",
+        "lokasi kerja", "location", "penempatan",
+        "lokasi hr", "hr location",
+        "email pic rekruter", "pic rekruter", "email pic recruiter",
+        "status karyawan", "employment status",
+        "jumlah posisi yang dicari", "jumlah posisi", "vacancy",
+        "nama kandidat", "user manager", "user (manager)", "indirect user",
+        "direktorat", "directorate", "remark", "catatan", "notes",
+        "fptk date", "tanggal fptk", "fptk date real",
+        "sumber sourcing", "source",
+        "range gaji", "tanggal dibutuhkan", "jumlah hari kerja",
+        "pendidikan minimal", "fakultas/jurusan", "jurusan",
+        "total pengalaman kerja", "usia", "job summary", "outcomes",
+        "capability", "character", "status revisi", "log",
+        "struktur organisasi", "sign-off status", "attachments",
+        "status offering", "tanggal offering diterima", "start date kandidat",
+        "status join", "nik kandidat", "email kandidat", "detail fptk",
+        "approval status", "direkrut oleh", "catatan",
+    ]
+
+    def is_any_known_label(line_text):
+        """Cek apakah line ini adalah label apapun yang dikenal"""
+        if not line_text:
+            return False
+        normalized = normalize_label(line_text).lower()
+        if not normalized:
+            return False
+        for lbl in ALL_KNOWN_LABELS:
+            if normalized == lbl:
+                return True
+        return False
+
+    # ============================================================
+    # HELPER: Main find_field function
+    # ============================================================
+    def find_field(field_names, max_lookahead=5):
+        """
+        Cari field dengan multi-strategy.
+        Format Cimory: Label di baris sendiri, value di baris berikutnya.
+        """
+        # ============================================================
+        # STRATEGY 1: Label di baris sendiri, value di baris berikutnya (CIMORY FORMAT)
+        # ============================================================
         for i, line in enumerate(lines):
-            clean_line = line.strip()
+            if not line or len(line) < 3:
+                continue
+            
+            # Cek apakah line ini label yang match
+            if is_matching_label(line, field_names):
+                # Cari value di baris berikutnya (skip baris kosong)
+                for j in range(i + 1, min(i + 1 + max_lookahead, len(lines))):
+                    next_line = lines[j].strip()
+                    if not next_line:
+                        continue
+                    if is_any_known_label(next_line):
+                        break  # Ketemu label lain, stop
+                    # Ini value-nya
+                    value = next_line
+                    # Bersihkan
+                    value = value.strip('"').strip("'").strip()
+                    # Skip value yang cuma "Enter value here" atau placeholder
+                    if value.lower() in ["enter value here", "-", ""]:
+                        continue
+                    return value
+
+        # ============================================================
+        # STRATEGY 2: Label: Value di baris yang sama
+        # ============================================================
+        for i, line in enumerate(lines):
+            if not line:
+                continue
+            line_low = line.lower()
+            
             for name in field_names:
-                if name.lower() in clean_line.lower():
-                    if ':' in clean_line:
-                        value = clean_line.split(':', 1)[1].strip()
-                        if value:
-                            return value
-                    if i + 1 < len(lines):
-                        next_line = lines[i + 1].strip()
-                        if next_line and not any(k in next_line.lower() for k in ["nama", "posisi", "alasan", "email"]):
-                            return next_line
+                name_low = name.lower()
+                if name_low in line_low:
+                    # Cari separator
+                    for sep in [':', '=', '|']:
+                        if sep in line:
+                            parts = line.split(sep, 1)
+                            value = parts[1].strip()
+                            value = value.strip('"').strip("'").strip()
+                            if value and not is_any_known_label(value):
+                                return value
+
         return ""
-    
-    result["posisi"] = find_field(["Nama Jabatan Yang Dicari", "Jabatan Yang Dicari", "Position", "Posisi"])
-    result["alasan"] = find_field(["Alasan Permintaan FPTK", "Alasan FPTK"])
-    result["business_unit"] = find_field(["PT/Business Unit", "Business Unit", "PT / Business Unit"])
-    result["divisi"] = find_field(["Divisi"])
-    result["department"] = find_field(["Department", "Departemen"])
-    result["level_fptk"] = find_field(["Level Posisi", "Level FPTK", "Level"])
-    result["lokasi_kerja"] = find_field(["Lokasi Kerja"])
+
+    # ============================================================
+    # EXTRACT FIELDS
+    # ============================================================
+    result["posisi"] = find_field([
+        "Nama Jabatan Yang Dicari", "Jabatan Yang Dicari", "Nama Jabatan",
+        "Position", "Posisi", "Nama Posisi"
+    ])
+
+    result["alasan"] = find_field([
+        "Alasan Permintaan FPTK", "Alasan FPTK", "Alasan"
+    ])
+
+    result["business_unit"] = find_field([
+        "PT/Business Unit", "PT / Business Unit", "Business Unit", "BU"
+    ])
+
+    result["divisi"] = find_field(["Divisi", "Division"])
+    result["department"] = find_field(["Department", "Departemen", "Dept"])
+
+    result["level_fptk"] = find_field([
+        "Level Posisi", "Level FPTK", "Level"
+    ])
+
+    result["lokasi_kerja"] = find_field([
+        "Lokasi Kerja", "Location", "Penempatan"
+    ])
+
     result["lokasi_hr"] = find_field(["Lokasi HR", "HR Location"])
-    result["status_karyawan"] = find_field(["Status Karyawan"])
-    result["vacancy"] = safe_int(find_field(["Jumlah Posisi Yang Dicari", "Jumlah Posisi", "Vacancy"])) or 1
-    result["pic_email"] = find_field(["Email PIC Rekruter", "PIC Rekruter", "Email PIC Recruiter"])
-    
+    result["status_karyawan"] = find_field(["Status Karyawan", "Employment Status"])
+
+    vacancy_text = find_field([
+        "Jumlah Posisi Yang Dicari", "Jumlah Posisi", "Vacancy"
+    ])
+    result["vacancy"] = safe_int(vacancy_text) or 1
+
+    result["pic_email"] = find_field([
+        "Email PIC Rekruter", "PIC Rekruter", "Email PIC Recruiter"
+    ])
+
+    result["nama_kandidat"] = find_field(["Nama Kandidat"])
+    result["remark"] = find_field(["Remark", "Catatan", "Notes"])
+
+    # ============================================================
+    # PARSE LEVEL FPTK (handle "2B - Senior Staff" → "2B" + level_num=2)
+    # ============================================================
     if result["level_fptk"]:
-        match = re.search(r'(\d+)', result["level_fptk"])
+        # Cari format XA/ XB/ XC di awal string
+        match = re.match(r'^(\d)\s*([A-C])', result["level_fptk"].strip().upper())
         if match:
             result["level_number"] = int(match.group(1))
-            level_num = result["level_number"]
-            if 1 <= level_num <= 5:
-                result["level_fptk"] = f"{level_num}A"
-    else:
-        result["level_fptk"] = "1A"
-        result["level_number"] = 1
-    
+            result["level_fptk"] = f"{match.group(1)}{match.group(2)}"
+        else:
+            # Fallback: cari angka
+            match = re.search(r'(\d)', result["level_fptk"])
+            if match:
+                level_num = int(match.group(1))
+                if 1 <= level_num <= 5:
+                    result["level_number"] = level_num
+                    result["level_fptk"] = f"{level_num}A"
+
+    # ============================================================
+    # RESOLVE PIC RECRUITER (dari email PIC di form)
+    # ============================================================
     pic_mapping = get_pic_mapping()
     pic_found = False
-    
+
     if result["pic_email"]:
         email_lower = result["pic_email"].lower()
-        for key, value in pic_mapping.items():
-            if key in email_lower:
-                result["pic_recruiter"] = value["name"]
-                result["kode_pic"] = value["code"]
-                result["kode_bu"] = value["bu"]
-                pic_found = True
+        # Handle email seperti avrellia.marta@cimory.com → "marta"
+        email_prefix = email_lower.split('@')[0]  # avrellia.marta
+        email_parts = re.split(r'[._\-]', email_prefix)  # ['avrellia', 'marta']
+        
+        # Cek dari akhir part (biasanya nama depan di belakang email)
+        for part in reversed(email_parts):
+            for key, value in pic_mapping.items():
+                if key == part:
+                    result["pic_recruiter"] = value["name"]
+                    result["kode_pic"] = value["code"]
+                    result["kode_bu"] = value["bu"]
+                    pic_found = True
+                    break
+            if pic_found:
                 break
-    
+        
+        # Fallback: substring match
+        if not pic_found:
+            for key, value in pic_mapping.items():
+                if key in email_lower:
+                    result["pic_recruiter"] = value["name"]
+                    result["kode_pic"] = value["code"]
+                    result["kode_bu"] = value["bu"]
+                    pic_found = True
+                    break
+
     if not pic_found:
         body_lower = body.lower()
         for key, value in pic_mapping.items():
@@ -1624,7 +1812,10 @@ def parse_email_body(body: str, bu_options: list, alasan_options: list, category
                 result["kode_bu"] = value["bu"]
                 pic_found = True
                 break
-    
+
+    # ============================================================
+    # CATEGORY
+    # ============================================================
     alasan_lower = result["alasan"].lower()
     if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
         result["category"] = "REPLACEMENT"
@@ -1632,7 +1823,10 @@ def parse_email_body(body: str, bu_options: list, alasan_options: list, category
         result["category"] = "NEW"
     else:
         result["category"] = "REPLACEMENT"
-    
+
+    # ============================================================
+    # BUSINESS UNIT RESOLVE
+    # ============================================================
     bu_mapping = get_bu_mapping()
     bu_lower = result["business_unit"].lower()
     for key, value in bu_mapping.items():
@@ -1640,13 +1834,13 @@ def parse_email_body(body: str, bu_options: list, alasan_options: list, category
             result["business_unit"] = value["nama"]
             result["kode_bu"] = key
             break
-    
+
     if not result["kode_bu"] and result["kode_pic"]:
         for key, value in pic_mapping.items():
             if value["code"] == result["kode_pic"]:
                 result["kode_bu"] = value["bu"]
                 break
-    
+
     if result["kode_bu"]:
         bu_map = {
             "CORP": "Corporate",
@@ -1656,12 +1850,25 @@ def parse_email_body(body: str, bu_options: list, alasan_options: list, category
             "MS": "Commercial MS"
         }
         result["direktorat"] = bu_map.get(result["kode_bu"], "")
-    
+
+    # ============================================================
+    # KODE UNIK PREVIEW
+    # ============================================================
     if result["kode_pic"]:
         date_code = datetime.now().strftime("%d%m%y")
         posisi_code = ""
         if result["posisi"]:
             posisi_code = re.sub(r'[^A-Za-z]', '', result["posisi"])[:4].upper()
         result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
-    
+
+    # ============================================================
+    # DEBUG
+    # ============================================================
+    print("=" * 60)
+    print("PARSED EMAIL RESULT:")
+    for k, v in result.items():
+        if v:
+            print(f"  {k}: {v}")
+    print("=" * 60)
+
     return result
