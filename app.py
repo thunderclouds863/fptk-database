@@ -6,7 +6,7 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.session_manager import get_session_manager, check_idle_timeout
+from core.session_manager import get_session_manager, check_idle_timeout, touch_session
 from core.database import SessionLocal, init_db
 from core.auth import (
     login_user,
@@ -32,44 +32,7 @@ st.set_page_config(
 
 
 # ============================================================
-# AUTO-REFRESH VIA JAVASCRIPT (CLIENT-SIDE)
-# ============================================================
-# Reload halaman HANYA kalau user idle > 15 menit
-# (sebelum auto-logout di 30 menit)
-# Ini TIDAK reset session state Streamlit karena pakai location.reload()
-# ============================================================
-
-if st.session_state.get("user_id"):
-    st.markdown(
-        """
-        <script>
-        (function() {
-            let lastInteraction = Date.now();
-
-            const updateActivity = () => { lastInteraction = Date.now(); };
-
-            ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click']
-                .forEach(evt => document.addEventListener(evt, updateActivity, {passive: true}));
-
-            setInterval(function() {
-                const idle = Date.now() - lastInteraction;
-                // 15 menit = 900000 ms
-                if (idle > 15 * 60 * 1000) {
-                    window.parent.location.reload();
-                }
-            }, 60 * 1000);
-        })();
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
 # DATABASE SESSION
-# ============================================================
-# ⚠️ JANGAN pakai @st.cache_resource untuk Session!
-# Setiap user harus punya session sendiri.
 # ============================================================
 
 def get_cached_db():
@@ -79,7 +42,7 @@ def get_cached_db():
 
 @st.cache_resource
 def initialize_system():
-    """Inisialisasi sistem sekali saja"""
+    """Inisialisasi sistem sekali saja."""
     init_db()
     db = SessionLocal()
     try:
@@ -119,8 +82,10 @@ if "role" not in st.session_state:
 if "user_display" not in st.session_state:
     st.session_state.user_display = session_mgr.user_display
 
-if "page" not in st.session_state:
-    st.session_state.page = "dashboard"
+# ⚠️ CRITICAL: JANGAN reset page kalau user masih login!
+# Cuma set default kalau bener-bener fresh
+if "page" not in st.session_state or not st.session_state.page:
+    st.session_state.page = session_mgr.current_page or "dashboard"
 
 if "filter_stack" not in st.session_state:
     st.session_state.filter_stack = []
@@ -163,7 +128,7 @@ if "last_activity" not in st.session_state:
 
 
 # ============================================================
-# SESSION PERSISTENCE
+# SESSION PERSISTENCE (SYNC DENGAN SESSION MANAGER)
 # ============================================================
 
 if st.session_state.user_id and not session_mgr.is_logged_in:
@@ -175,20 +140,26 @@ if st.session_state.user_id and not session_mgr.is_logged_in:
     )
 
 elif not st.session_state.user_id and session_mgr.is_logged_in:
+    # ⚠️ JANGAN override page di sini! Biarkan apa adanya.
     st.session_state.user_id = session_mgr.user_id
     st.session_state.username = session_mgr.username
     st.session_state.role = session_mgr.role
     st.session_state.user_display = session_mgr.user_display
+    # page TIDAK di-reset
 
 
 # ============================================================
-# IDLE TIMEOUT CHECK
+# IDLE TIMEOUT CHECK + TOUCH SESSION
 # ============================================================
 
 if st.session_state.user_id:
     expired = check_idle_timeout()
     if expired:
         st.rerun()
+    else:
+        # ⚠️ Update last_activity setiap rerun (karena user interact)
+        touch_session()
+
 
 # Tampilkan pesan session expired
 if "session_expired_message" in st.session_state and not st.session_state.user_id:
@@ -217,7 +188,6 @@ if not st.session_state.user_id:
     st.markdown(
         """
         <style>
-
         .stApp {
             background:
                 radial-gradient(
@@ -404,7 +374,6 @@ if not st.session_state.user_id:
         }
 
         @media (max-width: 768px) {
-
             .block-container {
                 padding-left: 15px !important;
                 padding-right: 15px !important;
@@ -456,9 +425,7 @@ if not st.session_state.user_id:
             div[data-testid="stFormSubmitButton"] button {
                 height: 56px !important;
             }
-
         }
-
         </style>
         """,
         unsafe_allow_html=True
@@ -507,27 +474,13 @@ if not st.session_state.user_id:
         )
 
         if submitted:
-
             if not username or not password:
-
-                st.error(
-                    "Username dan password wajib diisi!"
-                )
-
+                st.error("Username dan password wajib diisi!")
             else:
-
                 db = get_cached_db()
-
                 try:
-
-                    user = login_user(
-                        db,
-                        username,
-                        password
-                    )
-
+                    user = login_user(db, username, password)
                     if user:
-
                         session_mgr.login(
                             user.id,
                             user.username,
@@ -555,19 +508,11 @@ if not st.session_state.user_id:
                             f"✅ Selamat datang, "
                             f"{st.session_state.user_display}!"
                         )
-
                         time.sleep(0.3)
-
                         st.rerun()
-
                     else:
-
-                        st.error(
-                            "❌ Username atau password salah!"
-                        )
-
+                        st.error("❌ Username atau password salah!")
                 finally:
-
                     db.close()
 
     st.stop()
@@ -583,13 +528,8 @@ with st.sidebar:
     # USER INFO
     # ========================================================
 
-    st.markdown(
-        f"### 👤 {st.session_state.user_display}"
-    )
-
-    st.caption(
-        f"Role: {st.session_state.role}"
-    )
+    st.markdown(f"### 👤 {st.session_state.user_display}")
+    st.caption(f"Role: {st.session_state.role}")
 
     # Countdown idle timer
     if session_mgr.is_logged_in:
@@ -606,9 +546,6 @@ with st.sidebar:
 
     # ========================================================
     # BUILD PAGES DICT — SEKALI SAJA (STABLE)
-    # ========================================================
-    # PENTING: pages_dict disimpan di session_state biar
-    # gak berubah-ubah tiap rerun (yang bikin navigasi reset).
     # ========================================================
 
     if "pages_dict" not in st.session_state:
@@ -646,38 +583,37 @@ with st.sidebar:
     pages = st.session_state.pages_dict
 
     # ========================================================
-    # NAVIGATION — PAKAI BUTTONS (BUKAN RADIO)
-    # ========================================================
-    # Buttons lebih STABIL dari radio karena:
-    #   1. Gak ada widget state yang bisa reset
-    #   2. Cuma trigger saat user klik
-    #   3. Gak dipengaruhi perubahan options/urutan
+    # NAVIGATION — PAKAI RADIO + KEY (PALING STABIL)
     # ========================================================
 
     st.markdown("### 📋 Navigasi")
 
+    page_labels = list(pages.keys())
+    page_keys = list(pages.values())
+
     current_page = st.session_state.get("page", "dashboard")
 
-    # Tampilkan buttons untuk setiap halaman
-    for label, page_key in pages.items():
-        is_active = (page_key == current_page)
+    # Cari index current page
+    try:
+        current_index = page_keys.index(current_page)
+    except ValueError:
+        current_index = 0
 
-        # Style: tombol aktif pakai type="primary"
-        if is_active:
-            btn_type = "primary"
-            btn_label = f"▶ {label}"
-        else:
-            btn_type = "secondary"
-            btn_label = f"   {label}"
+    # Radio dengan key unik — Streamlit akan manage state sendiri
+    selected_label = st.radio(
+        "Pilih halaman:",
+        options=page_labels,
+        index=current_index,
+        key="nav_radio_main",  # ⚠️ KEY INI KRUSIAL
+        label_visibility="collapsed"
+    )
 
-        if st.button(
-            btn_label,
-            key=f"nav_btn_{page_key}",
-            use_container_width=True,
-            type=btn_type,
-        ):
-            st.session_state.page = page_key
-            st.rerun()
+    # Update page HANYA kalau berubah
+    selected_page_key = pages[selected_label]
+    if selected_page_key != st.session_state.page:
+        st.session_state.page = selected_page_key
+        session_mgr.set_page(selected_page_key)
+        st.rerun()
 
     st.markdown("---")
 
@@ -796,78 +732,30 @@ with st.sidebar:
             db = get_cached_db()
 
             try:
-
                 user = (
                     db.query(User)
-                    .filter(
-                        User.id
-                        == st.session_state.user_id
-                    )
+                    .filter(User.id == st.session_state.user_id)
                     .first()
                 )
 
-                old = st.text_input(
-                    "Password Lama",
-                    type="password"
-                )
+                old = st.text_input("Password Lama", type="password")
+                new = st.text_input("Password Baru (min 6 karakter)", type="password")
+                confirm = st.text_input("Konfirmasi", type="password")
 
-                new = st.text_input(
-                    "Password Baru (min 6 karakter)",
-                    type="password"
-                )
-
-                confirm = st.text_input(
-                    "Konfirmasi",
-                    type="password"
-                )
-
-                update_password = (
-                    st.form_submit_button(
-                        "Update Password"
-                    )
-                )
+                update_password = st.form_submit_button("Update Password")
 
                 if update_password:
-
-                    if (
-                        new
-                        and new == confirm
-                        and len(new) >= 6
-                    ):
-
-                        if (
-                            user
-                            and verify_password(
-                                old,
-                                user.password_hash
-                            )
-                        ):
-
-                            user.password_hash = (
-                                hash_password(new)
-                            )
-
+                    if new and new == confirm and len(new) >= 6:
+                        if user and verify_password(old, user.password_hash):
+                            user.password_hash = hash_password(new)
                             db.commit()
-
-                            st.success(
-                                "✅ Password berhasil diubah!"
-                            )
-
+                            st.success("✅ Password berhasil diubah!")
                         else:
-
-                            st.error(
-                                "❌ Password lama salah!"
-                            )
-
+                            st.error("❌ Password lama salah!")
                     else:
-
-                        st.error(
-                            "Password baru minimal 6 "
-                            "karakter dan harus sama!"
-                        )
+                        st.error("Password baru minimal 6 karakter dan harus sama!")
 
             finally:
-
                 db.close()
 
     # ========================================================
@@ -876,19 +764,14 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if st.button(
-        "🚪 Logout",
-        use_container_width=True
-    ):
-
+    if st.button("🚪 Logout", use_container_width=True):
         session_mgr.logout()
         st.session_state.clear()
-
         st.rerun()
 
 
 # ============================================================
-# SYNC SESSION STATE DENGAN SESSION MANAGER
+# SYNC SESSION STATE DENGAN SESSION MANAGER (FINAL)
 # ============================================================
 
 if st.session_state.user_id and not session_mgr.is_logged_in:
@@ -899,17 +782,19 @@ if st.session_state.user_id and not session_mgr.is_logged_in:
         st.session_state.user_display
     )
 elif not st.session_state.user_id and session_mgr.is_logged_in:
+    # ⚠️ JANGAN override page di sini!
     st.session_state.user_id = session_mgr.user_id
     st.session_state.username = session_mgr.username
     st.session_state.role = session_mgr.role
     st.session_state.user_display = session_mgr.user_display
+    # page TIDAK di-reset
 
 
 # ============================================================
 # PAGE RENDERING
 # ============================================================
 
-page = st.session_state.page
+page = st.session_state.get("page", "dashboard")
 
 
 if page == "dashboard":
