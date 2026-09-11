@@ -36,10 +36,12 @@ st.set_page_config(
 # ============================================================
 # Logic:
 #   - Idle timeout: 30 MENIT (1800 detik) → auto-logout
-#   - Auto-refresh UI: kalau user idle > 30 DETIK → refresh tiap 60 detik
-#   - Tujuan: countdown di sidebar update real-time
-#   - User yang masih aktif (< 30 detik) → gak refresh → form aman
+#   - Auto-refresh UI: kalau user BENAR-BENAR idle > 10 menit → refresh tiap 60 detik
+#   - Tujuan: countdown di sidebar update, tapi gak ganggu user yang aktif
+#   - User yang masih aktif (< 10 menit) → gak refresh → form aman
 # ============================================================
+
+IDLE_THRESHOLD_FOR_REFRESH = 10 * 60  # 10 menit = 600 detik
 
 if st.session_state.get("user_id"):
     last_activity = st.session_state.get("last_activity")
@@ -47,8 +49,8 @@ if st.session_state.get("user_id"):
     if last_activity:
         idle_seconds = (datetime.now() - last_activity).total_seconds()
 
-        # Cuma auto-refresh kalau user idle > 30 detik
-        if idle_seconds > 300000:
+        # Cuma auto-refresh kalau user BENAR-BENAR idle > 10 menit
+        if idle_seconds > IDLE_THRESHOLD_FOR_REFRESH:
             if "last_auto_refresh" not in st.session_state:
                 st.session_state.last_auto_refresh = time.time()
 
@@ -60,22 +62,20 @@ if st.session_state.get("user_id"):
 
 
 # ============================================================
-# OPTIMASI: DATABASE SESSION
+# DATABASE SESSION
 # ============================================================
 # ⚠️ JANGAN pakai @st.cache_resource untuk Session!
-# Karena bakal share 1 session ke semua user & bikin
-# IllegalStateChangeError.
 # Setiap user harus punya session sendiri.
 # ============================================================
 
 def get_cached_db():
-    """Buat session database baru. Setiap user punya session sendiri."""
+    """Buat session database baru."""
     return SessionLocal()
 
 
 @st.cache_resource
 def initialize_system():
-    """Inisialisasi sistem sekali saja (bikin session terpisah)"""
+    """Inisialisasi sistem sekali saja"""
     init_db()
     db = SessionLocal()
     try:
@@ -159,7 +159,7 @@ if "last_activity" not in st.session_state:
 
 
 # ============================================================
-# SESSION PERSISTENCE - CEK SETIAP LOAD
+# SESSION PERSISTENCE
 # ============================================================
 
 if st.session_state.user_id and not session_mgr.is_logged_in:
@@ -178,16 +178,15 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
 
 
 # ============================================================
-# ⭐ IDLE TIMEOUT CHECK
+# IDLE TIMEOUT CHECK
 # ============================================================
 
 if st.session_state.user_id:
     expired = check_idle_timeout()
     if expired:
-        # User udah di-logout, redirect ke login
         st.rerun()
 
-# Tampilkan pesan session expired (kalau ada)
+# Tampilkan pesan session expired
 if "session_expired_message" in st.session_state and not st.session_state.user_id:
     st.warning(st.session_state.session_expired_message)
     del st.session_state.session_expired_message
@@ -196,7 +195,7 @@ if "session_expired_message" in st.session_state and not st.session_state.user_i
 
 
 # ============================================================
-# LOGIN PAGE - HANYA TAMPIL JIKA BELUM LOGIN
+# LOGIN PAGE
 # ============================================================
 
 if not st.session_state.user_id:
@@ -539,6 +538,8 @@ if not st.session_state.user_id:
                             or user.username
                         )
                         st.session_state.last_activity = datetime.now()
+                        # ⭐ Reset halaman ke dashboard saat login baru
+                        st.session_state.page = "dashboard"
 
                         st.success(
                             f"✅ Selamat datang, "
@@ -563,7 +564,7 @@ if not st.session_state.user_id:
 
 
 # ============================================================
-# SIDEBAR - SEMUA KONTROL DI SINI
+# SIDEBAR
 # ============================================================
 
 with st.sidebar:
@@ -580,7 +581,7 @@ with st.sidebar:
         f"Role: {st.session_state.role}"
     )
 
-    # ⭐ Countdown idle timer
+    # Countdown idle timer
     if session_mgr.is_logged_in:
         remaining = session_mgr.get_idle_remaining_seconds()
         if remaining > 0:
@@ -594,7 +595,7 @@ with st.sidebar:
     st.markdown("---")
 
     # ========================================================
-    # NAVIGATION
+    # NAVIGATION DICT
     # ========================================================
 
     pages = {
@@ -629,26 +630,35 @@ with st.sidebar:
         pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
 
     # ========================================================
-    # NAVIGATION RADIO - PERSISTENT
+    # NAVIGATION RADIO — FIX BIAR GAK BALIK KE DASHBOARD
     # ========================================================
-    # PENTING: Biar halaman gak balik ke Dashboard saat auto-refresh
+    # Pakai index + session_state key yang TERPISAH
     # ========================================================
 
-    page_list = list(pages.keys())
+    page_labels = list(pages.keys())
 
-    # Cari index sesuai dengan page aktif
+    # Dapatkan label dari page key yang sedang aktif
     current_page_key = st.session_state.get("page", "dashboard")
-    default_index = 0
-    for i, page_name in enumerate(page_list):
-        if pages[page_name] == current_page_key:
-            default_index = i
+    current_label = page_labels[0]
+    for label, key in pages.items():
+        if key == current_page_key:
+            current_label = label
             break
+
+    # Init nav session state kalau belum ada
+    if "nav_page_label" not in st.session_state:
+        st.session_state.nav_page_label = current_label
+
+    # Sync: kalau page berubah dari luar (bukan dari radio),
+    # update nav_page_label juga
+    if st.session_state.nav_page_label != current_label:
+        if current_label in page_labels:
+            st.session_state.nav_page_label = current_label
 
     selected = st.radio(
         "Navigasi",
-        page_list,
-        index=default_index,
-        key="nav_radio"
+        page_labels,
+        key="nav_page_label"
     )
 
     st.session_state.page = pages[selected]
@@ -656,13 +666,12 @@ with st.sidebar:
     st.markdown("---")
 
     # ========================================================
-    # CACHE CONTROL - DI SIDEBAR
+    # CACHE CONTROL
     # ========================================================
 
     st.markdown("### ⚡ Cache Control")
 
     def get_cache_functions():
-        """Import cache functions dari dashboard dengan error handling"""
         try:
             from pages.dashboard import (
                 load_fptk_data,
@@ -761,7 +770,7 @@ with st.sidebar:
         st.markdown("---")
 
     # ========================================================
-    # CHANGE PASSWORD - DI SIDEBAR
+    # CHANGE PASSWORD
     # ========================================================
 
     with st.expander("🔑 Ganti Password"):
@@ -846,7 +855,7 @@ with st.sidebar:
                 db.close()
 
     # ========================================================
-    # LOGOUT - DI SIDEBAR
+    # LOGOUT
     # ========================================================
 
     st.markdown("---")
@@ -881,210 +890,92 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
 
 
 # ============================================================
-# PAGE RENDERING - DENGAN LAZY LOADING
+# PAGE RENDERING
 # ============================================================
 
 page = st.session_state.page
 
 
-# ============================================================
-# DASHBOARD
-# ============================================================
-
 if page == "dashboard":
-
-    dashboard = importlib.import_module(
-        "pages.dashboard"
-    )
-
+    dashboard = importlib.import_module("pages.dashboard")
     dashboard.show_dashboard()
 
-
-# ============================================================
-# UPLOAD & COMPILE
-# ============================================================
-
 elif page == "upload_compile":
-
-    upload_compile = importlib.import_module(
-        "pages.02_upload_compile"
-    )
-
+    upload_compile = importlib.import_module("pages.02_upload_compile")
     upload_compile.show_upload_compile()
 
-
-# ============================================================
-# FPTK VIEW
-# ============================================================
-
 elif page == "fptk_view":
-
-    fptk_view = importlib.import_module(
-        "pages.03_fptk_view"
-    )
-
+    fptk_view = importlib.import_module("pages.03_fptk_view")
     fptk_view.show_fptk_view()
 
-
-# ============================================================
-# UPDATE PROGRES RECRUITMENT (NEW)
-# ============================================================
-
 elif page == "update_progres":
-
     try:
-        update_progres = importlib.import_module(
-            "pages.11_update_progres"
-        )
+        update_progres = importlib.import_module("pages.11_update_progres")
         update_progres.show_update_progres()
     except ModuleNotFoundError:
         st.error("❌ File pages/11_update_progres.py tidak ditemukan!")
 
-
-# ============================================================
-# SOURCING VIEW
-# ============================================================
-
 elif page == "sourcing_view":
-
-    sourcing_view = importlib.import_module(
-        "pages.04_sourcing_view"
-    )
-
+    sourcing_view = importlib.import_module("pages.04_sourcing_view")
     sourcing_view.show_sourcing_view()
 
-
-# ============================================================
-# DB KODE POSISI
-# ============================================================
-
 elif page == "db_kode_posisi":
-
-    db_kode_posisi = importlib.import_module(
-        "pages.05_db_kode_posisi"
-    )
-
+    db_kode_posisi = importlib.import_module("pages.05_db_kode_posisi")
     db_kode_posisi.show_db_kode_posisi()
 
-
-# ============================================================
-# UPDATE CYCLE (ADMIN)
-# ============================================================
-
 elif page == "upload_cycle":
-
-    upload_cycle = importlib.import_module(
-        "pages.06_upload_cycle"
-    )
-
+    upload_cycle = importlib.import_module("pages.06_upload_cycle")
     upload_cycle.show_upload_cycle()
 
-
-# ============================================================
-# USER MANAGEMENT (ADMIN)
-# ============================================================
-
 elif page == "user_management":
-
-    user_management = importlib.import_module(
-        "pages.07_user_management"
-    )
-
+    user_management = importlib.import_module("pages.07_user_management")
     user_management.show_user_management()
 
-
-# ============================================================
-# REQUEST HAPUS FPTK (ADMIN)
-# ============================================================
-
 elif page == "admin_delete_requests":
-
     try:
-        admin_delete_requests = importlib.import_module(
-            "pages.10_admin_delete_requests"
-        )
+        admin_delete_requests = importlib.import_module("pages.10_admin_delete_requests")
         admin_delete_requests.show_admin_delete_requests()
     except ModuleNotFoundError:
         st.error("❌ File pages/10_admin_delete_requests.py tidak ditemukan!")
 
-
-# ============================================================
-# SOURCING INPUT
-# ============================================================
-
 elif page == "sourcing_input":
-
     try:
-        sourcing_input = importlib.import_module(
-            "pages.09_sourcing_input"
-        )
+        sourcing_input = importlib.import_module("pages.09_sourcing_input")
         sourcing_input.show_sourcing_input()
     except ModuleNotFoundError:
         st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
 
-
-# ============================================================
-# FUNNEL REPORT
-# ============================================================
-
 elif page == "funnel_report":
-
     try:
-        funnel_report = importlib.import_module(
-            "pages.funnel_report"
-        )
+        funnel_report = importlib.import_module("pages.funnel_report")
         funnel_report.show_funnel_report()
     except ModuleNotFoundError:
         st.error("❌ File pages/funnel_report.py tidak ditemukan!")
 
-
-# ============================================================
-# MONITORING SOURCING
-# ============================================================
-
 elif page == "monitoring_sourcing":
-
     try:
-        monitoring_sourcing = importlib.import_module(
-            "pages.monitoring_sourcing"
-        )
+        monitoring_sourcing = importlib.import_module("pages.monitoring_sourcing")
         monitoring_sourcing.show_monitoring_sourcing()
     except ModuleNotFoundError:
         st.error("❌ File pages/monitoring_sourcing.py tidak ditemukan!")
 
-
-# ============================================================
-# UPLOAD EVIDENCE
-# ============================================================
-
 elif page == "upload_evidence":
-
     try:
-        upload_evidence = importlib.import_module(
-            "pages.upload_evidence"
-        )
+        upload_evidence = importlib.import_module("pages.upload_evidence")
         upload_evidence.show_upload_evidence()
     except ModuleNotFoundError:
         st.error("❌ File pages/upload_evidence.py tidak ditemukan!")
 
-
-# ============================================================
-# TRANSFER FPTK
-# ============================================================
-
 elif page == "transfer_fptk":
-
     try:
-        transfer_fptk = importlib.import_module(
-            "pages.transfer_fptk"
-        )
+        transfer_fptk = importlib.import_module("pages.transfer_fptk")
         transfer_fptk.show_transfer_fptk()
     except ModuleNotFoundError:
         st.error("❌ File pages/transfer_fptk.py tidak ditemukan!")
 
 
 # ============================================================
-# EXPORT MENU - DI BAWAH KONTEN UTAMA
+# EXPORT MENU
 # ============================================================
 
 st.markdown("---")
@@ -1110,10 +1001,6 @@ if st.button("📊 Export All Data", use_container_width=True):
             st.success(f"✅ Export berhasil! File: {os.path.basename(filepath)}")
         finally:
             db.close()
-
-# ============================================================
-# SINGLE SHEET EXPORT (Opsional)
-# ============================================================
 
 with st.expander("📋 Export Sheet Spesifik"):
     sheet_options = [
