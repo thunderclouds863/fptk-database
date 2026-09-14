@@ -288,7 +288,7 @@ def get_all_bu_codes():
 
 def show_upload_compile():
     st.title("📤 Upload & Compile FPTK")
-    st.markdown("Upload file Excel recruiter ATAU input FPTK secara manual ATAU paste email body.")
+    st.markdown("Upload file Excel recruiter ATAU input FPTK secara manual ATAU paste informasi FPTK dari HR Portal.")
 
     db = next(get_db())
     if not is_editor(db):
@@ -338,7 +338,7 @@ def show_upload_compile():
                 st.success("✅ Template berhasil diperbarui")
                 st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["📤 Upload Excel", "📝 Input Manual FPTK", "📧 Paste Email Body"])
+    tab1, tab2, tab3 = st.tabs(["📤 Upload Excel", "📝 Input Manual FPTK", "📧 Paste informasi FPTK dari HR Portal"])
 
     # ============================================================
     # TAB 1: UPLOAD EXCEL
