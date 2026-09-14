@@ -146,6 +146,8 @@ def show_sourcing_detail():
     with col2:
         st.markdown(f"**Universitas Lainnya:** {detail.nama_universitas_lainnya or '-'}")
         st.markdown(f"**Jurusan:** {detail.jurusan or '-'}")
+        # 👇 KOLOM BARU: Jurusan Lainnya
+        st.markdown(f"**Jurusan Lainnya:** {getattr(detail, 'jurusan_lainnya', None) or '-'}")
     with col3:
         st.markdown(f"**Tahun Lulus:** {detail.tahun_lulus or '-'}")
         st.markdown(f"**IPK:** {detail.ipk or '-'}")
