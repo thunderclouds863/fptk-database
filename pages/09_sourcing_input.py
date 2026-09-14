@@ -214,6 +214,74 @@ def normalize_jurusan(raw_val: str):
 
 
 # ============================================================
+# PREPROCESS: Sisipkan newline di depan setiap label yang dikenal
+# ============================================================
+KNOWN_LABELS = [
+    # Urutan penting: label yang lebih panjang dulu supaya tidak salah match
+    "Jenjang Pendidikan",
+    "Nama Universitas/sekolah",
+    "Nama Universitas/Sekolah",
+    "Nama Universitas",
+    "Nama Sekolah",
+    "University Tier",
+    "Ipk Tier",
+    "IPK Tier",
+    "Nomor Hp",
+    "Nomor HP",
+    "Pernah Di Fmcg?",
+    "Pernah di FMCG?",
+    "Pernah Di FMCG",
+    "Pernah di Fmcg",
+    "Last Position",
+    "Last Tenure",
+    "Last Company",
+    "Total Tenure",
+    "Tahun Lulus",
+    "Kode Unik",
+    "Posisi FPTK",
+    "Sumber",
+    "Jurusan",
+    "Domisili",
+    "Email",
+    "Nama",
+    "Ipk",
+    "IPK",
+    "HP",
+]
+
+
+def preprocess_cv_text(raw_text: str) -> str:
+    """
+    Sisipkan newline di depan setiap label yang dikenal.
+    Berguna kalau CV di-paste dalam 1 baris (tanpa newline).
+    """
+    if not raw_text:
+        return raw_text
+
+    # Kalau sudah banyak newline (>3), asumsikan sudah multi-line, skip
+    if raw_text.count('\n') > 3:
+        return raw_text
+
+    text = raw_text
+
+    # Sort label by length descending supaya label panjang di-match dulu
+    labels_sorted = sorted(KNOWN_LABELS, key=len, reverse=True)
+
+    for label in labels_sorted:
+        pattern = re.compile(
+            r'(?i)(?<!^)\s*(' + re.escape(label) + r'\s*:)',
+            re.IGNORECASE
+        )
+        text = pattern.sub(r'\n\1', text)
+
+    # Rapikan
+    text = text.lstrip('\n')
+    text = re.sub(r'[ \t]+', ' ', text)
+
+    return text
+
+
+# ============================================================
 # PARSE CV
 # ============================================================
 def parse_cv_text(raw_text: str) -> dict:
@@ -231,6 +299,9 @@ def parse_cv_text(raw_text: str) -> dict:
 
     if not raw_text:
         return parsed
+
+    # 👇 PREPROCESS DULU
+    raw_text = preprocess_cv_text(raw_text)
 
     lines = raw_text.split('\n')
     email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
@@ -262,14 +333,16 @@ def parse_cv_text(raw_text: str) -> dict:
             if not val:
                 continue
 
-            if any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
-                parsed['nama'] = val
-
-            elif any(k in key for k in ['universitas', 'university', 'univ']):
+            # ⚠️ URUTAN PENTING: cek 'universitas' SEBELUM 'nama'
+            # karena "Nama Universitas/sekolah" mengandung kata "nama"
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
                 univ_dd, univ_lain = normalize_univ(val)
                 parsed['univ'] = univ_dd
                 parsed['univ_lain'] = univ_lain
                 parsed['university_tier'] = get_university_tier(univ_dd)
+
+            elif any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
+                parsed['nama'] = val
 
             elif any(k in key for k in ['jenjang', 'education', 'level']):
                 vl = val.lower()
@@ -282,7 +355,7 @@ def parse_cv_text(raw_text: str) -> dict:
                 elif 'd4' in vl or 'diploma 4' in vl:
                     parsed['jenjang'] = 'D4'
                 elif 'smk' in vl or 'vocational' in vl:
-                    parsed['jenjang'] = 'SMK'
+                    parsed['jenjang'] = 'SMA/SMK'
                 elif 'sma' in vl or 'high school' in vl:
                     parsed['jenjang'] = 'SMA/SMK'
                 else:
@@ -296,7 +369,7 @@ def parse_cv_text(raw_text: str) -> dict:
             elif any(k in key for k in ['domisili', 'domicile', 'location', 'kota', 'city']):
                 parsed['domisili'] = val
 
-            elif any(k in key for k in ['hp', 'phone', 'nomor', 'no hp', 'no telp']):
+            elif any(k in key for k in ['nomor hp', 'no hp', 'hp', 'phone', 'nomor', 'no telp']):
                 parsed['hp'] = re.sub(r'[\s\-\(\)]', '', val)
 
             elif any(k in key for k in ['last position', 'posisi terakhir']):
@@ -308,17 +381,17 @@ def parse_cv_text(raw_text: str) -> dict:
             elif any(k in key for k in ['last tenure', 'tenure last']):
                 parsed['last_tenure'] = val
 
-            elif any(k in key for k in ['total tenure', 'tenure', 'lama kerja', 'pengalaman']):
+            elif any(k in key for k in ['total tenure', 'lama kerja', 'pengalaman']):
                 parsed['total_tenure'] = val
 
             elif any(k in key for k in ['sumber', 'source']):
                 parsed['sumber'] = val
 
-            elif any(k in key for k in ['fmcg', 'pernah di fmcg']):
+            elif any(k in key for k in ['pernah di fmcg', 'pernah di fmcg?', 'fmcg']):
                 vl = val.lower()
-                if 'ya' in vl or 'yes' in vl or 'y' in vl:
+                if 'ya' in vl or 'yes' in vl or vl == 'y':
                     parsed['fmcg'] = 'Ya'
-                elif 'tidak' in vl or 'no' in vl or 'n' in vl:
+                elif 'tidak' in vl or 'no' in vl or vl == 'n':
                     parsed['fmcg'] = 'Tidak'
                 else:
                     parsed['fmcg'] = val
@@ -329,6 +402,7 @@ def parse_cv_text(raw_text: str) -> dict:
             elif any(k in key for k in ['kode unik', 'unique code']):
                 parsed['kode_unik'] = val
 
+    # Fallback nama
     if not parsed['nama']:
         for line in lines:
             line = line.strip()
@@ -336,6 +410,7 @@ def parse_cv_text(raw_text: str) -> dict:
                 parsed['nama'] = line
                 break
 
+    # Fallback jenjang
     if not parsed['jenjang']:
         tl = raw_text.lower()
         if 's1' in tl or 'bachelor' in tl or 'sarjana' in tl:
@@ -345,10 +420,11 @@ def parse_cv_text(raw_text: str) -> dict:
         elif 'd3' in tl or 'diploma 3' in tl:
             parsed['jenjang'] = 'D3'
         elif 'smk' in tl or 'vocational' in tl:
-            parsed['jenjang'] = 'SMK'
+            parsed['jenjang'] = 'SMA/SMK'
         elif 'sma' in tl or 'high school' in tl:
             parsed['jenjang'] = 'SMA/SMK'
 
+    # Fallback FMCG
     if not parsed['fmcg']:
         tl = raw_text.lower()
         if 'fmcg' in tl:
@@ -357,6 +433,7 @@ def parse_cv_text(raw_text: str) -> dict:
             elif 'tidak' in tl or 'no' in tl:
                 parsed['fmcg'] = 'Tidak'
 
+    # Fallback univ dari full text
     if not parsed['univ']:
         univ_dd, univ_lain = normalize_univ(raw_text)
         if univ_dd and univ_dd != "Lainnya":
@@ -367,6 +444,7 @@ def parse_cv_text(raw_text: str) -> dict:
             parsed['univ_lain'] = univ_lain
             parsed['university_tier'] = "Lainnya"
 
+    # Fallback jurusan
     if not parsed['jurusan']:
         jur_dd, jur_lain = normalize_jurusan(raw_text)
         if jur_dd and jur_dd != "Lainnya":
@@ -546,10 +624,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
 
     # ============================================================
-    # AUTO-FIX UNIV & JURUSAN:
-    # Kalau nilai TIDAK ADA di dropdown → pilih "Lainnya",
-    # dan field "Lainnya" diisi dengan nilai ASLI dari parse.
-    # Kalau nilai ADA di dropdown → pakai nilai itu, field Lainnya kosong.
+    # AUTO-FIX UNIV & JURUSAN
     # ============================================================
 
     # ---------- UNIVERSITAS ----------
@@ -560,7 +635,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             univ_lain_init = univ_original
     elif univ_original == "Lainnya":
         univ = "Lainnya"
-        # univ_lain_init sudah ada dari parse, biarkan
     elif univ_original in univ_options and univ_original != "":
         univ = univ_original
         univ_lain_init = ""
@@ -576,7 +650,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             jurusan_lain_init = jurusan_original
     elif jurusan_original == "Lainnya":
         jurusan = "Lainnya"
-        # jurusan_lain_init sudah ada dari parse, biarkan
     elif jurusan_original in jurusan_options and jurusan_original != "":
         jurusan = jurusan_original
         jurusan_lain_init = ""
@@ -652,8 +725,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 key=f"{form_key}_univ"
             )
 
-            # Field "Univ Lainnya" muncul kalau pilih "Lainnya"
-            # dan otomatis terisi dari hasil parse
             if univ_input == "Lainnya":
                 univ_lain = st.text_input(
                     "Univ Lainnya *",
@@ -664,7 +735,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             else:
                 univ_lain = ""
 
-            # Auto display tier
             tier_auto = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
             st.text_input("University Tier (auto)", value=tier_auto, disabled=True, key=f"{form_key}_tier_auto")
 
@@ -681,8 +751,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 key=f"{form_key}_jurusan"
             )
 
-            # Field "Jurusan Lainnya" muncul kalau pilih "Lainnya"
-            # dan otomatis terisi dari hasil parse
             if jurusan_input == "Lainnya":
                 jurusan_lain = st.text_input(
                     "Jurusan Lainnya *",
