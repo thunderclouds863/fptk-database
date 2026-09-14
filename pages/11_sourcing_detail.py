@@ -12,7 +12,6 @@ import time
 
 @st.cache_data(ttl=3600)
 def get_pipeline_stages_detail():
-    """Pipeline stages lengkap - cache 1 jam"""
     return [
         {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
         {"field": "sourcing_hr", "label": "Sourcing HR"},
@@ -32,23 +31,17 @@ def get_pipeline_stages_detail():
 
 @st.cache_data(ttl=3600)
 def get_status_options_detail():
-    """Status options - cache 1 jam"""
     return ["", "V", "X"]
 
 
 @st.cache_data(ttl=3600)
 def get_pic_options_detail(_db):
-    """PIC options - cache 1 jam"""
     try:
         master = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
         return sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
     except:
         return []
 
-
-# ============================================================
-# FUNGSI UTAMA
-# ============================================================
 
 def show_sourcing_detail():
     st.title("📋 Detail Kandidat")
@@ -59,15 +52,11 @@ def show_sourcing_detail():
         st.warning("Silakan login.")
         return
     
-    # ============================================================
-    #  LOAD FROM CACHE 
-    # ============================================================
     with st.spinner("📋 Memuat data..."):
         pipeline_stages = get_pipeline_stages_detail()
         status_options = get_status_options_detail()
         pic_options = get_pic_options_detail(db)
     
-    # Ambil ID dari session state atau parameter
     if "detail_id" in st.session_state:
         detail_id = st.session_state.detail_id
     else:
@@ -85,28 +74,20 @@ def show_sourcing_detail():
             st.rerun()
         return
     
-    # Load data
     detail = db.query(DBSourcing).filter(DBSourcing.id == detail_id).first()
     if not detail:
         st.error(f"Data dengan ID {detail_id} tidak ditemukan.")
         return
     
-    # Load FPTK jika ada kode_unik
     fptk = None
     if detail.kode_unik:
         fptk = db.query(FPTK).filter(FPTK.kode_unik == detail.kode_unik).first()
     
-    # ============================================================
-    # HEADER CARD
-    # ============================================================
     st.markdown(f"## {detail.nama or 'Nama tidak tersedia'}")
     st.caption(f"ID: {detail.id} | No: {detail.no} | PIC: {detail.rekruter or '-'}")
     
     st.markdown("---")
     
-    # ============================================================
-    # DATA KANDIDAT
-    # ============================================================
     col1, col2 = st.columns(2)
     
     with col1:
@@ -135,9 +116,6 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    # ============================================================
-    # PENDIDIKAN
-    # ============================================================
     st.markdown("### 🎓 Pendidikan")
     col1, col2, col3 = st.columns(3)
     with col1:
@@ -146,7 +124,6 @@ def show_sourcing_detail():
     with col2:
         st.markdown(f"**Universitas Lainnya:** {detail.nama_universitas_lainnya or '-'}")
         st.markdown(f"**Jurusan:** {detail.jurusan or '-'}")
-        # 👇 KOLOM BARU: Jurusan Lainnya
         st.markdown(f"**Jurusan Lainnya:** {getattr(detail, 'jurusan_lainnya', None) or '-'}")
     with col3:
         st.markdown(f"**Tahun Lulus:** {detail.tahun_lulus or '-'}")
@@ -156,20 +133,15 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    # ============================================================
-    #  PIPELINE STATUS LENGKAP (13 STAGE) 
-    # ============================================================
     st.markdown("### 📊 Pipeline Status")
     st.caption("V = Lolos | X = Tidak Lolos | Kosong = Belum diproses")
     
-    # Buat tabel pipeline
     pipeline_data = []
     for stage in pipeline_stages:
         field = getattr(detail, stage["field"])
         date_field = getattr(detail, f"tanggal_{stage['field']}")
         detail_field = getattr(detail, f"detail_keterangan_{stage['field']}")
         
-        # Status dengan emoji
         if field == "V":
             emoji = "✅"
         elif field == "X":
@@ -187,11 +159,9 @@ def show_sourcing_detail():
             "Keterangan": keterangan
         })
     
-    # Tampilkan sebagai dataframe
     pipeline_df = pd.DataFrame(pipeline_data)
     st.dataframe(pipeline_df, use_container_width=True, hide_index=True)
     
-    # Tampilkan juga sebagai list yang rapi
     st.markdown("---")
     st.markdown("### 📋 Detail Pipeline")
     
@@ -214,9 +184,6 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    # ============================================================
-    # NOTES & BLACKLIST
-    # ============================================================
     st.markdown("### 📝 Catatan & Blacklist")
     col1, col2 = st.columns(2)
     with col1:
@@ -229,9 +196,6 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    # ============================================================
-    # METADATA & AUDIT
-    # ============================================================
     st.markdown("### 📋 Metadata")
     col1, col2 = st.columns(2)
     with col1:
@@ -243,9 +207,6 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    # ============================================================
-    #  ACTION BUTTONS 
-    # ============================================================
     col1, col2, col3 = st.columns([1, 1, 2])
     
     with col1:
@@ -260,7 +221,6 @@ def show_sourcing_detail():
             st.rerun()
     
     with col3:
-        # Cek apakah user admin atau owner
         is_owner = detail.rekruter == user.pic_recruiter
         can_delete = is_admin(db) or is_owner
         
@@ -286,9 +246,6 @@ def show_sourcing_detail():
         else:
             st.info("🔒 Anda tidak memiliki akses untuk menghapus data ini.")
     
-    # ============================================================
-    # LINK KE FPTK (jika ada)
-    # ============================================================
     if fptk:
         st.markdown("---")
         st.markdown("### 🔗 Terkait dengan FPTK")
