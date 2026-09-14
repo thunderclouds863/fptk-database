@@ -151,6 +151,7 @@ class DBSourcing(Base):
     nama_universitas_lainnya = Column(String(255))
     jenjang_pendidikan = Column(String(50))
     jurusan = Column(String(100))
+    jurusan_lainnya = Column(String(100)) 
     tahun_lulus = Column(Integer)
     ipk = Column(Numeric(3,2))
     skor_bahasa_inggris = Column(String(50))
