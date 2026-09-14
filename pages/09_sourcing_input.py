@@ -39,7 +39,8 @@ def get_sourcing_options():
         'univ_options': ["Universitas Indonesia", "Universitas Gadjah Mada", "Institut Teknologi Bandung", "Universitas Airlangga", "Universitas Padjadjaran", "Universitas Diponegoro", "Universitas Brawijaya", "Institut Pertanian Bogor", "Universitas Sebelas Maret", "Telkom University", "Lainnya"],
         'jurusan_options': ["Manajemen", "Akuntansi", "Teknik Industri", "Teknik Informatika", "Sistem Informasi", "Psikologi", "Ilmu Komunikasi", "Hukum", "Ekonomi", "Lainnya"],
         'fmcg_options': ["", "Ya", "Tidak"],
-        'pipeline_options': ["", "V", "X"]
+        'pipeline_options': ["", "V", "X"],
+        'university_tier_options': ["Top 3 PTN", "Top 10 PTN", "Top 20 PTN", "Top 10 PTS", "Lainnya"]
     }
 
 
@@ -63,20 +64,92 @@ def get_pipeline_stages():
 
 
 # ============================================================
-# NORMALIZER: UNIV & JURUSAN → TOP 10 / DAFTAR, ELSE "Lainnya"
+# UNIVERSITY TIER MAP (Berdasarkan QS WUR 2026)
+# ============================================================
+
+UNIV_TIER_MAP = {
+    # ===== Top 3 PTN =====
+    "Universitas Indonesia": "Top 3 PTN",
+    "Universitas Gadjah Mada": "Top 3 PTN",
+    "Institut Teknologi Bandung": "Top 3 PTN",
+
+    # ===== Top 10 PTN =====
+    "Universitas Airlangga": "Top 10 PTN",
+    "IPB University": "Top 10 PTN",
+    "Institut Teknologi Sepuluh Nopember": "Top 10 PTN",
+    "Universitas Padjadjaran": "Top 10 PTN",
+    "Universitas Diponegoro": "Top 10 PTN",
+    "Universitas Brawijaya": "Top 10 PTN",
+
+    # ===== Top 20 PTN =====
+    "Universitas Hasanuddin": "Top 20 PTN",
+    "Universitas Sebelas Maret": "Top 20 PTN",
+    "Universitas Sumatera Utara": "Top 20 PTN",
+    "Universitas Pendidikan Indonesia": "Top 20 PTN",
+    "Universitas Negeri Yogyakarta": "Top 20 PTN",
+    "Universitas Negeri Padang": "Top 20 PTN",
+    "Universitas Negeri Malang": "Top 20 PTN",
+    "Universitas Syiah Kuala": "Top 20 PTN",
+    "Universitas Andalas": "Top 20 PTN",
+    "Universitas Udayana": "Top 20 PTN",
+    "Universitas Negeri Semarang": "Top 20 PTN",
+
+    # ===== Top 10 PTS =====
+    "Bina Nusantara University": "Top 10 PTS",
+    "Telkom University": "Top 10 PTS",
+    "Institut Teknologi Nasional Bandung": "Top 10 PTS",
+    "Universitas Muhammadiyah Yogyakarta": "Top 10 PTS",
+    "Universitas Katolik Indonesia Atma Jaya": "Top 10 PTS",
+    "Universitas Islam Indonesia": "Top 10 PTS",
+    "Universitas Kristen Petra": "Top 10 PTS",
+    "Universitas Trisakti": "Top 10 PTS",
+    "Universitas Pelita Harapan": "Top 10 PTS",
+    "Swiss German University": "Top 10 PTS",
+}
+
+
+# ============================================================
+# NORMALIZER: UNIV & JURUSAN
 # ============================================================
 
 UNIV_ALIASES = {
+    # ===== Top 3 PTN =====
     "Universitas Indonesia": ["universitas indonesia", "university of indonesia", "ui"],
     "Universitas Gadjah Mada": ["universitas gadjah mada", "gadjah mada university", "ugm"],
     "Institut Teknologi Bandung": ["institut teknologi bandung", "bandung institute of technology", "itb"],
-    "Universitas Airlangga": ["universitas airlangga", "airlangga university", "unair"],
-    "Universitas Padjadjaran": ["universitas padjadjaran", "padjadjaran university", "unpad"],
-    "Universitas Diponegoro": ["universitas diponegoro", "diponegoro university", "undip"],
-    "Universitas Brawijaya": ["universitas brawijaya", "brawijaya university", "ub"],
-    "Institut Pertanian Bogor": ["institut pertanian bogor", "bogor agricultural university", "ipb"],
-    "Universitas Sebelas Maret": ["universitas sebelas maret", "sebelas maret university", "uns"],
-    "Telkom University": ["telkom university", "universitas telkom"],
+
+    # ===== Top 10 PTN =====
+    "Universitas Airlangga": ["universitas airlangga", "airlangga university", "unair", "airlangga"],
+    "IPB University": ["ipb university", "institut pertanian bogor", "bogor agricultural university", "ipb"],
+    "Institut Teknologi Sepuluh Nopember": ["institut teknologi sepuluh nopember", "its surabaya", "its"],
+    "Universitas Padjadjaran": ["universitas padjadjaran", "padjadjaran university", "unpad", "padjadjaran"],
+    "Universitas Diponegoro": ["universitas diponegoro", "diponegoro university", "undip", "diponegoro"],
+    "Universitas Brawijaya": ["universitas brawijaya", "brawijaya university", "ub brawijaya", "brawijaya"],
+
+    # ===== Top 20 PTN =====
+    "Universitas Hasanuddin": ["universitas hasanuddin", "hasanuddin university", "unhas", "hasanuddin"],
+    "Universitas Sebelas Maret": ["universitas sebelas maret", "sebelas maret university", "uns", "sebelas maret"],
+    "Universitas Sumatera Utara": ["universitas sumatera utara", "university of sumatera utara", "usu"],
+    "Universitas Pendidikan Indonesia": ["universitas pendidikan indonesia", "indonesia university of education", "upi"],
+    "Universitas Negeri Yogyakarta": ["universitas negeri yogyakarta", "yogyakarta state university", "uny"],
+    "Universitas Negeri Padang": ["universitas negeri padang", "padang state university", "unp"],
+    "Universitas Negeri Malang": ["universitas negeri malang", "state university of malang", "um"],
+    "Universitas Syiah Kuala": ["universitas syiah kuala", "syiah kuala university", "usk", "unsyiah"],
+    "Universitas Andalas": ["universitas andalas", "andalas university", "unand"],
+    "Universitas Udayana": ["universitas udayana", "udayana university", "unud"],
+    "Universitas Negeri Semarang": ["universitas negeri semarang", "semarang state university", "unnes"],
+
+    # ===== Top 10 PTS =====
+    "Bina Nusantara University": ["bina nusantara", "binus university", "binus", "universitas bina nusantara"],
+    "Telkom University": ["telkom university", "universitas telkom", "tel-u", "telkom"],
+    "Institut Teknologi Nasional Bandung": ["institut teknologi nasional bandung", "itenas"],
+    "Universitas Muhammadiyah Yogyakarta": ["universitas muhammadiyah yogyakarta", "umy"],
+    "Universitas Katolik Indonesia Atma Jaya": ["atma jaya", "unika atma jaya", "atma jaya catholic university"],
+    "Universitas Islam Indonesia": ["universitas islam indonesia", "uii"],
+    "Universitas Kristen Petra": ["universitas kristen petra", "petra christian university", "petra"],
+    "Universitas Trisakti": ["universitas trisakti", "trisakti university", "usakti", "trisakti"],
+    "Universitas Pelita Harapan": ["universitas pelita harapan", "pelita harapan university", "uph"],
+    "Swiss German University": ["swiss german university", "sgu"],
 }
 
 JURUSAN_ALIASES = {
@@ -117,6 +190,13 @@ def normalize_univ(raw_val: str):
     return "Lainnya", pretty
 
 
+def get_university_tier(univ_name: str) -> str:
+    """Return tier berdasarkan nama universitas (canonical)."""
+    if not univ_name:
+        return ""
+    return UNIV_TIER_MAP.get(univ_name, "Lainnya")
+
+
 def normalize_jurusan(raw_val: str):
     """Return (jurusan_dropdown, jurusan_lainnya)."""
     if not raw_val or not str(raw_val).strip():
@@ -145,7 +225,8 @@ def parse_cv_text(raw_text: str) -> dict:
         'last_position': '', 'last_company': '',
         'last_tenure': '', 'total_tenure': '',
         'sumber': '', 'posisi': '', 'kode_unik': '',
-        'jenjang': '', 'fmcg': ''
+        'jenjang': '', 'fmcg': '',
+        'university_tier': ''
     }
 
     if not raw_text:
@@ -188,6 +269,7 @@ def parse_cv_text(raw_text: str) -> dict:
                 univ_dd, univ_lain = normalize_univ(val)
                 parsed['univ'] = univ_dd
                 parsed['univ_lain'] = univ_lain
+                parsed['university_tier'] = get_university_tier(univ_dd)
 
             elif any(k in key for k in ['jenjang', 'education', 'level']):
                 vl = val.lower()
@@ -279,9 +361,11 @@ def parse_cv_text(raw_text: str) -> dict:
         univ_dd, univ_lain = normalize_univ(raw_text)
         if univ_dd and univ_dd != "Lainnya":
             parsed['univ'] = univ_dd
+            parsed['university_tier'] = get_university_tier(univ_dd)
         elif univ_dd == "Lainnya" and univ_lain:
             parsed['univ'] = "Lainnya"
             parsed['univ_lain'] = univ_lain
+            parsed['university_tier'] = "Lainnya"
 
     if not parsed['jurusan']:
         jur_dd, jur_lain = normalize_jurusan(raw_text)
@@ -461,18 +545,44 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     posisi = initial_data.get('posisi', '') if initial_data else ''
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
 
-    # Auto-fix univ & jurusan
-    if univ and univ not in univ_options:
-        univ_lain_init = univ_lain_init or univ
-        univ = "Lainnya"
-    if univ == "Lainnya" and not univ_lain_init and initial_data and initial_data.get('univ'):
-        univ_lain_init = initial_data.get('univ', '')
+    # ============================================================
+    # AUTO-FIX UNIV & JURUSAN:
+    # Kalau nilai TIDAK ADA di dropdown → pilih "Lainnya",
+    # dan field "Lainnya" diisi dengan nilai ASLI dari parse.
+    # Kalau nilai ADA di dropdown → pakai nilai itu, field Lainnya kosong.
+    # ============================================================
 
-    if jurusan and jurusan not in jurusan_options:
-        jurusan_lain_init = jurusan_lain_init or jurusan
+    # ---------- UNIVERSITAS ----------
+    univ_original = univ
+    if univ_original and univ_original not in univ_options:
+        univ = "Lainnya"
+        if not univ_lain_init:
+            univ_lain_init = univ_original
+    elif univ_original == "Lainnya":
+        univ = "Lainnya"
+        # univ_lain_init sudah ada dari parse, biarkan
+    elif univ_original in univ_options and univ_original != "":
+        univ = univ_original
+        univ_lain_init = ""
+    else:
+        univ = ""
+        univ_lain_init = ""
+
+    # ---------- JURUSAN ----------
+    jurusan_original = jurusan
+    if jurusan_original and jurusan_original not in jurusan_options:
         jurusan = "Lainnya"
-    if jurusan == "Lainnya" and not jurusan_lain_init and initial_data and initial_data.get('jurusan'):
-        jurusan_lain_init = initial_data.get('jurusan', '')
+        if not jurusan_lain_init:
+            jurusan_lain_init = jurusan_original
+    elif jurusan_original == "Lainnya":
+        jurusan = "Lainnya"
+        # jurusan_lain_init sudah ada dari parse, biarkan
+    elif jurusan_original in jurusan_options and jurusan_original != "":
+        jurusan = jurusan_original
+        jurusan_lain_init = ""
+    else:
+        jurusan = ""
+        jurusan_lain_init = ""
 
     # FPTK dropdown
     fptk_display = []
@@ -529,7 +639,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             jenjang_input = st.selectbox("Jenjang", [""] + jenjang_options,
                                         index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0)
 
-            # Universitas
+            # ---------- UNIVERSITAS ----------
             default_univ_index = 0
             if univ in univ_options:
                 default_univ_index = ([""] + univ_options).index(univ) if univ != "" else 0
@@ -542,16 +652,23 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 key=f"{form_key}_univ"
             )
 
+            # Field "Univ Lainnya" muncul kalau pilih "Lainnya"
+            # dan otomatis terisi dari hasil parse
             if univ_input == "Lainnya":
                 univ_lain = st.text_input(
                     "Univ Lainnya *",
                     value=univ_lain_init,
-                    key=f"{form_key}_univ_lain"
+                    key=f"{form_key}_univ_lain",
+                    help="Terisi otomatis dari hasil parse. Edit jika perlu."
                 )
             else:
                 univ_lain = ""
 
-            # Jurusan
+            # Auto display tier
+            tier_auto = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
+            st.text_input("University Tier (auto)", value=tier_auto, disabled=True, key=f"{form_key}_tier_auto")
+
+            # ---------- JURUSAN ----------
             default_jur_index = 0
             if jurusan in jurusan_options:
                 default_jur_index = ([""] + jurusan_options).index(jurusan) if jurusan != "" else 0
@@ -564,11 +681,14 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 key=f"{form_key}_jurusan"
             )
 
+            # Field "Jurusan Lainnya" muncul kalau pilih "Lainnya"
+            # dan otomatis terisi dari hasil parse
             if jurusan_input == "Lainnya":
                 jurusan_lain = st.text_input(
                     "Jurusan Lainnya *",
                     value=jurusan_lain_init,
-                    key=f"{form_key}_jurusan_lain"
+                    key=f"{form_key}_jurusan_lain",
+                    help="Terisi otomatis dari hasil parse. Edit jika perlu."
                 )
             else:
                 jurusan_lain = ""
@@ -657,6 +777,8 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
                 next_no = (last_no.no + 1) if last_no and last_no.no else 1
 
+                tier_final = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
+
                 new = DBSourcing(
                     no=next_no,
                     nama=nama_input,
@@ -670,6 +792,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                     nama_universitas_lainnya=univ_lain if univ_input == "Lainnya" else "",
                     jurusan=jurusan_input if jurusan_input != "Lainnya" else "",
                     jurusan_lainnya=jurusan_lain if jurusan_input == "Lainnya" else "",
+                    university_tier=tier_final,
                     ipk=safe_int(ipk_input.replace(',', '.')) if ipk_input else None,
                     tahun_lulus=tahun_lulus_input if tahun_lulus_input and tahun_lulus_input > 0 else None,
                     nomor_hp=hp_input,
@@ -690,7 +813,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 )
                 db.add(new)
                 db.commit()
-                st.success(f"✅ '{nama_input}' berhasil disimpan!")
+                st.success(f"✅ '{nama_input}' berhasil disimpan! Tier: {tier_final}")
                 st.balloons()
 
                 if is_parse_mode:
