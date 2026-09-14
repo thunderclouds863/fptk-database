@@ -20,15 +20,9 @@ def get_master_options_sourcing(_db):
         master = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
         pic_options = sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
         bu_options = sorted(set([m.bu for m in master if m.bu]))
-        return {
-            'pic_options': pic_options,
-            'bu_options': bu_options
-        }
-    except Exception as e:
-        return {
-            'pic_options': [],
-            'bu_options': []
-        }
+        return {'pic_options': pic_options, 'bu_options': bu_options}
+    except Exception:
+        return {'pic_options': [], 'bu_options': []}
 
 
 @st.cache_data(ttl=3600)
@@ -64,24 +58,19 @@ def get_pipeline_stages():
 
 
 # ============================================================
-# UNIVERSITY TIER MAP (Berdasarkan QS WUR 2026)
+# UNIVERSITY TIER MAP
 # ============================================================
 
 UNIV_TIER_MAP = {
-    # ===== Top 3 PTN =====
     "Universitas Indonesia": "Top 3 PTN",
     "Universitas Gadjah Mada": "Top 3 PTN",
     "Institut Teknologi Bandung": "Top 3 PTN",
-
-    # ===== Top 10 PTN =====
     "Universitas Airlangga": "Top 10 PTN",
     "IPB University": "Top 10 PTN",
     "Institut Teknologi Sepuluh Nopember": "Top 10 PTN",
     "Universitas Padjadjaran": "Top 10 PTN",
     "Universitas Diponegoro": "Top 10 PTN",
     "Universitas Brawijaya": "Top 10 PTN",
-
-    # ===== Top 20 PTN =====
     "Universitas Hasanuddin": "Top 20 PTN",
     "Universitas Sebelas Maret": "Top 20 PTN",
     "Universitas Sumatera Utara": "Top 20 PTN",
@@ -93,8 +82,6 @@ UNIV_TIER_MAP = {
     "Universitas Andalas": "Top 20 PTN",
     "Universitas Udayana": "Top 20 PTN",
     "Universitas Negeri Semarang": "Top 20 PTN",
-
-    # ===== Top 10 PTS =====
     "Bina Nusantara University": "Top 10 PTS",
     "Telkom University": "Top 10 PTS",
     "Institut Teknologi Nasional Bandung": "Top 10 PTS",
@@ -109,24 +96,19 @@ UNIV_TIER_MAP = {
 
 
 # ============================================================
-# NORMALIZER: UNIV & JURUSAN
+# NORMALIZER
 # ============================================================
 
 UNIV_ALIASES = {
-    # ===== Top 3 PTN =====
     "Universitas Indonesia": ["universitas indonesia", "university of indonesia", "ui"],
     "Universitas Gadjah Mada": ["universitas gadjah mada", "gadjah mada university", "ugm"],
     "Institut Teknologi Bandung": ["institut teknologi bandung", "bandung institute of technology", "itb"],
-
-    # ===== Top 10 PTN =====
     "Universitas Airlangga": ["universitas airlangga", "airlangga university", "unair", "airlangga"],
     "IPB University": ["ipb university", "institut pertanian bogor", "bogor agricultural university", "ipb"],
     "Institut Teknologi Sepuluh Nopember": ["institut teknologi sepuluh nopember", "its surabaya", "its"],
     "Universitas Padjadjaran": ["universitas padjadjaran", "padjadjaran university", "unpad", "padjadjaran"],
     "Universitas Diponegoro": ["universitas diponegoro", "diponegoro university", "undip", "diponegoro"],
     "Universitas Brawijaya": ["universitas brawijaya", "brawijaya university", "ub brawijaya", "brawijaya"],
-
-    # ===== Top 20 PTN =====
     "Universitas Hasanuddin": ["universitas hasanuddin", "hasanuddin university", "unhas", "hasanuddin"],
     "Universitas Sebelas Maret": ["universitas sebelas maret", "sebelas maret university", "uns", "sebelas maret"],
     "Universitas Sumatera Utara": ["universitas sumatera utara", "university of sumatera utara", "usu"],
@@ -138,8 +120,6 @@ UNIV_ALIASES = {
     "Universitas Andalas": ["universitas andalas", "andalas university", "unand"],
     "Universitas Udayana": ["universitas udayana", "udayana university", "unud"],
     "Universitas Negeri Semarang": ["universitas negeri semarang", "semarang state university", "unnes"],
-
-    # ===== Top 10 PTS =====
     "Bina Nusantara University": ["bina nusantara", "binus university", "binus", "universitas bina nusantara"],
     "Telkom University": ["telkom university", "universitas telkom", "tel-u", "telkom"],
     "Institut Teknologi Nasional Bandung": ["institut teknologi nasional bandung", "itenas"],
@@ -175,52 +155,43 @@ def _clean_text(s: str) -> str:
 
 
 def normalize_univ(raw_val: str):
-    """Return (univ_dropdown, univ_lainnya)."""
     if not raw_val or not str(raw_val).strip():
         return "", ""
-
     raw_clean = _clean_text(str(raw_val))
-
     for canonical, aliases in UNIV_ALIASES.items():
         for alias in aliases:
             if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
                 return canonical, ""
-
     pretty = " ".join([w.capitalize() for w in str(raw_val).split()])
     return "Lainnya", pretty
 
 
 def get_university_tier(univ_name: str) -> str:
-    """Return tier berdasarkan nama universitas (canonical)."""
     if not univ_name:
         return ""
     return UNIV_TIER_MAP.get(univ_name, "Lainnya")
 
 
 def normalize_jurusan(raw_val: str):
-    """Return (jurusan_dropdown, jurusan_lainnya)."""
     if not raw_val or not str(raw_val).strip():
         return "", ""
-
     raw_clean = _clean_text(str(raw_val))
-
     for canonical, aliases in JURUSAN_ALIASES.items():
         for alias in aliases:
             if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
                 return canonical, ""
-
     pretty = " ".join([w.capitalize() for w in str(raw_val).split()])
     return "Lainnya", pretty
 
 
 # ============================================================
-# PREPROCESS: Sisipkan newline di depan setiap label yang dikenal
+# PREPROCESS
 # ============================================================
+
 KNOWN_LABELS = [
-    # Urutan penting: label yang lebih panjang dulu supaya tidak salah match
     "Jenjang Pendidikan",
-    "Nama Universitas/sekolah",
     "Nama Universitas/Sekolah",
+    "Nama Universitas/sekolah",
     "Nama Universitas",
     "Nama Sekolah",
     "University Tier",
@@ -251,20 +222,12 @@ KNOWN_LABELS = [
 
 
 def preprocess_cv_text(raw_text: str) -> str:
-    """
-    Sisipkan newline di depan setiap label yang dikenal.
-    Berguna kalau CV di-paste dalam 1 baris (tanpa newline).
-    """
     if not raw_text:
         return raw_text
-
-    # Kalau sudah banyak newline (>3), asumsikan sudah multi-line, skip
     if raw_text.count('\n') > 3:
         return raw_text
 
     text = raw_text
-
-    # Sort label by length descending supaya label panjang di-match dulu
     labels_sorted = sorted(KNOWN_LABELS, key=len, reverse=True)
 
     for label in labels_sorted:
@@ -274,16 +237,20 @@ def preprocess_cv_text(raw_text: str) -> str:
         )
         text = pattern.sub(r'\n\1', text)
 
-    # Rapikan
     text = text.lstrip('\n')
     text = re.sub(r'[ \t]+', ' ', text)
-
     return text
 
 
 # ============================================================
 # PARSE CV
 # ============================================================
+
+# Kata umum yang TIDAK boleh dianggap sebagai isi univ/jurusan
+GENERIC_UNIV_WORDS = {"universitas", "university", "univ", "sekolah", "school"}
+GENERIC_JURUSAN_WORDS = {"jurusan", "major", "program studi", "prodi", "department"}
+
+
 def parse_cv_text(raw_text: str) -> dict:
     parsed = {
         'nama': '', 'email': '', 'hp': '',
@@ -300,10 +267,9 @@ def parse_cv_text(raw_text: str) -> dict:
     if not raw_text:
         return parsed
 
-    # 👇 PREPROCESS DULU
     raw_text = preprocess_cv_text(raw_text)
-
     lines = raw_text.split('\n')
+
     email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
     phone_pattern = r'(\+62|0)[0-9\s\-\(\)]{9,15}'
     ipk_pattern = r'([0-4][\.,]\d{1,2})'
@@ -324,17 +290,24 @@ def parse_cv_text(raw_text: str) -> dict:
     if year_match:
         parsed['tahun_lulus'] = year_match.group()
 
+    univ_label_seen = False
+    jurusan_label_seen = False
+
     for line in lines:
         line = line.strip()
         if ':' in line:
             key, val = line.split(':', 1)
             key = key.strip().lower()
             val = val.strip()
+
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
+                univ_label_seen = True
+            if any(k in key for k in ['jurusan', 'major']):
+                jurusan_label_seen = True
+
             if not val:
                 continue
 
-            # ⚠️ URUTAN PENTING: cek 'universitas' SEBELUM 'nama'
-            # karena "Nama Universitas/sekolah" mengandung kata "nama"
             if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
                 univ_dd, univ_lain = normalize_univ(val)
                 parsed['univ'] = univ_dd
@@ -433,25 +406,33 @@ def parse_cv_text(raw_text: str) -> dict:
             elif 'tidak' in tl or 'no' in tl:
                 parsed['fmcg'] = 'Tidak'
 
-    # Fallback univ dari full text
-    if not parsed['univ']:
+    # ============================================================
+    # FALLBACK UNIV — HANYA kalau label univ TIDAK PERNAH muncul
+    # ============================================================
+    if not parsed['univ'] and not univ_label_seen:
         univ_dd, univ_lain = normalize_univ(raw_text)
         if univ_dd and univ_dd != "Lainnya":
             parsed['univ'] = univ_dd
             parsed['university_tier'] = get_university_tier(univ_dd)
         elif univ_dd == "Lainnya" and univ_lain:
-            parsed['univ'] = "Lainnya"
-            parsed['univ_lain'] = univ_lain
-            parsed['university_tier'] = "Lainnya"
+            ul_clean = univ_lain.strip().lower()
+            if ul_clean not in GENERIC_UNIV_WORDS:
+                parsed['univ'] = "Lainnya"
+                parsed['univ_lain'] = univ_lain
+                parsed['university_tier'] = "Lainnya"
 
-    # Fallback jurusan
-    if not parsed['jurusan']:
+    # ============================================================
+    # FALLBACK JURUSAN — HANYA kalau label jurusan TIDAK PERNAH muncul
+    # ============================================================
+    if not parsed['jurusan'] and not jurusan_label_seen:
         jur_dd, jur_lain = normalize_jurusan(raw_text)
         if jur_dd and jur_dd != "Lainnya":
             parsed['jurusan'] = jur_dd
         elif jur_dd == "Lainnya" and jur_lain:
-            parsed['jurusan'] = "Lainnya"
-            parsed['jurusan_lain'] = jur_lain
+            jl_clean = jur_lain.strip().lower()
+            if jl_clean not in GENERIC_JURUSAN_WORDS:
+                parsed['jurusan'] = "Lainnya"
+                parsed['jurusan_lain'] = jur_lain
 
     return parsed
 
@@ -459,6 +440,7 @@ def parse_cv_text(raw_text: str) -> dict:
 # ============================================================
 # MAIN ENTRY
 # ============================================================
+
 def show_sourcing_input():
     st.title("👤 Input Sourcing / CV")
     st.markdown("Input kandidat baru ke DB Sourcing")
@@ -591,8 +573,9 @@ def show_sourcing_input():
 
 
 # ============================================================
-# FUNGSI FORM SOURCING (REUSABLE)
+# FORM SOURCING (REUSABLE)
 # ============================================================
+
 def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options,
                        initial_data=None, form_key="sourcing_form", is_parse_mode=False, batch_mode=False):
 
@@ -624,17 +607,20 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
 
     # ============================================================
-    # AUTO-FIX UNIV & JURUSAN
+    # AUTO-FIX UNIV & JURUSAN (dengan guard kata umum)
     # ============================================================
 
     # ---------- UNIVERSITAS ----------
     univ_original = univ
     if univ_original and univ_original not in univ_options:
         univ = "Lainnya"
-        if not univ_lain_init:
+        if not univ_lain_init and univ_original.strip().lower() not in GENERIC_UNIV_WORDS:
             univ_lain_init = univ_original
     elif univ_original == "Lainnya":
         univ = "Lainnya"
+        # Kalau univ_lain_init ternyata kata umum, kosongkan
+        if univ_lain_init.strip().lower() in GENERIC_UNIV_WORDS:
+            univ_lain_init = ""
     elif univ_original in univ_options and univ_original != "":
         univ = univ_original
         univ_lain_init = ""
@@ -646,10 +632,16 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     jurusan_original = jurusan
     if jurusan_original and jurusan_original not in jurusan_options:
         jurusan = "Lainnya"
-        if not jurusan_lain_init:
+        if not jurusan_lain_init and jurusan_original.strip().lower() not in GENERIC_JURUSAN_WORDS:
             jurusan_lain_init = jurusan_original
     elif jurusan_original == "Lainnya":
-        jurusan = "Lainnya"
+        # ⚠️ PENTING: kalau jurusan="Lainnya" tapi jurusan_lain_init kosong,
+        # itu berarti memang dari parse "Lainnya" tanpa isi → balik ke ""
+        if not jurusan_lain_init or jurusan_lain_init.strip().lower() in GENERIC_JURUSAN_WORDS:
+            jurusan = ""
+            jurusan_lain_init = ""
+        else:
+            jurusan = "Lainnya"
     elif jurusan_original in jurusan_options and jurusan_original != "":
         jurusan = jurusan_original
         jurusan_lain_init = ""
@@ -712,7 +704,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             jenjang_input = st.selectbox("Jenjang", [""] + jenjang_options,
                                         index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0)
 
-            # ---------- UNIVERSITAS ----------
+            # UNIVERSITAS
             default_univ_index = 0
             if univ in univ_options:
                 default_univ_index = ([""] + univ_options).index(univ) if univ != "" else 0
@@ -738,7 +730,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             tier_auto = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
             st.text_input("University Tier (auto)", value=tier_auto, disabled=True, key=f"{form_key}_tier_auto")
 
-            # ---------- JURUSAN ----------
+            # JURUSAN
             default_jur_index = 0
             if jurusan in jurusan_options:
                 default_jur_index = ([""] + jurusan_options).index(jurusan) if jurusan != "" else 0
