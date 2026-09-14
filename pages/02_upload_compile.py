@@ -1141,13 +1141,13 @@ def show_upload_compile():
     # ============================================================
 
     with tab3:
-        st.subheader("📧 Paste Email Body")
+        st.subheader("📧 Paste Informasi FPTK dari HR Portal")
         st.caption("Paste isi email permintaan FPTK. Sistem akan otomatis mengekstrak data.")
 
         if "parsed_email_data" not in st.session_state:
             st.session_state.parsed_email_data = {}
 
-        email_body = st.text_area("Paste Email Body di sini", height=200, placeholder="Copy paste isi email permintaan FPTK...", key="email_body_input")
+        email_body = st.text_area("Paste Informasi FPTK dari HR Portal di sini", height=200, placeholder="Copy paste isi email permintaan FPTK...", key="email_body_input")
 
         col1, col2 = st.columns([1, 5])
         with col1:
