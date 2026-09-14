@@ -304,6 +304,21 @@ def parse_cv_text(raw_text: str) -> dict:
             if any(k in key for k in ['jurusan', 'major']):
                 jurusan_label_seen = True
 
+            # Khusus jurusan: kalau label ada tapi kosong → tetap "Lainnya" + field kosong
+            if any(k in key for k in ['jurusan', 'major']):
+                if not val:
+                    parsed['jurusan'] = "Lainnya"
+                    parsed['jurusan_lain'] = ""
+                    continue
+
+            # Khusus univ: kalau label ada tapi kosong → tetap "Lainnya" + field kosong
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
+                if not val:
+                    parsed['univ'] = "Lainnya"
+                    parsed['univ_lain'] = ""
+                    parsed['university_tier'] = "Lainnya"
+                    continue
+
             if not val:
                 continue
 
@@ -499,7 +514,6 @@ def show_sourcing_input():
                 parsed = parse_cv_text(raw_text)
                 if parsed.get('nama'):
                     st.success(f"✅ Data ditemukan: {parsed.get('nama')}")
-                    # Debug — hapus kalau sudah stabil
                     with st.expander("🐛 Debug Parsed Data"):
                         st.json({k: v for k, v in parsed.items() if v})
                     st.session_state.parsed_cv_data = parsed
@@ -606,7 +620,9 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
 
     # ============================================================
-    # AUTO-FIX UNIV & JURUSAN (dengan guard)
+    # AUTO-FIX UNIV & JURUSAN
+    # Kalau nilai TIDAK ADA di dropdown → pilih "Lainnya"
+    # Kalau sudah "Lainnya" → tetap "Lainnya" (field Lainnya bisa kosong)
     # ============================================================
 
     # ---------- UNIVERSITAS ----------
@@ -616,11 +632,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
         if not univ_lain_init and univ_original.strip().lower() not in GENERIC_UNIV_WORDS:
             univ_lain_init = univ_original
     elif univ_original == "Lainnya":
-        if not univ_lain_init or univ_lain_init.strip().lower() in GENERIC_UNIV_WORDS:
-            univ = ""
+        # Tetap "Lainnya", biarkan field Lainnya apa adanya (bisa kosong)
+        univ = "Lainnya"
+        if univ_lain_init and univ_lain_init.strip().lower() in GENERIC_UNIV_WORDS:
             univ_lain_init = ""
-        else:
-            univ = "Lainnya"
     elif univ_original in univ_options and univ_original != "":
         univ = univ_original
         univ_lain_init = ""
@@ -635,29 +650,16 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
         if not jurusan_lain_init and jurusan_original.strip().lower() not in GENERIC_JURUSAN_WORDS:
             jurusan_lain_init = jurusan_original
     elif jurusan_original == "Lainnya":
-        if not jurusan_lain_init or jurusan_lain_init.strip().lower() in GENERIC_JURUSAN_WORDS:
-            jurusan = ""
+        # Tetap "Lainnya", biarkan field Lainnya apa adanya (bisa kosong)
+        jurusan = "Lainnya"
+        if jurusan_lain_init and jurusan_lain_init.strip().lower() in GENERIC_JURUSAN_WORDS:
             jurusan_lain_init = ""
-        else:
-            jurusan = "Lainnya"
     elif jurusan_original in jurusan_options and jurusan_original != "":
         jurusan = jurusan_original
         jurusan_lain_init = ""
     else:
         jurusan = ""
         jurusan_lain_init = ""
-
-    # ============================================================
-    # FORCE RESET WIDGET STATE (kunci fix masalah "Jurusan Lainnya" nyangkut)
-    # ============================================================
-    jl_key = f"{form_key}_jurusan_lain"
-    ul_key = f"{form_key}_univ_lain"
-
-    # Kalau init kosong, hapus state lama
-    if not jurusan_lain_init and jl_key in st.session_state:
-        del st.session_state[jl_key]
-    if not univ_lain_init and ul_key in st.session_state:
-        del st.session_state[ul_key]
 
     # FPTK dropdown
     fptk_display = []
@@ -731,7 +733,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 univ_lain = st.text_input(
                     "Univ Lainnya *",
                     value=univ_lain_init
-                    # key DIHILANGKAN supaya tidak nyangkut
+                    # key DIHILANGKAN → tidak nyangkut antar render
                 )
             else:
                 univ_lain = ""
@@ -756,7 +758,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 jurusan_lain = st.text_input(
                     "Jurusan Lainnya *",
                     value=jurusan_lain_init
-                    # key DIHILANGKAN supaya tidak nyangkut
+                    # key DIHILANGKAN → tidak nyangkut antar render
                 )
             else:
                 jurusan_lain = ""
@@ -814,7 +816,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 if st.form_submit_button("🔄 Reset / Parse Ulang", type="secondary"):
                     st.session_state.parsed_cv_data = {}
                     st.session_state.show_parsed_form = False
-                    # Bersihkan state widget terkait
                     for k in list(st.session_state.keys()):
                         if k.startswith(form_key):
                             del st.session_state[k]
@@ -891,7 +892,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 if is_parse_mode:
                     st.session_state.parsed_cv_data = {}
                     st.session_state.show_parsed_form = False
-                    # Bersihkan state widget
                     for k in list(st.session_state.keys()):
                         if k.startswith(form_key):
                             del st.session_state[k]
