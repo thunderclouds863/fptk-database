@@ -4,15 +4,12 @@ from datetime import datetime
 from core.database import get_db
 from core.models import DBSourcing, FPTK, MasterDropdown
 from core.auth import get_current_user, is_it, is_editor
-from core.utils import safe_int, parse_phone, is_valid_email
+from core.utils import safe_int, safe_float, parse_phone, is_valid_email
 import time
 import re
 
 COPILOT_AGENT_URL = "https://m365.cloud.microsoft/chat/?titleId=T_e0524666-839c-757c-7ef5-d5e72311417d&source=embedded-builder"
 
-# ============================================================
-# CACHE FUNCTIONS
-# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_master_options_sourcing(_db):
@@ -57,10 +54,6 @@ def get_pipeline_stages():
     ]
 
 
-# ============================================================
-# UNIVERSITY TIER MAP
-# ============================================================
-
 UNIV_TIER_MAP = {
     "Universitas Indonesia": "Top 3 PTN",
     "Universitas Gadjah Mada": "Top 3 PTN",
@@ -94,10 +87,6 @@ UNIV_TIER_MAP = {
     "Swiss German University": "Top 10 PTS",
 }
 
-
-# ============================================================
-# NORMALIZER
-# ============================================================
 
 UNIV_ALIASES = {
     "Universitas Indonesia": ["universitas indonesia", "university of indonesia", "ui"],
@@ -187,10 +176,6 @@ def normalize_jurusan(raw_val: str):
     return "Lainnya", pretty
 
 
-# ============================================================
-# PREPROCESS
-# ============================================================
-
 KNOWN_LABELS = [
     "Jenjang Pendidikan",
     "Nama Universitas/Sekolah",
@@ -245,10 +230,6 @@ def preprocess_cv_text(raw_text: str) -> str:
     return text
 
 
-# ============================================================
-# PARSE CV
-# ============================================================
-
 def parse_cv_text(raw_text: str) -> dict:
     parsed = {
         'nama': '', 'email': '', 'hp': '',
@@ -284,9 +265,12 @@ def parse_cv_text(raw_text: str) -> dict:
     if ipk_match:
         parsed['ipk'] = ipk_match.group().replace(',', '.')
 
-    year_match = re.search(r'(20[0-9]{2})', raw_text)
-    if year_match:
-        parsed['tahun_lulus'] = year_match.group()
+    year_matches = re.findall(r'\b(20[0-9]{2})\b', raw_text)
+    for y in year_matches:
+        y_int = int(y)
+        if 1990 <= y_int <= 2030:
+            parsed['tahun_lulus'] = y
+            break
 
     univ_label_seen = False
     jurusan_label_seen = False
@@ -298,20 +282,17 @@ def parse_cv_text(raw_text: str) -> dict:
             key = key.strip().lower()
             val = val.strip()
 
-            # Tandai label sudah muncul (walau val kosong)
             if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
                 univ_label_seen = True
             if any(k in key for k in ['jurusan', 'major']):
                 jurusan_label_seen = True
 
-            # Khusus jurusan: kalau label ada tapi kosong → tetap "Lainnya" + field kosong
             if any(k in key for k in ['jurusan', 'major']):
                 if not val:
                     parsed['jurusan'] = "Lainnya"
                     parsed['jurusan_lain'] = ""
                     continue
 
-            # Khusus univ: kalau label ada tapi kosong → tetap "Lainnya" + field kosong
             if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
                 if not val:
                     parsed['univ'] = "Lainnya"
@@ -322,7 +303,6 @@ def parse_cv_text(raw_text: str) -> dict:
             if not val:
                 continue
 
-            # URUTAN: cek univ SEBELUM nama
             if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
                 univ_dd, univ_lain = normalize_univ(val)
                 parsed['univ'] = univ_dd
@@ -390,7 +370,6 @@ def parse_cv_text(raw_text: str) -> dict:
             elif any(k in key for k in ['kode unik', 'unique code']):
                 parsed['kode_unik'] = val
 
-    # Fallback nama
     if not parsed['nama']:
         for line in lines:
             line = line.strip()
@@ -398,7 +377,6 @@ def parse_cv_text(raw_text: str) -> dict:
                 parsed['nama'] = line
                 break
 
-    # Fallback jenjang
     if not parsed['jenjang']:
         tl = raw_text.lower()
         if 's1' in tl or 'bachelor' in tl or 'sarjana' in tl:
@@ -412,7 +390,6 @@ def parse_cv_text(raw_text: str) -> dict:
         elif 'sma' in tl or 'high school' in tl:
             parsed['jenjang'] = 'SMA/SMK'
 
-    # Fallback FMCG
     if not parsed['fmcg']:
         tl = raw_text.lower()
         if 'fmcg' in tl:
@@ -421,7 +398,6 @@ def parse_cv_text(raw_text: str) -> dict:
             elif 'tidak' in tl or 'no' in tl:
                 parsed['fmcg'] = 'Tidak'
 
-    # Fallback univ — hanya kalau label univ TIDAK PERNAH muncul
     if not parsed['univ'] and not univ_label_seen:
         univ_dd, univ_lain = normalize_univ(raw_text)
         if univ_dd and univ_dd != "Lainnya":
@@ -434,7 +410,6 @@ def parse_cv_text(raw_text: str) -> dict:
                 parsed['univ_lain'] = univ_lain
                 parsed['university_tier'] = "Lainnya"
 
-    # Fallback jurusan — hanya kalau label jurusan TIDAK PERNAH muncul
     if not parsed['jurusan'] and not jurusan_label_seen:
         jur_dd, jur_lain = normalize_jurusan(raw_text)
         if jur_dd and jur_dd != "Lainnya":
@@ -447,10 +422,6 @@ def parse_cv_text(raw_text: str) -> dict:
 
     return parsed
 
-
-# ============================================================
-# MAIN ENTRY
-# ============================================================
 
 def show_sourcing_input():
     st.title("👤 Input Sourcing / CV")
@@ -585,10 +556,6 @@ def show_sourcing_input():
                 st.session_state.batch_index = 0
 
 
-# ============================================================
-# FORM SOURCING (REUSABLE)
-# ============================================================
-
 def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options,
                        initial_data=None, form_key="sourcing_form", is_parse_mode=False, batch_mode=False):
 
@@ -619,20 +586,12 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     posisi = initial_data.get('posisi', '') if initial_data else ''
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
 
-    # ============================================================
-    # AUTO-FIX UNIV & JURUSAN
-    # Kalau nilai TIDAK ADA di dropdown → pilih "Lainnya"
-    # Kalau sudah "Lainnya" → tetap "Lainnya" (field Lainnya bisa kosong)
-    # ============================================================
-
-    # ---------- UNIVERSITAS ----------
     univ_original = univ
     if univ_original and univ_original not in univ_options:
         univ = "Lainnya"
         if not univ_lain_init and univ_original.strip().lower() not in GENERIC_UNIV_WORDS:
             univ_lain_init = univ_original
     elif univ_original == "Lainnya":
-        # Tetap "Lainnya", biarkan field Lainnya apa adanya (bisa kosong)
         univ = "Lainnya"
         if univ_lain_init and univ_lain_init.strip().lower() in GENERIC_UNIV_WORDS:
             univ_lain_init = ""
@@ -643,14 +602,12 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
         univ = ""
         univ_lain_init = ""
 
-    # ---------- JURUSAN ----------
     jurusan_original = jurusan
     if jurusan_original and jurusan_original not in jurusan_options:
         jurusan = "Lainnya"
         if not jurusan_lain_init and jurusan_original.strip().lower() not in GENERIC_JURUSAN_WORDS:
             jurusan_lain_init = jurusan_original
     elif jurusan_original == "Lainnya":
-        # Tetap "Lainnya", biarkan field Lainnya apa adanya (bisa kosong)
         jurusan = "Lainnya"
         if jurusan_lain_init and jurusan_lain_init.strip().lower() in GENERIC_JURUSAN_WORDS:
             jurusan_lain_init = ""
@@ -661,7 +618,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
         jurusan = ""
         jurusan_lain_init = ""
 
-    # FPTK dropdown
     fptk_display = []
     fptk_map = {}
     fptk_posisi_map = {}
@@ -677,7 +633,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             if kode_unik and kode == kode_unik:
                 default_fptk_index = idx
                 break
-            if posisi and pos == pos:
+            if posisi and pos == posisi:
                 default_fptk_index = idx
                 break
 
@@ -716,7 +672,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             jenjang_input = st.selectbox("Jenjang", [""] + jenjang_options,
                                         index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0)
 
-            # UNIVERSITAS
             default_univ_index = 0
             if univ in univ_options:
                 default_univ_index = ([""] + univ_options).index(univ) if univ != "" else 0
@@ -733,7 +688,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 univ_lain = st.text_input(
                     "Univ Lainnya *",
                     value=univ_lain_init
-                    # key DIHILANGKAN → tidak nyangkut antar render
                 )
             else:
                 univ_lain = ""
@@ -741,7 +695,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             tier_auto = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
             st.text_input("University Tier (auto)", value=tier_auto, disabled=True)
 
-            # JURUSAN
             default_jur_index = 0
             if jurusan in jurusan_options:
                 default_jur_index = ([""] + jurusan_options).index(jurusan) if jurusan != "" else 0
@@ -758,7 +711,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 jurusan_lain = st.text_input(
                     "Jurusan Lainnya *",
                     value=jurusan_lain_init
-                    # key DIHILANGKAN → tidak nyangkut antar render
                 )
             else:
                 jurusan_lain = ""
@@ -769,6 +721,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 default_tahun = int(tahun_lulus) if tahun_lulus and str(tahun_lulus).isdigit() else None
             except:
                 default_tahun = None
+
+            if default_tahun is not None and (default_tahun < 1990 or default_tahun > 2030):
+                default_tahun = None
+
             tahun_lulus_input = st.number_input("Tahun Lulus", min_value=1990, max_value=2030, step=1,
                                                 value=default_tahun)
             fmcg_input = st.selectbox("Pernah di FMCG?", [""] + fmcg_options,
@@ -866,7 +822,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                     jurusan=jurusan_input if jurusan_input != "Lainnya" else "",
                     jurusan_lainnya=jurusan_lain if jurusan_input == "Lainnya" else "",
                     university_tier=tier_final,
-                    ipk=safe_int(ipk_input.replace(',', '.')) if ipk_input else None,
+                    ipk=safe_float(ipk_input.replace(',', '.')) if ipk_input else None,
                     tahun_lulus=tahun_lulus_input if tahun_lulus_input and tahun_lulus_input > 0 else None,
                     nomor_hp=hp_input,
                     email=email_input,
