@@ -23,10 +23,6 @@ from core.template_manager import save_template, get_active_template, get_templa
 import time
 
 
-# ============================================================
-# CONSTANTS
-# ============================================================
-
 BU_CODE_MAPPING = {
     "CORP": {"nama": "Corporate", "kode": "CORP"},
     "MP": {"nama": "Macroprima Panganutama", "kode": "MP"},
@@ -79,42 +75,24 @@ for num in range(1, 6):
         LEVEL_OPTIONS.append(f"{num}{letter}")
 
 
-# ============================================================
-# FUNGSI GENERATE KODE UNIK & KODE ANGKA
-# ============================================================
-
-def generate_kode_unik(kode_pic, posisi, fptk_date):
-    """Generate Kode Unik dari Kode PIC + Posisi (4 huruf pertama) + Tanggal (DDMMYY)"""
-    if not kode_pic or not posisi or not fptk_date:
-        if kode_pic and fptk_date:
-            date_code = fptk_date.strftime("%d%m%y")
-            return f"{kode_pic}XXXX{date_code}"
+def generate_kode_unik(kode_pic, kode_angka, fptk_date):
+    if not kode_pic or not fptk_date:
         return ""
-
     date_code = fptk_date.strftime("%d%m%y")
-    posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper()
-    if not posisi_code:
-        posisi_code = "XXXX"
+    angka_part = re.sub(r'[^0-9]', '', str(kode_angka)) if kode_angka else "0"
+    if not angka_part:
+        angka_part = "0"
+    return f"{kode_pic}{angka_part}{date_code}"
 
-    return f"{kode_pic}{posisi_code}{date_code}"
 
-def generate_kode_angka(db, posisi, kode_pic):
-    """Generate Kode Angka dengan auto-increment, format: [KodePIC][3 digit angka]"""
-    if not posisi or not kode_pic:
-        return f"{kode_pic}001" if kode_pic else "ADM001"
-
-    last_entry = db.query(FPTK).filter(
-        FPTK.posisi == posisi,
-        FPTK.kode_pic == kode_pic
-    ).order_by(FPTK.id.desc()).first()
-
+def generate_kode_angka(db, posisi=None, kode_pic=None):
+    last_entry = db.query(FPTK).order_by(FPTK.id.desc()).first()
     if last_entry and last_entry.kode_angka:
-        last_angka = re.sub(r'[^0-9]', '', last_entry.kode_angka)
+        last_angka = re.sub(r'[^0-9]', '', str(last_entry.kode_angka))
         if last_angka and last_angka.isdigit():
-            new_number = int(last_angka) + 1
-            return f"{kode_pic}{str(new_number).zfill(3)}"
+            return int(last_angka) + 1
+    return 1
 
-    return f"{kode_pic}001"
 
 def get_last_fptk_date_kode(db, posisi, kode_pic):
     last_entry = db.query(FPTK).filter(
@@ -125,6 +103,7 @@ def get_last_fptk_date_kode(db, posisi, kode_pic):
         return last_entry.fptk_date_kode
     return None
 
+
 def check_duplicate(db, kode_unik, posisi):
     if not kode_unik:
         return None
@@ -133,10 +112,6 @@ def check_duplicate(db, kode_unik, posisi):
         FPTK.posisi == posisi
     ).first()
 
-
-# ============================================================
-# FUNGSI AUTO-FILL DB KODE POSISI
-# ============================================================
 
 def get_position_details_cached(db, posisi, direktorat=None):
     if not posisi:
@@ -150,6 +125,7 @@ def get_position_details_cached(db, posisi, direktorat=None):
     st.session_state.position_cache[cache_key] = result
     return result
 
+
 def add_position_to_master(db, posisi, direktorat=None, business_unit=None, location=None,
                            division=None, department=None, user_manager=None, indirect_user=None, kode=None):
     if not posisi:
@@ -162,10 +138,6 @@ def add_position_to_master(db, posisi, direktorat=None, business_unit=None, loca
         st.session_state.position_cache = {}
     return result
 
-
-# ============================================================
-# FUNGSI DETAIL SLA OTOMATIS
-# ============================================================
 
 def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_date, today=None):
     if today is None:
@@ -199,30 +171,20 @@ def calculate_detail_sla_auto(status, fptk_date_real, deadline_sla, offering_dat
 
     return "OP Belum Lewat SLA"
 
+
 def sanitize_value(value):
     if value == "" or value == " ":
         return None
     return value
 
 
-# ============================================================
-# CLEAN DATAFRAME
-# ============================================================
-
 def clean_dataframe(df):
-    """Hapus kolom Unnamed dan baris kosong dari dataframe"""
     if df is None or df.empty:
         return df
-
     df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
     df = df.dropna(how='all')
-
     return df
 
-
-# ============================================================
-# FUNGSI GET MASTER OPTIONS (CACHE)
-# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_master_options(_db):
@@ -261,30 +223,31 @@ def get_master_options(_db):
             'ipk_tier_options': [], 'kode_pic_options': []
         }
 
+
 @st.cache_data(ttl=3600)
 def get_pic_mapping():
     return PIC_MAPPING.copy()
+
 
 @st.cache_data(ttl=3600)
 def get_bu_mapping():
     return BU_CODE_MAPPING.copy()
 
+
 @st.cache_data(ttl=3600)
 def get_level_options():
     return LEVEL_OPTIONS.copy()
+
 
 @st.cache_data(ttl=3600)
 def get_all_pic_names():
     return ALL_PIC_NAMES.copy()
 
+
 @st.cache_data(ttl=3600)
 def get_all_bu_codes():
     return ALL_BU_CODES.copy()
 
-
-# ============================================================
-# FUNGSI UTAMA show_upload_compile()
-# ============================================================
 
 def show_upload_compile():
     st.title("📤 Upload & Compile FPTK")
@@ -323,10 +286,6 @@ def show_upload_compile():
     kode_pic_options = master_options['kode_pic_options']
     level_options = get_level_options()
 
-    # ============================================================
-    # ADMIN TEMPLATE MANAGEMENT
-    # ============================================================
-
     if is_admin(db):
         st.markdown("---")
         st.subheader("⚙️ Admin - Template Excel")
@@ -339,10 +298,6 @@ def show_upload_compile():
                 st.rerun()
 
     tab1, tab2, tab3 = st.tabs(["📤 Upload Excel", "📝 Input Manual FPTK", "📧 Paste informasi FPTK dari HR Portal"])
-
-    # ============================================================
-    # TAB 1: UPLOAD EXCEL
-    # ============================================================
 
     with tab1:
         cycle = get_current_cycle(db)
@@ -396,12 +351,8 @@ def show_upload_compile():
                     status_placeholder.info(f"📄 Memproses file {file_num}/{total_files}: **{file.name}**")
 
                     try:
-                        # ============================================================
-                        # BACA FPTK
-                        # ============================================================
                         df = pd.read_excel(file, sheet_name="FPTK", header=None)
 
-                        # CARI HEADER ROW
                         header_row = None
                         for i, row in df.iterrows():
                             row_text = " ".join([str(x) for x in row.values if pd.notna(x)])
@@ -414,12 +365,10 @@ def show_upload_compile():
                             error_count += 1
                             continue
 
-                        # SET HEADER
                         df_columns = df.iloc[header_row].astype(str).str.strip()
                         df = df.iloc[header_row+1:].reset_index(drop=True)
                         df.columns = df_columns
 
-                        # Bersihkan
                         df = clean_dataframe(df)
 
                         if df.empty:
@@ -442,13 +391,9 @@ def show_upload_compile():
                                     error_msg = err.get("error", "")
                                     st.markdown(f"- **Row {row}** - {field}: `{value}` → {error_msg}")
 
-                        # ============================================================
-                        # TAMPILAN ERROR — FRIENDLY UNTUK HEADER, DETAIL UNTUK ROW
-                        # ============================================================
                         if real_errors:
                             st.error(f"❌ **File `{file.name}` DITOLAK**")
 
-                            # Cek apakah error-nya soal HEADER
                             header_error = None
                             for err in real_errors:
                                 if err.get("field") == "HEADER" and isinstance(err.get("value"), dict):
@@ -456,11 +401,7 @@ def show_upload_compile():
                                     break
 
                             if header_error:
-                                # ============================================================
-                                # TAMPILAN FRIENDLY UNTUK HEADER ERROR
-                                # ============================================================
                                 st.markdown(f"### {header_error['summary']}")
-
                                 st.markdown("---")
                                 st.markdown("#### 📋 Kolom yang Dibutuhkan Tapi Tidak Ditemukan:")
 
@@ -488,9 +429,6 @@ def show_upload_compile():
                                 with st.expander("🔧 Detail Teknis (Admin)"):
                                     st.json(header_error)
                             else:
-                                # ============================================================
-                                # ERROR NON-HEADER — TAMPILKAN BIASA
-                                # ============================================================
                                 with st.expander(f"❌ Lihat Error Detail ({len(real_errors)})", expanded=True):
                                     for err in real_errors:
                                         if err.get("field") == "SUMMARY":
@@ -506,9 +444,6 @@ def show_upload_compile():
                             error_count += 1
                             continue
 
-                        # ============================================================
-                        # COMPILE FPTK
-                        # ============================================================
                         progress_placeholder.progress(20, text=f"Compile FPTK...")
                         file_hash = hashlib.sha256(file.getvalue()).hexdigest()
                         file_name = sanitize_filename(file.name)
@@ -561,9 +496,6 @@ def show_upload_compile():
                             error_count += 1
                             continue
 
-                        # ============================================================
-                        # COMPILE DB SOURCING
-                        # ============================================================
                         try:
                             with pd.ExcelFile(file) as xls:
                                 if "DB Sourcing" in xls.sheet_names:
@@ -623,9 +555,6 @@ def show_upload_compile():
                         except Exception as e:
                             st.warning(f"⚠️ {file.name}: DB Sourcing error: {str(e)}")
 
-                        # ============================================================
-                        # COMPILE DB KODE POSISI
-                        # ============================================================
                         try:
                             with pd.ExcelFile(file) as xls:
                                 if "DB Kode Posisi" in xls.sheet_names:
@@ -654,9 +583,6 @@ def show_upload_compile():
                         except Exception as e:
                             st.warning(f"⚠️ {file.name}: DB Kode Posisi error: {str(e)}")
 
-                        # ============================================================
-                        # UPDATE STATUS USER
-                        # ============================================================
                         mark_user_uploading(db, user.id, cycle.id)
                         success_count += 1
                         progress_placeholder.progress(100, text="✅ Selesai!")
@@ -723,10 +649,6 @@ def show_upload_compile():
             st.warning(f"⚠️ Gagal mengambil riwayat upload: {str(e)}")
             st.info("📭 Silakan upload file terlebih dahulu")
 
-    # ============================================================
-    # TAB 2: INPUT MANUAL FPTK
-    # ============================================================
-
     with tab2:
         st.subheader("📝 Input FPTK Manual")
         st.caption("Input satu per satu. PIC otomatis dari user yang login.")
@@ -774,9 +696,9 @@ def show_upload_compile():
                 kode_pic = st.text_input("Kode PIC", value=user_pic_code, disabled=True)
 
                 if is_admin(db):
-                    kode_unik = st.text_input("Kode Unik", value="", placeholder="Admin: isi manual atau biarkan auto-generate")
+                    kode_unik_manual = st.text_input("Kode Unik", value="", placeholder="Admin: isi manual atau biarkan auto-generate")
                 else:
-                    kode_unik = st.text_input("Kode Unik", value="", placeholder="Akan di-generate otomatis", disabled=True)
+                    kode_unik_manual = st.text_input("Kode Unik", value="", placeholder="Akan di-generate otomatis", disabled=True)
 
                 posisi = st.text_input("Posisi *", value=st.session_state.manual_posisi, key="manual_posisi_input")
 
@@ -912,12 +834,15 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
 
-            if not kode_unik and kode_pic and posisi and fptk_date:
-                kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
-                if not kode_unik:
-                    errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
-
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
+
+            if not kode_unik_manual and kode_pic and posisi and fptk_date:
+                kode_unik = generate_kode_unik(kode_pic, kode_angka, fptk_date)
+            elif kode_unik_manual:
+                kode_unik = kode_unik_manual
+            else:
+                kode_unik = ""
+                errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
 
             if errors:
                 for err in errors:
@@ -951,21 +876,19 @@ def show_upload_compile():
                             else:
                                 new_fptk_date_kode = fptk_date
 
-                            kode_unik_baru = generate_kode_unik(kode_pic, posisi, new_fptk_date_kode)
-
-                            posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
+                            new_kode_angka = generate_kode_angka(db, posisi, kode_pic)
+                            kode_unik_baru = generate_kode_unik(kode_pic, new_kode_angka, new_fptk_date_kode)
 
                             suffix_index = 0
                             while check_duplicate(db, kode_unik_baru, posisi):
                                 suffix_index += 1
-                                test_kode = f"{kode_pic}{posisi_code}{new_fptk_date_kode.strftime('%d%m%y')}{chr(65 + suffix_index - 1)}"
-                                if not check_duplicate(db, test_kode, posisi):
-                                    kode_unik_baru = test_kode
-                                    break
+                                new_kode_angka += 1
+                                kode_unik_baru = generate_kode_unik(kode_pic, new_kode_angka, new_fptk_date_kode)
                                 if suffix_index > 100:
                                     break
 
                             kode_unik_used = kode_unik_baru
+                            kode_angka_used = new_kode_angka
                             fptk_date_kode_used = new_fptk_date_kode
                             st.info(f"✅ Kode Unik baru: **{kode_unik_used}**")
                     else:
@@ -1014,31 +937,23 @@ def show_upload_compile():
                             offering_date=offering_date
                         )
 
-                        kode_angka_base = kode_angka_used
-                        posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
+                        kode_angka_current = kode_angka_used
 
                         for i in range(vacancy):
                             fptk_date_kode_current = fptk_date_kode_used + timedelta(days=i)
-                            kode_angka_current = kode_angka_base
 
                             if i > 0:
-                                angka_part = re.sub(r'[^0-9]', '', kode_angka_base)
-                                if angka_part and angka_part.isdigit():
-                                    new_num = int(angka_part) + i
-                                    kode_angka_current = f"{kode_pic}{str(new_num).zfill(3)}"
+                                kode_angka_current = kode_angka_used + i
 
-                            date_code = fptk_date_kode_current.strftime("%d%m%y")
-                            kode_unik_baru = f"{kode_pic}{posisi_code}{date_code}"
+                            kode_unik_baru = generate_kode_unik(kode_pic, kode_angka_current, fptk_date_kode_current)
 
                             existing_check = check_duplicate(db, kode_unik_baru, posisi)
                             suffix_index = 0
                             while existing_check:
                                 suffix_index += 1
-                                test_kode = f"{kode_pic}{posisi_code}{date_code}{chr(65 + suffix_index - 1)}"
-                                existing_check = check_duplicate(db, test_kode, posisi)
-                                if not existing_check:
-                                    kode_unik_baru = test_kode
-                                    break
+                                kode_angka_current += 1
+                                kode_unik_baru = generate_kode_unik(kode_pic, kode_angka_current, fptk_date_kode_current)
+                                existing_check = check_duplicate(db, kode_unik_baru, posisi)
                                 if suffix_index > 100:
                                     break
 
@@ -1136,10 +1051,6 @@ def show_upload_compile():
                         st.error(f"❌ Error: {str(e)}")
                         db.rollback()
 
-    # ============================================================
-    # TAB 3: PASTE EMAIL BODY
-    # ============================================================
-
     with tab3:
         st.subheader("📧 Paste Informasi FPTK dari HR Portal")
         st.caption("Paste isi email permintaan FPTK. Sistem akan otomatis mengekstrak data.")
@@ -1198,9 +1109,9 @@ def show_upload_compile():
                 kode_pic = st.text_input("Kode PIC", value=parsed_data.get("kode_pic", user_pic_code), disabled=True)
 
                 if is_admin(db):
-                    kode_unik = st.text_input("Kode Unik", value=parsed_data.get("kode_unik", ""), placeholder="Admin: isi manual atau biarkan auto-generate")
+                    kode_unik_email_manual = st.text_input("Kode Unik", value=parsed_data.get("kode_unik", ""), placeholder="Admin: isi manual atau biarkan auto-generate")
                 else:
-                    kode_unik = st.text_input("Kode Unik", value=parsed_data.get("kode_unik", ""), placeholder="Akan di-generate otomatis", disabled=True)
+                    kode_unik_email_manual = st.text_input("Kode Unik", value=parsed_data.get("kode_unik", ""), placeholder="Akan di-generate otomatis", disabled=True)
 
                 posisi = st.text_input("Posisi *", value=parsed_data.get("posisi", ""), key="email_posisi_input")
 
@@ -1356,12 +1267,15 @@ def show_upload_compile():
             if status == "Cancel" and not cancel_date:
                 errors.append("FPTK Cancel Date wajib diisi jika Status = Cancel")
 
-            if not kode_unik and kode_pic and posisi and fptk_date:
-                kode_unik = generate_kode_unik(kode_pic, posisi, fptk_date)
-                if not kode_unik:
-                    errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
-
             kode_angka = generate_kode_angka(db, posisi, kode_pic)
+
+            if not kode_unik_email_manual and kode_pic and posisi and fptk_date:
+                kode_unik = generate_kode_unik(kode_pic, kode_angka, fptk_date)
+            elif kode_unik_email_manual:
+                kode_unik = kode_unik_email_manual
+            else:
+                kode_unik = ""
+                errors.append("Kode Unik tidak bisa di-generate. Pastikan Kode PIC dan Posisi terisi.")
 
             if errors:
                 for err in errors:
@@ -1395,21 +1309,19 @@ def show_upload_compile():
                             else:
                                 new_fptk_date_kode = fptk_date
 
-                            kode_unik_baru = generate_kode_unik(kode_pic, posisi, new_fptk_date_kode)
-
-                            posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
+                            new_kode_angka = generate_kode_angka(db, posisi, kode_pic)
+                            kode_unik_baru = generate_kode_unik(kode_pic, new_kode_angka, new_fptk_date_kode)
 
                             suffix_index = 0
                             while check_duplicate(db, kode_unik_baru, posisi):
                                 suffix_index += 1
-                                test_kode = f"{kode_pic}{posisi_code}{new_fptk_date_kode.strftime('%d%m%y')}{chr(65 + suffix_index - 1)}"
-                                if not check_duplicate(db, test_kode, posisi):
-                                    kode_unik_baru = test_kode
-                                    break
+                                new_kode_angka += 1
+                                kode_unik_baru = generate_kode_unik(kode_pic, new_kode_angka, new_fptk_date_kode)
                                 if suffix_index > 100:
                                     break
 
                             kode_unik_used = kode_unik_baru
+                            kode_angka_used = new_kode_angka
                             fptk_date_kode_used = new_fptk_date_kode
                             st.info(f"✅ Kode Unik baru: **{kode_unik_used}**")
                     else:
@@ -1461,9 +1373,6 @@ def show_upload_compile():
                                 indirect_user=indirect_user,
                                 kode=kode_pic
                             )
-
-                        posisi_code = re.sub(r'[^A-Za-z]', '', posisi)[:4].upper() if posisi else "XXXX"
-                        kode_angka_base = kode_angka_used
 
                         new_fptk = FPTK(
                             kode_unik=kode_unik_used,
@@ -1529,13 +1438,6 @@ def show_upload_compile():
 
 def parse_email_body(body: str, bu_options: list = None, alasan_options: list = None, 
                      category_options: list = None, direktorat_options: list = None) -> dict:
-    """
-    Parse email body dari HR Portal Cimory.
-    Format: Label ada di baris sendiri, value di baris berikutnya.
-    Contoh:
-        Nama Jabatan Yang Dicari (Read only)*
-        Fresh Graduate Development Program
-    """
     result = {
         "posisi": "", "alasan": "", "business_unit": "", "divisi": "",
         "department": "", "level_fptk": "1A", "level_number": 1,
@@ -1550,56 +1452,34 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
     if not body:
         return result
 
-    # ============================================================
-    # NORMALIZE: hapus karakter aneh, samakan line break
-    # ============================================================
     text = body.replace('\r\n', '\n').replace('\r', '\n')
     
-    # Hapus karakter Unicode icon/emoji dari SharePoint
-    # Karakter ini range-nya di atas BMP atau di area symbol
-    text = re.sub(r'[\uE000-\uF8FF]', '', text)  # Private Use Area
-    text = re.sub(r'[\u2000-\u206F]', ' ', text)  # General Punctuation
-    text = re.sub(r'[\u2190-\u21FF]', '', text)   # Arrows
-    text = re.sub(r'[\u2200-\u22FF]', '', text)   # Math Operators
-    text = re.sub(r'[\u2300-\u23FF]', '', text)   # Misc Technical
-    text = re.sub(r'[\u25A0-\u25FF]', '', text)   # Geometric Shapes
-    text = re.sub(r'[\u2600-\u26FF]', '', text)   # Misc Symbols
-    text = re.sub(r'[\u2700-\u27BF]', '', text)   # Dingbats
+    text = re.sub(r'[\uE000-\uF8FF]', '', text)
+    text = re.sub(r'[\u2000-\u206F]', ' ', text)
+    text = re.sub(r'[\u2190-\u21FF]', '', text)
+    text = re.sub(r'[\u2200-\u22FF]', '', text)
+    text = re.sub(r'[\u2300-\u23FF]', '', text)
+    text = re.sub(r'[\u25A0-\u25FF]', '', text)
+    text = re.sub(r'[\u2600-\u26FF]', '', text)
+    text = re.sub(r'[\u2700-\u27BF]', '', text)
     
-    # Replace non-breaking space
     text = text.replace('\u00a0', ' ').replace('\u2007', ' ').replace('\u202f', ' ')
-    
-    # Collapse multiple spaces
     text = re.sub(r'[ \t]{2,}', ' ', text)
     
-    # Split jadi lines dan clean
     lines = [l.strip() for l in text.split('\n')]
 
-    # ============================================================
-    # HELPER: Normalize label (hapus suffix "(Read only)*" dll)
-    # ============================================================
     def normalize_label(text_val):
-        """Hapus suffix seperti (Read only)*, *, :, dll dari label"""
         if not text_val:
             return ""
         s = text_val.strip()
-        # Hapus semua dalam kurung
         s = re.sub(r'\([^)]*\)', '', s)
-        # Hapus kurung siku
         s = re.sub(r'\[[^\]]*\]', '', s)
-        # Hapus asterisk
         s = s.replace('*', '')
-        # Hapus separator di akhir
         s = re.sub(r'[:\-=|]+\s*$', '', s)
-        # Trim dan collapse spasi
         s = re.sub(r'\s+', ' ', s).strip()
         return s
 
-    # ============================================================
-    # HELPER: Cek apakah line adalah label (dari field yang dicari)
-    # ============================================================
     def is_matching_label(line_text, field_names):
-        """Cek apakah line_text adalah label yang match dengan field_names"""
         if not line_text:
             return False
         normalized = normalize_label(line_text).lower()
@@ -1611,9 +1491,6 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
                 return True
         return False
 
-    # ============================================================
-    # HELPER: Cek apakah line adalah "any label" (untuk stop condition)
-    # ============================================================
     ALL_KNOWN_LABELS = [
         "nama jabatan yang dicari", "jabatan yang dicari", "nama jabatan",
         "jabatan", "position", "posisi", "nama posisi",
@@ -1643,7 +1520,6 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
     ]
 
     def is_any_known_label(line_text):
-        """Cek apakah line ini adalah label apapun yang dikenal"""
         if not line_text:
             return False
         normalized = normalize_label(line_text).lower()
@@ -1654,42 +1530,24 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
                 return True
         return False
 
-    # ============================================================
-    # HELPER: Main find_field function
-    # ============================================================
     def find_field(field_names, max_lookahead=5):
-        """
-        Cari field dengan multi-strategy.
-        Format Cimory: Label di baris sendiri, value di baris berikutnya.
-        """
-        # ============================================================
-        # STRATEGY 1: Label di baris sendiri, value di baris berikutnya (CIMORY FORMAT)
-        # ============================================================
         for i, line in enumerate(lines):
             if not line or len(line) < 3:
                 continue
             
-            # Cek apakah line ini label yang match
             if is_matching_label(line, field_names):
-                # Cari value di baris berikutnya (skip baris kosong)
                 for j in range(i + 1, min(i + 1 + max_lookahead, len(lines))):
                     next_line = lines[j].strip()
                     if not next_line:
                         continue
                     if is_any_known_label(next_line):
-                        break  # Ketemu label lain, stop
-                    # Ini value-nya
+                        break
                     value = next_line
-                    # Bersihkan
                     value = value.strip('"').strip("'").strip()
-                    # Skip value yang cuma "Enter value here" atau placeholder
                     if value.lower() in ["enter value here", "-", ""]:
                         continue
                     return value
 
-        # ============================================================
-        # STRATEGY 2: Label: Value di baris yang sama
-        # ============================================================
         for i, line in enumerate(lines):
             if not line:
                 continue
@@ -1698,7 +1556,6 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
             for name in field_names:
                 name_low = name.lower()
                 if name_low in line_low:
-                    # Cari separator
                     for sep in [':', '=', '|']:
                         if sep in line:
                             parts = line.split(sep, 1)
@@ -1709,9 +1566,6 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
 
         return ""
 
-    # ============================================================
-    # EXTRACT FIELDS
-    # ============================================================
     result["posisi"] = find_field([
         "Nama Jabatan Yang Dicari", "Jabatan Yang Dicari", "Nama Jabatan",
         "Position", "Posisi", "Nama Posisi"
@@ -1751,17 +1605,12 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
     result["nama_kandidat"] = find_field(["Nama Kandidat"])
     result["remark"] = find_field(["Remark", "Catatan", "Notes"])
 
-    # ============================================================
-    # PARSE LEVEL FPTK (handle "2B - Senior Staff" → "2B" + level_num=2)
-    # ============================================================
     if result["level_fptk"]:
-        # Cari format XA/ XB/ XC di awal string
         match = re.match(r'^(\d)\s*([A-C])', result["level_fptk"].strip().upper())
         if match:
             result["level_number"] = int(match.group(1))
             result["level_fptk"] = f"{match.group(1)}{match.group(2)}"
         else:
-            # Fallback: cari angka
             match = re.search(r'(\d)', result["level_fptk"])
             if match:
                 level_num = int(match.group(1))
@@ -1769,19 +1618,14 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
                     result["level_number"] = level_num
                     result["level_fptk"] = f"{level_num}A"
 
-    # ============================================================
-    # RESOLVE PIC RECRUITER (dari email PIC di form)
-    # ============================================================
     pic_mapping = get_pic_mapping()
     pic_found = False
 
     if result["pic_email"]:
         email_lower = result["pic_email"].lower()
-        # Handle email seperti avrellia.marta@cimory.com → "marta"
-        email_prefix = email_lower.split('@')[0]  # avrellia.marta
-        email_parts = re.split(r'[._\-]', email_prefix)  # ['avrellia', 'marta']
+        email_prefix = email_lower.split('@')[0]
+        email_parts = re.split(r'[._\-]', email_prefix)
         
-        # Cek dari akhir part (biasanya nama depan di belakang email)
         for part in reversed(email_parts):
             for key, value in pic_mapping.items():
                 if key == part:
@@ -1793,7 +1637,6 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
             if pic_found:
                 break
         
-        # Fallback: substring match
         if not pic_found:
             for key, value in pic_mapping.items():
                 if key in email_lower:
@@ -1813,9 +1656,6 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
                 pic_found = True
                 break
 
-    # ============================================================
-    # CATEGORY
-    # ============================================================
     alasan_lower = result["alasan"].lower()
     if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
         result["category"] = "REPLACEMENT"
@@ -1824,9 +1664,6 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
     else:
         result["category"] = "REPLACEMENT"
 
-    # ============================================================
-    # BUSINESS UNIT RESOLVE
-    # ============================================================
     bu_mapping = get_bu_mapping()
     bu_lower = result["business_unit"].lower()
     for key, value in bu_mapping.items():
@@ -1851,24 +1688,8 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
         }
         result["direktorat"] = bu_map.get(result["kode_bu"], "")
 
-    # ============================================================
-    # KODE UNIK PREVIEW
-    # ============================================================
     if result["kode_pic"]:
         date_code = datetime.now().strftime("%d%m%y")
-        posisi_code = ""
-        if result["posisi"]:
-            posisi_code = re.sub(r'[^A-Za-z]', '', result["posisi"])[:4].upper()
-        result["kode_unik"] = f"{result['kode_pic']}{posisi_code}{date_code}"
-
-    # ============================================================
-    # DEBUG
-    # ============================================================
-    print("=" * 60)
-    print("PARSED EMAIL RESULT:")
-    for k, v in result.items():
-        if v:
-            print(f"  {k}: {v}")
-    print("=" * 60)
+        result["kode_unik"] = f"{result['kode_pic']}PREVIEW{date_code}"
 
     return result
