@@ -1,3 +1,4 @@
+# pages/07_user_management.py
 import streamlit as st
 import pandas as pd
 import re
@@ -12,9 +13,6 @@ from core.utils import get_filter_options_from_db
 from datetime import datetime
 
 
-# ============================================================
-# BU MAPPING
-# ============================================================
 BU_OPTIONS = [
     {"value": "CMD", "label": "CMD - PT Cisarua Mountain Dairy, Tbk"},
     {"value": "JESS", "label": "JESS - PT Java Egg Specialities"},
@@ -28,23 +26,13 @@ BU_VALUES = [b["value"] for b in BU_OPTIONS]
 
 
 def generate_kode_pic(business_unit: str, pic_name: str) -> str:
-    """
-    Generate Kode PIC dari BU dan Nama PIC
-    Format: {BU}{3 huruf pertama nama}
-    Contoh: CMD + Elsi → CMDEls
-    """
     if not business_unit or not pic_name:
         return ""
     name_code = re.sub(r'[^A-Za-z]', '', pic_name)[:3].capitalize()
     return f"{business_unit}{name_code}"
 
 
-# ============================================================
-# HELPER: REFRESH FILTER SETELAH PERUBAHAN USER
-# ============================================================
-
 def refresh_filter_cache():
-    """Clear cache filter options supaya PIC baru muncul."""
     try:
         get_filter_options_from_db.clear()
     except Exception:
@@ -55,23 +43,20 @@ def refresh_filter_cache():
         pass
 
 
-# ============================================================
-# DIALOG HAPUS USER (PERMANEN)
-# ============================================================
-@st.dialog("⚠️ HAPUS USER PERMANEN")
+@st.dialog("HAPUS USER PERMANEN")
 def confirm_delete_user(user_id: int, username: str):
-    st.error(f"⚠️ **PERINGATAN!** Anda akan menghapus user **{username}** secara **PERMANEN**!")
+    st.error(f"PERINGATAN! Anda akan menghapus user **{username}** secara **PERMANEN**!")
 
     st.markdown("""
     ### Data yang akan ikut terhapus:
-    - ✅ Semua FPTK milik user ini
-    - ✅ Semua Sourcing milik user ini
-    - ✅ Semua Evidence milik user ini
-    - ✅ Semua Upload Logs milik user ini
-    - ✅ Semua Audit Logs milik user ini
+    - Semua FPTK milik user ini
+    - Semua Sourcing milik user ini
+    - Semua Evidence milik user ini
+    - Semua Upload Logs milik user ini
+    - Semua Audit Logs milik user ini
     """)
 
-    st.warning("⚠️ **TINDAKAN INI TIDAK DAPAT DIBATALKAN!**")
+    st.warning("TINDAKAN INI TIDAK DAPAT DIBATALKAN!")
 
     confirm_username = st.text_input(
         f"Ketik username **{username}** untuk konfirmasi:",
@@ -80,7 +65,7 @@ def confirm_delete_user(user_id: int, username: str):
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🗑️ Ya, Hapus Permanen", type="primary", use_container_width=True):
+        if st.button("Ya, Hapus Permanen", type="primary", use_container_width=True):
             if confirm_username.strip() == username:
                 db = next(get_db())
                 try:
@@ -88,11 +73,10 @@ def confirm_delete_user(user_id: int, username: str):
                     user_check = db.query(User).filter(User.id == user_id).first()
 
                     if user_check.role == "admin" and admin_count <= 1:
-                        st.error("❌ Tidak bisa menghapus admin terakhir!")
+                        st.error("Tidak bisa menghapus admin terakhir!")
                         db.close()
                         st.stop()
 
-                    # Hapus semua data terkait
                     db.query(FPTK).filter(FPTK.source_user_id == user_id).delete(synchronize_session=False)
                     db.query(DBSourcing).filter(DBSourcing.source_user_id == user_id).delete(synchronize_session=False)
                     db.query(UploadLog).filter(UploadLog.user_id == user_id).delete(synchronize_session=False)
@@ -102,40 +86,34 @@ def confirm_delete_user(user_id: int, username: str):
                     db.delete(user_check)
                     db.commit()
 
-                    # ============================================================
-                    # REFRESH FILTER CACHE (PIC yang dihapus hilang dari filter)
-                    # ============================================================
                     refresh_filter_cache()
                     st.cache_data.clear()
 
-                    st.success(f"✅ User **{username}** berhasil dihapus permanen!")
+                    st.success(f"User **{username}** berhasil dihapus permanen!")
                     st.rerun()
 
                 except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
                     db.rollback()
                 finally:
                     db.close()
             else:
-                st.error(f"❌ Username tidak cocok! Ketik **{username}** dengan benar.")
+                st.error(f"Username tidak cocok! Ketik **{username}** dengan benar.")
 
     with col2:
-        if st.button("❌ Batal", use_container_width=True):
+        if st.button("Batal", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
 
-# ============================================================
-# DIALOG KONFIRMASI NONAKTIFKAN USER
-# ============================================================
-@st.dialog("⚠️ Konfirmasi Nonaktifkan User")
+@st.dialog("Konfirmasi Nonaktifkan User")
 def confirm_deactivate_user(user_id: int, username: str):
     st.warning(f"Yakin ingin **nonaktifkan** user **{username}**?")
     st.caption("User akan kehilangan akses login. **Semua data TETAP TERSIMPAN**.")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Ya, Nonaktifkan", type="primary", use_container_width=True):
+        if st.button("Ya, Nonaktifkan", type="primary", use_container_width=True):
             db = next(get_db())
             try:
                 user = db.query(User).filter(User.id == user_id).first()
@@ -144,39 +122,33 @@ def confirm_deactivate_user(user_id: int, username: str):
                     user.password_hash = "DISABLED"
                     db.commit()
 
-                    # ============================================================
-                    # REFRESH FILTER CACHE
-                    # ============================================================
                     refresh_filter_cache()
                     st.cache_data.clear()
 
-                    st.success(f"✅ User '{username}' berhasil dinonaktifkan!")
+                    st.success(f"User '{username}' berhasil dinonaktifkan!")
                     st.rerun()
                 else:
                     st.error("User tidak ditemukan!")
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"Error: {str(e)}")
                 db.rollback()
             finally:
                 db.close()
 
     with col2:
-        if st.button("❌ Batal", use_container_width=True):
+        if st.button("Batal", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
 
-# ============================================================
-# DIALOG AKTIFKAN USER
-# ============================================================
-@st.dialog("🔄 Aktifkan User Kembali")
+@st.dialog("Aktifkan User Kembali")
 def confirm_activate_user(user_id: int, username: str):
     st.info(f"Aktifkan user **{username}** kembali?")
     st.caption("Password akan direset ke **password123**.")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("✅ Ya, Aktifkan", type="primary", use_container_width=True):
+        if st.button("Ya, Aktifkan", type="primary", use_container_width=True):
             db = next(get_db())
             try:
                 user = db.query(User).filter(User.id == user_id).first()
@@ -194,32 +166,26 @@ def confirm_activate_user(user_id: int, username: str):
                     user.password_hash = hash_password("password123")
                     db.commit()
 
-                    # ============================================================
-                    # REFRESH FILTER CACHE (PIC kembali muncul di filter)
-                    # ============================================================
                     refresh_filter_cache()
                     st.cache_data.clear()
 
-                    st.success(f"✅ User '{username}' berhasil diaktifkan! Password: **password123**")
+                    st.success(f"User '{username}' berhasil diaktifkan! Password: **password123**")
                     st.rerun()
                 else:
                     st.error("User tidak ditemukan!")
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"Error: {str(e)}")
                 db.rollback()
             finally:
                 db.close()
 
     with col2:
-        if st.button("❌ Batal", use_container_width=True):
+        if st.button("Batal", use_container_width=True):
             st.cache_data.clear()
             st.rerun()
 
 
-# ============================================================
-# DIALOG EDIT USER (LENGKAP DENGAN BU & KODE PIC)
-# ============================================================
-@st.dialog("✏️ Edit User")
+@st.dialog("Edit User")
 def edit_user_dialog(user_id: int):
     db = next(get_db())
     user = db.query(User).filter(User.id == user_id).first()
@@ -255,7 +221,7 @@ def edit_user_dialog(user_id: int):
             reset_pw = st.checkbox("Reset Password")
             new_password = st.text_input("Password Baru (min 6 karakter)", type="password", disabled=not reset_pw)
 
-        st.markdown("### 🏢 Business Unit & Kode PIC")
+        st.markdown("### Business Unit & Kode PIC")
         st.caption("Kode PIC otomatis dari BU + Nama PIC. Admin bisa override manual.")
 
         col1, col2 = st.columns(2)
@@ -276,21 +242,21 @@ def edit_user_dialog(user_id: int):
 
         if not manual_kode and new_pic and new_bu:
             auto_kode = generate_kode_pic(new_bu, new_pic)
-            st.info(f"📋 Preview Kode PIC otomatis: **{auto_kode}**")
+            st.info(f"Preview Kode PIC otomatis: **{auto_kode}**")
         elif manual_kode:
-            st.info(f"📋 Kode PIC manual: **{manual_kode}**")
+            st.info(f"Kode PIC manual: **{manual_kode}**")
 
         if new_role == "it":
-            st.info("🔍 Role **IT** = View-Only Admin (bisa lihat semua menu admin tapi TIDAK bisa upload/edit/aksi apa pun)")
+            st.info("Role **IT** = View-Only Admin (bisa lihat semua menu admin tapi TIDAK bisa upload/edit/aksi apa pun)")
         elif new_role == "admin":
-            st.info("🛠️ Role **Admin** = Akses penuh (upload, edit, manage user, manage cycle)")
+            st.info("Role **Admin** = Akses penuh (upload, edit, manage user, manage cycle)")
         else:
-            st.info("👤 Role **User** = Bisa upload data sendiri")
+            st.info("Role **User** = Bisa upload data sendiri")
 
         if not is_active:
-            st.warning("⚠️ User ini sudah nonaktif. Ubah username (hapus 'inactive_') untuk mengaktifkan.")
+            st.warning("User ini sudah nonaktif. Ubah username (hapus 'inactive_') untuk mengaktifkan.")
 
-        if st.form_submit_button("💾 Simpan", type="primary", use_container_width=True):
+        if st.form_submit_button("Simpan", type="primary", use_container_width=True):
             errors = []
             if not new_pic:
                 errors.append("PIC Recruiter wajib diisi")
@@ -299,7 +265,7 @@ def edit_user_dialog(user_id: int):
 
             if errors:
                 for err in errors:
-                    st.error(f"❌ {err}")
+                    st.error(f"{err}")
                 st.stop()
 
             try:
@@ -326,35 +292,26 @@ def edit_user_dialog(user_id: int):
 
                 db.commit()
 
-                # ============================================================
-                # REFRESH FILTER CACHE (PIC yang diubah langsung update di filter)
-                # ============================================================
                 refresh_filter_cache()
                 st.cache_data.clear()
 
-                st.success(f"✅ User '{new_username}' berhasil diupdate!")
+                st.success(f"User '{new_username}' berhasil diupdate!")
                 st.rerun()
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"Error: {str(e)}")
                 db.rollback()
 
     db.close()
 
 
-# ============================================================
-# MAIN FUNCTION
-# ============================================================
 def show_user_management():
-    st.title("👥 User Management")
+    st.title("User Management")
     st.markdown("Kelola akun user, Business Unit, dan Kode PIC.")
 
     db = next(get_db())
 
-    # ============================================================
-    # CHECK ACCESS - IT (VIEW-ONLY)
-    # ============================================================
     if is_it(db):
-        st.info("🔍 Mode View-Only (IT)")
+        st.info("Mode View-Only (IT)")
         users = db.query(User).all()
         data = [{
             "ID": u.id,
@@ -363,15 +320,12 @@ def show_user_management():
             "BU": u.business_unit or "-",
             "Kode PIC": u.kode_pic or "-",
             "PIC Recruiter": u.pic_recruiter or "-",
-            "Status": "✅ Aktif" if not u.username.startswith("inactive_") else "⛔ Nonaktif"
+            "Status": "Aktif" if not u.username.startswith("inactive_") else "Nonaktif"
         } for u in users]
         st.dataframe(pd.DataFrame(data), use_container_width=True)
         db.close()
         return
 
-    # ============================================================
-    # CHECK ACCESS - ADMIN ONLY
-    # ============================================================
     if not is_admin(db):
         st.error("Hanya Admin yang bisa mengelola User.")
         db.close()
@@ -383,10 +337,7 @@ def show_user_management():
         db.close()
         return
 
-    # ============================================================
-    # DAFTAR USER
-    # ============================================================
-    st.subheader("📋 Daftar User")
+    st.subheader("Daftar User")
     users = db.query(User).order_by(User.username).all()
 
     if users:
@@ -401,7 +352,7 @@ def show_user_management():
                 "BU": u.business_unit or "-",
                 "Kode PIC": u.kode_pic or "-",
                 "PIC": u.pic_recruiter or "-",
-                "Status": "✅ Aktif" if is_active else "⛔ Nonaktif",
+                "Status": "Aktif" if is_active else "Nonaktif",
                 "Last Login": u.last_login.strftime("%d/%m/%Y %H:%M") if u.last_login else "-",
                 "Created": u.created_at.strftime("%d/%m/%Y") if u.created_at else "-",
             })
@@ -426,11 +377,8 @@ def show_user_management():
             }
         )
 
-        # ============================================================
-        # TOMBOL AKSI PER USER
-        # ============================================================
         st.markdown("---")
-        st.subheader("🔧 Aksi User")
+        st.subheader("Aksi User")
 
         user_options = {f"{u.username} ({u.display_name or u.username})": u.id for u in users}
         selected_user = st.selectbox("Pilih User", list(user_options.keys()))
@@ -443,37 +391,37 @@ def show_user_management():
             col1, col2, col3, col4, col5 = st.columns(5)
 
             with col1:
-                if st.button("✏️ Edit User", use_container_width=True):
+                if st.button("Edit User", use_container_width=True):
                     edit_user_dialog(selected_id)
 
             with col2:
-                if st.button("🔑 Reset Password", use_container_width=True):
+                if st.button("Reset Password", use_container_width=True):
                     if reset_password(db, selected_id, "password123"):
                         st.cache_data.clear()
-                        st.success(f"✅ Password user '{selected_data.username}' direset ke: **password123**")
+                        st.success(f"Password user '{selected_data.username}' direset ke: **password123**")
                         st.rerun()
                     else:
                         st.error("Gagal reset password!")
 
             with col3:
                 if is_active:
-                    if st.button("⛔ Nonaktifkan", use_container_width=True):
+                    if st.button("Nonaktifkan", use_container_width=True):
                         confirm_deactivate_user(selected_id, selected_data.username)
                 else:
-                    if st.button("🔄 Aktifkan Kembali", use_container_width=True):
+                    if st.button("Aktifkan Kembali", use_container_width=True):
                         confirm_activate_user(selected_id, selected_data.username)
 
             with col4:
-                if st.button("🗑️ Hapus", use_container_width=True, type="secondary"):
+                if st.button("Hapus", use_container_width=True, type="secondary"):
                     confirm_delete_user(selected_id, selected_data.username)
 
             with col5:
                 if is_active:
-                    st.success("✅ Aktif")
+                    st.success("Aktif")
                 else:
-                    st.error("⛔ Nonaktif")
+                    st.error("Nonaktif")
 
-            with st.expander("📋 Detail User Terpilih", expanded=True):
+            with st.expander("Detail User Terpilih", expanded=True):
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"**Username:** {selected_data.username}")
@@ -484,11 +432,8 @@ def show_user_management():
                     st.markdown(f"**Kode PIC:** {selected_data.kode_pic or '-'}")
                     st.markdown(f"**PIC Recruiter:** {selected_data.pic_recruiter or '-'}")
 
-        # ============================================================
-        # TAMBAH USER BARU (DENGAN BU & KODE PIC)
-        # ============================================================
         st.markdown("---")
-        st.subheader("➕ Tambah User Baru")
+        st.subheader("Tambah User Baru")
 
         with st.form("add_user"):
             col1, col2, col3 = st.columns(3)
@@ -518,11 +463,11 @@ def show_user_management():
                     st.text_input("Preview Kode PIC (auto)", value="", disabled=True, placeholder="Isi BU dan PIC")
 
             if new_role == "it":
-                st.info("🔍 Role **IT** = View-Only Admin (bisa lihat semua menu admin tapi TIDAK bisa upload/edit/aksi apa pun)")
+                st.info("Role **IT** = View-Only Admin")
             elif new_role == "admin":
-                st.info("🛠️ Role **Admin** = Akses penuh")
+                st.info("Role **Admin** = Akses penuh")
             else:
-                st.info("👤 Role **User** = Bisa upload data sendiri")
+                st.info("Role **User** = Bisa upload data sendiri")
 
             if st.form_submit_button("Tambah User", type="primary"):
                 errors = []
@@ -537,7 +482,7 @@ def show_user_management():
 
                 if errors:
                     for err in errors:
-                        st.error(f"❌ {err}")
+                        st.error(f"{err}")
                 else:
                     auto_kode = generate_kode_pic(new_bu, new_pic_name)
                     result = create_user(
@@ -551,25 +496,19 @@ def show_user_management():
                         auto_kode
                     )
                     if result:
-                        # ============================================================
-                        # REFRESH FILTER CACHE (PIC baru langsung muncul di filter)
-                        # ============================================================
                         refresh_filter_cache()
                         st.cache_data.clear()
 
-                        st.success(f"✅ User '{new_username}' berhasil dibuat! Kode PIC: {auto_kode}")
+                        st.success(f"User '{new_username}' berhasil dibuat! Kode PIC: {auto_kode}")
                         st.rerun()
                     else:
-                        st.error("Username sudah digunakan!")
+                        st.error("Username sudah digunakan atau password kurang dari 6 karakter!")
 
     else:
         st.info("Belum ada user.")
 
-    # ============================================================
-    # SUMMARY STATISTICS
-    # ============================================================
     st.markdown("---")
-    st.subheader("📊 Statistik User")
+    st.subheader("Statistik User")
 
     users = db.query(User).all()
     if users:
