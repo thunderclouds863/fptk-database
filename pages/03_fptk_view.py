@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from core.database import get_db
 from core.models import FPTK, User, MasterDropdown, FPTKDeleteRequest
 from core.auth import get_current_user, is_admin
-from core.utils import get_filter_options_from_db, calculate_detail_sla
+from core.utils import get_filter_options_from_db, calculate_detail_sla, calculate_sla_days
 from datetime import datetime, timedelta
 import plotly.express as px
 import re
@@ -240,6 +240,8 @@ def show_fptk_view():
     filter_kategorisasi_options = filter_opts.get("filter_kategorisasi_options", []) or FALLBACK_FILTER_KATEGORISASI
     divisi_options = filter_opts.get("divisi_options", [])
     dept_options = filter_opts.get("dept_options", [])
+    alasan_options = filter_opts.get("alasan_options", [])
+    lokasi_onboarding_options = filter_opts.get("lokasi_onboarding_options", [])
 
     status_options = ["OP", "Closed", "Cancel"]
     LEVEL_OPTIONS = get_level_options_fptk()
@@ -454,95 +456,124 @@ def show_fptk_view():
 
         if selected_ids:
             st.markdown("#### Field yang Mau Diubah")
-            col_field, col_value = st.columns(2)
 
-            with col_field:
-                field_to_update = st.selectbox(
-                    "Pilih Field",
-                    [
-                        "status",
-                        "offering_date",
-                        "fptk_cancel_date",
-                        "remark",
-                        "filter_kategorisasi_fptk",
-                        "pic_recruiter",
-                        "nama_kandidat",
-                        "lokasi_onboarding",
-                        "user_manager",
-                        "indirect_user",
-                        "status_karyawan",
-                        "kebutuhan_laptop",
-                        "fptk_availability",
-                        "category_fptk",
-                        "alasan_permintaan_fptk",
-                        "divisi",
-                        "department",
-                        "direktorat",
-                        "business_unit",
-                    ],
-                    key="bulk_field_select"
-                )
+            all_bulk_fields = {
+                "level_fptk": "Level FPTK (auto recalc SLA)",
+                "level_number": "Level Number",
+                "status": "Status (auto recalc SLA)",
+                "business_unit": "Business Unit",
+                "direktorat": "Direktorat",
+                "divisi": "Divisi",
+                "department": "Department",
+                "alasan_permintaan_fptk": "Alasan Permintaan FPTK",
+                "category_fptk": "Category FPTK",
+                "pic_recruiter": "PIC Recruiter",
+                "filter_kategorisasi_fptk": "Filter Kategorisasi FPTK",
+                "vacancy": "Vacancy",
+                "offering_date": "Offering Date",
+                "fptk_cancel_date": "FPTK Cancel Date",
+                "jumlah_sla": "Jumlah SLA",
+                "deadline_sla": "Deadline SLA",
+                "detail_sla": "Detail SLA",
+                "nama_kandidat": "Nama Kandidat",
+                "estimasi_join": "Estimasi Join",
+                "kebutuhan_laptop": "Kebutuhan Laptop",
+                "lokasi_onboarding": "Lokasi Onboarding",
+                "user_manager": "User (Manager)",
+                "indirect_user": "Indirect User",
+                "lokasi_kerja": "Lokasi Kerja",
+                "lokasi_hr": "Lokasi HR",
+                "status_karyawan": "Status Karyawan",
+                "kode_bu": "Kode BU",
+                "fptk_availability": "FPTK Availability",
+                "remark": "Remark",
+            }
 
-            with col_value:
-                if field_to_update == "status":
-                    new_value = st.selectbox("Nilai Baru", ["OP", "Closed", "Cancel"], key="bulk_val_status")
-                elif field_to_update in ["offering_date", "fptk_cancel_date"]:
-                    new_value = st.date_input("Tanggal", datetime.now().date(), key="bulk_val_date")
-                elif field_to_update == "filter_kategorisasi_fptk":
-                    new_value = st.selectbox(
-                        "Kategori",
-                        ["CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"],
-                        key="bulk_val_kat"
-                    )
-                elif field_to_update == "pic_recruiter":
-                    new_value = st.selectbox("PIC Recruiter", pic_options_all, key="bulk_val_pic")
-                elif field_to_update == "business_unit":
-                    new_value = st.selectbox("Business Unit", bu_options, key="bulk_val_bu")
-                elif field_to_update == "direktorat":
-                    new_value = st.selectbox("Direktorat", direktorat_options, key="bulk_val_dir")
-                elif field_to_update == "divisi":
-                    new_value = st.selectbox("Divisi", divisi_options if divisi_options else ["-"], key="bulk_val_div")
-                elif field_to_update == "department":
-                    new_value = st.selectbox("Department", dept_options if dept_options else ["-"], key="bulk_val_dept")
-                elif field_to_update == "kebutuhan_laptop":
-                    new_value = st.selectbox("Kebutuhan Laptop", ["Ya", "Tidak"], key="bulk_val_laptop")
-                elif field_to_update == "fptk_availability":
-                    new_value = st.selectbox("FPTK Availability", ["V", "X", "Y", "N"], key="bulk_val_avail")
-                elif field_to_update == "category_fptk":
-                    new_value = st.selectbox("Category FPTK", ["NEW", "REPLACEMENT"], key="bulk_val_cat")
-                elif field_to_update == "nama_kandidat":
-                    new_value = st.text_input("Nama Kandidat", key="bulk_val_nama")
-                elif field_to_update == "lokasi_onboarding":
-                    new_value = st.text_input("Lokasi Onboarding", key="bulk_val_lokasi")
-                elif field_to_update == "user_manager":
-                    new_value = st.text_input("User (Manager)", key="bulk_val_um")
-                elif field_to_update == "indirect_user":
-                    new_value = st.text_input("Indirect User", key="bulk_val_iu")
-                elif field_to_update == "status_karyawan":
-                    new_value = st.text_input("Status Karyawan", key="bulk_val_sk")
-                else:
-                    new_value = st.text_area("Nilai Baru", key="bulk_val_text")
+            field_to_update = st.selectbox(
+                "Pilih Field",
+                list(all_bulk_fields.keys()),
+                format_func=lambda x: all_bulk_fields[x],
+                key="bulk_field_select_v2"
+            )
+
+            new_value = None
+
+            if field_to_update == "level_fptk":
+                new_value = st.selectbox("Level FPTK", LEVEL_OPTIONS, key="bulk_v2_level")
+            elif field_to_update == "level_number":
+                new_value = st.number_input("Level Number", min_value=1, max_value=5, value=1, key="bulk_v2_levelnum")
+            elif field_to_update == "status":
+                new_value = st.selectbox("Status", ["OP", "Closed", "Cancel"], key="bulk_v2_status")
+            elif field_to_update == "business_unit":
+                new_value = st.selectbox("Business Unit", [""] + bu_options, key="bulk_v2_bu")
+            elif field_to_update == "direktorat":
+                new_value = st.selectbox("Direktorat", [""] + direktorat_options, key="bulk_v2_dir")
+            elif field_to_update == "divisi":
+                new_value = st.selectbox("Divisi", [""] + divisi_options if divisi_options else [""], key="bulk_v2_div")
+            elif field_to_update == "department":
+                new_value = st.selectbox("Department", [""] + dept_options if dept_options else [""], key="bulk_v2_dept")
+            elif field_to_update == "pic_recruiter":
+                new_value = st.selectbox("PIC Recruiter", pic_options_all, key="bulk_v2_pic")
+            elif field_to_update == "filter_kategorisasi_fptk":
+                new_value = st.selectbox("Filter Kategorisasi", ["CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"], key="bulk_v2_kat")
+            elif field_to_update == "category_fptk":
+                new_value = st.selectbox("Category FPTK", ["NEW", "REPLACEMENT"], key="bulk_v2_cat")
+            elif field_to_update == "vacancy":
+                new_value = st.number_input("Vacancy", min_value=1, value=1, key="bulk_v2_vac")
+            elif field_to_update in ["offering_date", "fptk_cancel_date", "deadline_sla", "estimasi_join"]:
+                new_value = st.date_input("Tanggal", datetime.now().date(), key=f"bulk_v2_date_{field_to_update}")
+            elif field_to_update == "jumlah_sla":
+                new_value = st.number_input("Jumlah SLA (hari)", min_value=1, max_value=365, value=30, key="bulk_v2_sla")
+            elif field_to_update == "detail_sla":
+                new_value = st.selectbox("Detail SLA", detail_sla_options, key="bulk_v2_detailsla")
+            elif field_to_update == "kebutuhan_laptop":
+                new_value = st.selectbox("Kebutuhan Laptop", ["Ya", "Tidak"], key="bulk_v2_laptop")
+            elif field_to_update == "fptk_availability":
+                new_value = st.selectbox("FPTK Availability", ["V", "X", "Y", "N"], key="bulk_v2_avail")
+            elif field_to_update == "alasan_permintaan_fptk":
+                new_value = st.selectbox("Alasan", [""] + alasan_options, key="bulk_v2_alasan")
+            elif field_to_update == "lokasi_onboarding":
+                new_value = st.selectbox("Lokasi Onboarding", [""] + lokasi_onboarding_options, key="bulk_v2_onboard")
+            else:
+                new_value = st.text_area("Nilai Baru", key="bulk_v2_text")
 
             col_apply, col_cancel = st.columns(2)
             with col_apply:
-                if st.button("✅ Terapkan ke FPTK Terpilih", type="primary", use_container_width=True):
+                if st.button("✅ Terapkan ke FPTK Terpilih", type="primary", use_container_width=True, key="bulk_v2_apply"):
                     try:
                         updated_count = 0
+
                         for fptk_id in selected_ids:
                             fptk_obj = db.query(FPTK).filter(FPTK.id == fptk_id).first()
-                            if fptk_obj:
-                                setattr(fptk_obj, field_to_update, new_value)
-                                fptk_obj.last_updated_at = datetime.now()
-                                fptk_obj.last_compile_action = "BULK_EDIT"
+                            if not fptk_obj:
+                                continue
 
-                                if field_to_update == "status":
-                                    fptk_obj.detail_sla = calculate_detail_sla(
-                                        status=new_value,
-                                        deadline_sla=fptk_obj.deadline_sla,
-                                        offering_date=fptk_obj.offering_date
-                                    )
+                            setattr(fptk_obj, field_to_update, new_value)
 
-                                updated_count += 1
+                            if field_to_update == "level_fptk":
+                                match = re.search(r'(\d+)', str(new_value))
+                                new_level_num = int(match.group(1)) if match else 1
+                                fptk_obj.level_number = new_level_num
+                                sla_days = calculate_sla_days(new_level_num)
+                                fptk_obj.jumlah_sla = sla_days
+                                if fptk_obj.fptk_date_real:
+                                    fptk_obj.deadline_sla = fptk_obj.fptk_date_real + timedelta(days=sla_days)
+                                fptk_obj.detail_sla = calculate_detail_sla(
+                                    status=fptk_obj.status,
+                                    deadline_sla=fptk_obj.deadline_sla,
+                                    offering_date=fptk_obj.offering_date
+                                )
+
+                            if field_to_update == "status":
+                                fptk_obj.detail_sla = calculate_detail_sla(
+                                    status=new_value,
+                                    deadline_sla=fptk_obj.deadline_sla,
+                                    offering_date=fptk_obj.offering_date
+                                )
+
+                            fptk_obj.last_updated_at = datetime.now()
+                            fptk_obj.last_compile_action = "BULK_EDIT"
+                            updated_count += 1
 
                         db.commit()
                         st.cache_data.clear()
@@ -550,11 +581,11 @@ def show_fptk_view():
                         time.sleep(0.5)
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Error: {str(e)}")
+                        st.error(f"❌ Error: {str(e)}")
                         db.rollback()
 
             with col_cancel:
-                if st.button("❌ Batal", use_container_width=True, key="bulk_cancel"):
+                if st.button("❌ Batal", use_container_width=True, key="bulk_v2_cancel"):
                     st.rerun()
 
     st.markdown("---")
