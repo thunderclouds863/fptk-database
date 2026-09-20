@@ -731,3 +731,238 @@ def get_filter_options_from_db_simple():
         ["Semua"] + opts["bu_options"],
         ["Semua"] + opts["direktorat_options"],
     )
+
+def find_duplicate_candidates(db, nama, email=None, nomor_hp=None, exclude_id=None):
+    """
+    Cari kandidat duplikat berdasarkan nama + (email atau nomor_hp).
+    Return: list of dict {id, kode_unik, posisi, nama, email, nomor_hp, last_stage}
+    """
+    from core.models import DBSourcing
+
+    if not nama:
+        return []
+
+    query = db.query(DBSourcing).filter(
+        DBSourcing.nama.ilike(nama.strip())
+    )
+
+    if exclude_id:
+        query = query.filter(DBSourcing.id != exclude_id)
+
+    candidates = query.all()
+
+    results = []
+    for c in candidates:
+        match = False
+
+        if email and c.email and email.strip().lower() == c.email.strip().lower():
+            match = True
+        if nomor_hp and c.nomor_hp and nomor_hp.strip() == c.nomor_hp.strip():
+            match = True
+
+        if not email and not nomor_hp:
+            match = True
+        elif not c.email and not c.nomor_hp:
+            match = True
+
+        if match:
+            results.append({
+                "id": c.id,
+                "kode_unik": c.kode_unik,
+                "posisi": c.posisi,
+                "nama": c.nama,
+                "email": c.email,
+                "nomor_hp": c.nomor_hp,
+                "last_stage": get_last_pipeline_stage(c),
+                "rekruter": c.rekruter,
+                "sourcing_date": c.sourcing_date,
+            })
+
+    return results
+
+
+def get_last_pipeline_stage(candidate):
+    """
+    Cari stage pipeline terakhir yang di-update dari kandidat.
+    Return: dict {stage_label, stage_field, status, tanggal}
+    """
+    from datetime import datetime
+
+    pipeline_stages = [
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
+        {"field": "sourcing_hr", "label": "Sourcing HR"},
+        {"field": "shortlist_cv", "label": "Shortlist CV"},
+        {"field": "psikotes", "label": "Psikotes"},
+        {"field": "hr_interview", "label": "HR Interview"},
+        {"field": "technical_test_case_study", "label": "Technical Test / Case Study"},
+        {"field": "market_visit", "label": "Market Visit"},
+        {"field": "user_interview", "label": "User Interview"},
+        {"field": "panel_interview", "label": "Panel Interview"},
+        {"field": "reference_check", "label": "Reference Check"},
+        {"field": "mcu", "label": "MCU"},
+        {"field": "offering", "label": "Offering"},
+        {"field": "day1", "label": "Day 1"},
+    ]
+
+    last_stage = None
+    last_date = None
+
+    for stage in pipeline_stages:
+        field = stage["field"]
+        status = getattr(candidate, field, None)
+
+        if not status:
+            continue
+
+        date_field = f"tanggal_{field}"
+        date_val = getattr(candidate, date_field, None)
+
+        if date_val and (last_date is None or date_val > last_date):
+            last_date = date_val
+            last_stage = {
+                "stage_label": stage["label"],
+                "stage_field": field,
+                "status": status,
+                "tanggal": date_val,
+            }
+        elif last_stage is None:
+            last_stage = {
+                "stage_label": stage["label"],
+                "stage_field": field,
+                "status": status,
+                "tanggal": None,
+            }
+
+    return last_stage
+
+
+def transfer_candidate(db, sourcing_id, new_kode_unik, reason, user_id, user_name):
+    """
+    Transfer kandidat ke kode_unik baru.
+    Buat record DUPLIKAT di DB Sourcing dengan kode_unik baru (konsep A).
+    Return: {success, new_id, error}
+    """
+    from core.models import DBSourcing, CandidateTransfer
+    from datetime import datetime
+
+    try:
+        old_candidate = db.query(DBSourcing).filter(DBSourcing.id == sourcing_id).first()
+        if not old_candidate:
+            return {"success": False, "error": "Kandidat tidak ditemukan"}
+
+        old_kode_unik = old_candidate.kode_unik
+        old_last_stage = get_last_pipeline_stage(old_candidate)
+
+        # Cek apakah kandidat dengan kode_unik baru sudah ada
+        existing = db.query(DBSourcing).filter(
+            DBSourcing.kode_unik == new_kode_unik,
+            DBSourcing.nama == old_candidate.nama
+        ).first()
+
+        if existing:
+            return {"success": False, "error": f"Kandidat {old_candidate.nama} sudah ada di kode unik {new_kode_unik}"}
+
+        # Buat record duplikat dengan kode_unik baru
+        new_candidate = DBSourcing(
+            no=old_candidate.no,
+            sourcing_date=datetime.now().date(),
+            kode_unik=new_kode_unik,
+            posisi=old_candidate.posisi,
+            model_rekrutmen=old_candidate.model_rekrutmen,
+            model_rekrutmen_kategori=old_candidate.model_rekrutmen_kategori,
+            rekruter=old_candidate.rekruter,
+            sumber_sourcing=old_candidate.sumber_sourcing,
+            nama=old_candidate.nama,
+            nama_universitas_top10=old_candidate.nama_universitas_top10,
+            nama_universitas_lainnya=old_candidate.nama_universitas_lainnya,
+            jenjang_pendidikan=old_candidate.jenjang_pendidikan,
+            jurusan=old_candidate.jurusan,
+            jurusan_lainnya=old_candidate.jurusan_lainnya,
+            tahun_lulus=old_candidate.tahun_lulus,
+            ipk=old_candidate.ipk,
+            skor_bahasa_inggris=old_candidate.skor_bahasa_inggris,
+            university_tier=old_candidate.university_tier,
+            ipk_tier=old_candidate.ipk_tier,
+            nomor_hp=old_candidate.nomor_hp,
+            email=old_candidate.email,
+            domisili=old_candidate.domisili,
+            last_position=old_candidate.last_position,
+            last_tenure=old_candidate.last_tenure,
+            last_company=old_candidate.last_company,
+            total_tenure=old_candidate.total_tenure,
+            pernah_di_fmcg=old_candidate.pernah_di_fmcg,
+            notes=f"[TRANSFERRED from {old_kode_unik}] {reason or ''}",
+            source_user_id=user_id,
+            created_at=datetime.now(),
+            last_compile_action="TRANSFER_CANDIDATE"
+        )
+
+        db.add(new_candidate)
+        db.flush()
+
+        # Record history transfer
+        transfer_history = CandidateTransfer(
+            sourcing_id=new_candidate.id,
+            old_kode_unik=old_kode_unik,
+            new_kode_unik=new_kode_unik,
+            nama=old_candidate.nama,
+            posisi=old_candidate.posisi,
+            old_pipeline_stage=old_last_stage["stage_label"] if old_last_stage else None,
+            new_pipeline_stage=None,
+            reason=reason,
+            transferred_by=user_id,
+            transferred_by_name=user_name
+        )
+        db.add(transfer_history)
+
+        db.commit()
+
+        return {
+            "success": True,
+            "new_id": new_candidate.id,
+            "old_kode_unik": old_kode_unik,
+            "new_kode_unik": new_kode_unik
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+
+
+def transfer_candidates_bulk(db, sourcing_ids, new_kode_unik, reason, user_id, user_name):
+    """
+    Bulk transfer kandidat.
+    Return: {success_count, error_count, errors}
+    """
+    success_count = 0
+    error_count = 0
+    errors = []
+
+    for sid in sourcing_ids:
+        result = transfer_candidate(db, sid, new_kode_unik, reason, user_id, user_name)
+
+        if result["success"]:
+            success_count += 1
+        else:
+            error_count += 1
+            errors.append(f"ID {sid}: {result.get('error', 'Unknown error')}")
+
+    return {
+        "success_count": success_count,
+        "error_count": error_count,
+        "errors": errors
+    }
+
+
+def get_candidate_transfer_history(db, sourcing_id=None, limit=100):
+    """
+    Ambil history transfer kandidat.
+    """
+    from core.models import CandidateTransfer
+
+    query = db.query(CandidateTransfer).order_by(CandidateTransfer.transferred_at.desc())
+
+    if sourcing_id:
+        query = query.filter(CandidateTransfer.sourcing_id == sourcing_id)
+
+    return query.limit(limit).all()
