@@ -6,6 +6,7 @@ import base64
 import os
 import pandas as pd
 from datetime import datetime, timedelta
+from contextlib import contextmanager
 
 from core.session_manager import get_session_manager, check_idle_timeout, touch_session
 from core.database import SessionLocal, init_db
@@ -28,8 +29,13 @@ st.set_page_config(
 )
 
 
+@contextmanager
 def get_cached_db():
-    return SessionLocal()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
 @st.cache_resource
@@ -450,59 +456,58 @@ if not st.session_state.user_id:
 
             else:
 
-                db = get_cached_db()
+                with get_cached_db() as db:
 
-                try:
+                    try:
 
-                    user = login_user(
-                        db,
-                        username,
-                        password
-                    )
-
-                    if user:
-
-                        session_mgr.login(
-                            user.id,
-                            user.username,
-                            user.role,
-                            user.display_name or user.username
-                        )
-                        st.session_state.user_id = user.id
-                        st.session_state.username = user.username
-                        st.session_state.role = user.role
-                        st.session_state.user_display = (
-                            user.display_name
-                            or user.username
-                        )
-                        st.session_state.last_activity = datetime.now()
-                        st.session_state.page = "dashboard"
-
-                        if "pages_dict" in st.session_state:
-                            del st.session_state.pages_dict
-                        if "user_is_admin" in st.session_state:
-                            del st.session_state.user_is_admin
-                        if "pages_dict_role" in st.session_state:
-                            del st.session_state.pages_dict_role
-
-                        st.success(
-                            f"Selamat datang, "
-                            f"{st.session_state.user_display}!"
+                        user = login_user(
+                            db,
+                            username,
+                            password
                         )
 
-                        time.sleep(0.3)
+                        if user:
 
-                        st.rerun()
+                            session_mgr.login(
+                                user.id,
+                                user.username,
+                                user.role,
+                                user.display_name or user.username
+                            )
+                            st.session_state.user_id = user.id
+                            st.session_state.username = user.username
+                            st.session_state.role = user.role
+                            st.session_state.user_display = (
+                                user.display_name
+                                or user.username
+                            )
+                            st.session_state.last_activity = datetime.now()
+                            st.session_state.page = "dashboard"
 
-                    else:
+                            if "pages_dict" in st.session_state:
+                                del st.session_state.pages_dict
+                            if "user_is_admin" in st.session_state:
+                                del st.session_state.user_is_admin
+                            if "pages_dict_role" in st.session_state:
+                                del st.session_state.pages_dict_role
 
-                        st.error(
-                            "Username atau password salah!"
-                        )
+                            st.success(
+                                f"Selamat datang, "
+                                f"{st.session_state.user_display}!"
+                            )
 
-                finally:
+                            time.sleep(0.3)
 
-                    db.close()
+                            st.rerun()
+
+                        else:
+
+                            st.error(
+                                "Username atau password salah!"
+                            )
+
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
 
     st.stop()
 
@@ -550,11 +555,8 @@ with st.sidebar:
             "📩 Transfer FPTK": "transfer_fptk",
         }
 
-        db = get_cached_db()
-        try:
+        with get_cached_db() as db:
             user_is_admin = is_admin(db)
-        finally:
-            db.close()
 
         st.session_state["user_is_admin"] = user_is_admin
 
@@ -696,9 +698,7 @@ with st.sidebar:
 
         with st.form("change_password"):
 
-            db = get_cached_db()
-
-            try:
+            with get_cached_db() as db:
 
                 user = (
                     db.query(User)
@@ -768,10 +768,6 @@ with st.sidebar:
                             "Password baru minimal 6 "
                             "karakter dan harus sama!"
                         )
-
-            finally:
-
-                db.close()
 
     st.markdown("---")
 
@@ -914,24 +910,24 @@ st.markdown("### 📥 Export Data")
 
 if st.button("📊 Export All Data", use_container_width=True):
     with st.spinner("Mengekspor data..."):
-        db = get_cached_db()
-        try:
-            from core.export_excel import export_database_to_excel
-            filepath = export_database_to_excel(db)
+        with get_cached_db() as db:
+            try:
+                from core.export_excel import export_database_to_excel
+                filepath = export_database_to_excel(db)
 
-            with open(filepath, "rb") as f:
-                file_data = f.read()
+                with open(filepath, "rb") as f:
+                    file_data = f.read()
 
-            st.download_button(
-                label="📥 Download Excel",
-                data=file_data,
-                file_name=os.path.basename(filepath),
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
-            st.success(f"Export berhasil! File: {os.path.basename(filepath)}")
-        finally:
-            db.close()
+                st.download_button(
+                    label="📥 Download Excel",
+                    data=file_data,
+                    file_name=os.path.basename(filepath),
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                st.success(f"Export berhasil! File: {os.path.basename(filepath)}")
+            except Exception as e:
+                st.error(f"Export gagal: {str(e)}")
 
 with st.expander("📋 Export Sheet Spesifik"):
     sheet_options = [
@@ -948,24 +944,24 @@ with st.expander("📋 Export Sheet Spesifik"):
 
     if st.button(f"Export {selected_sheet}"):
         with st.spinner(f"Mengekspor {selected_sheet}..."):
-            db = get_cached_db()
-            try:
-                from core.export_excel import export_single_sheet
-                df = export_single_sheet(db, selected_sheet)
+            with get_cached_db() as db:
+                try:
+                    from core.export_excel import export_single_sheet
+                    df = export_single_sheet(db, selected_sheet)
 
-                from io import BytesIO
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, sheet_name=selected_sheet, index=False)
-                output.seek(0)
+                    from io import BytesIO
+                    output = BytesIO()
+                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                        df.to_excel(writer, sheet_name=selected_sheet, index=False)
+                    output.seek(0)
 
-                st.download_button(
-                    label=f"📥 Download {selected_sheet}.xlsx",
-                    data=output.getvalue(),
-                    file_name=f"{selected_sheet}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                st.success(f"Export {selected_sheet} berhasil!")
-            finally:
-                db.close()
+                    st.download_button(
+                        label=f"📥 Download {selected_sheet}.xlsx",
+                        data=output.getvalue(),
+                        file_name=f"{selected_sheet}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
+                    st.success(f"Export {selected_sheet} berhasil!")
+                except Exception as e:
+                    st.error(f"Export gagal: {str(e)}")
