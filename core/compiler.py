@@ -1,3 +1,4 @@
+# core/compiler.py
 import pandas as pd
 import math
 import re
@@ -11,19 +12,20 @@ from core.models import FPTK, DBSourcing, DBKodePosisi, UploadLog
 from core.utils import (
     safe_int, safe_float, safe_string, safe_boolean_char, safe_date,
     sanitize_date_value, calculate_detail_sla, calculate_sla_days,
-    parse_date_dmy, normalize_text, get_single_value
+    parse_date_dmy, normalize_text, get_single_value, normalize_boolean_to_vx
 )
 
-
-# ============================================================
-# HELPER FUNCTIONS
-# ============================================================
 
 def safe_string_for_db(value, default='', max_length=None):
     if value is None:
         return default
-    if isinstance(value, float) and math.isnan(value):
-        return default
+
+    try:
+        if pd.isna(value):
+            return default
+    except Exception:
+        pass
+
     if isinstance(value, pd.Series):
         return safe_string_for_db(value.iloc[0], default, max_length) if len(value) > 0 else default
     if isinstance(value, (list, tuple)):
@@ -42,8 +44,13 @@ def safe_string_for_db(value, default='', max_length=None):
 def safe_numeric_value(value, default=None):
     if value is None:
         return default
-    if isinstance(value, float) and math.isnan(value):
-        return default
+
+    try:
+        if pd.isna(value):
+            return default
+    except Exception:
+        pass
+
     if isinstance(value, pd.Series):
         return safe_numeric_value(value.iloc[0], default) if len(value) > 0 else default
     if isinstance(value, str):
@@ -68,8 +75,13 @@ def safe_numeric_value(value, default=None):
 def safe_int_value(value, default=None):
     if value is None:
         return default
-    if isinstance(value, float) and math.isnan(value):
-        return default
+
+    try:
+        if pd.isna(value):
+            return default
+    except Exception:
+        pass
+
     if isinstance(value, pd.Series):
         return safe_int_value(value.iloc[0], default) if len(value) > 0 else default
     if isinstance(value, str):
@@ -93,8 +105,13 @@ def safe_int_value(value, default=None):
 def get_boolean_value(val):
     if val is None:
         return None
-    if isinstance(val, float) and math.isnan(val):
-        return None
+
+    try:
+        if pd.isna(val):
+            return None
+    except Exception:
+        pass
+
     if isinstance(val, bool):
         return 'V' if val else 'X'
     if isinstance(val, (int, float)):
@@ -131,7 +148,7 @@ def safe_level_number(value):
             if 1 <= int_val <= 5:
                 return int_val
             return 1
-        except:
+        except Exception:
             return 1
     if isinstance(value, str):
         match = re.search(r'(\d+)', value)
@@ -160,30 +177,37 @@ def safe_level_fptk(value):
 def safe_date_fallback(value):
     if value is None:
         return None
+
     try:
         if pd.isna(value):
             return None
-    except:
+    except Exception:
         pass
-    if hasattr(value, '__class__') and 'NaT' in str(value.__class__):
+
+    class_name = str(value.__class__)
+    if 'NaT' in class_name:
         return None
+
     if isinstance(value, str) and value.upper() == 'NAT':
         return None
-    if isinstance(value, float) and math.isnan(value):
-        return None
+
     if isinstance(value, datetime):
         return value.date()
+
     if isinstance(value, date):
         return value
+
     if isinstance(value, pd.Timestamp):
         try:
             if pd.isna(value):
                 return None
-        except:
+        except Exception:
             pass
         return value.date()
+
     if isinstance(value, str):
         return parse_date_dmy(value)
+
     return None
 
 
@@ -191,7 +215,7 @@ def _get_kode_bu(kode_pic):
     if not kode_pic:
         return None
     kode = str(kode_pic).strip().upper()
-    if kode.startswith('CORP'):
+    if kode.startswith('CORP') or kode.startswith('ADM'):
         return 'HO'
     elif kode.startswith('JESS'):
         return 'JESS'
@@ -213,40 +237,37 @@ def _get_kode_bu(kode_pic):
 
 
 def translate_error_to_friendly(error_msg: str) -> str:
-    """Terjemahkan error teknis ke bahasa manusia."""
     error_lower = str(error_msg).lower()
-    
-    if "duplicate key" in error_lower or "cardinality" in error_lower:
+
+    if "duplicate key" in error_lower or "cardinality" in error_lower or "unique constraint" in error_lower:
         return "Ada data duplikat di file. Cek baris dengan Kode Unik + Posisi yang sama."
-    
+
     if "not null constraint" in error_lower or "null value in column" in error_lower:
         return "Ada kolom wajib yang kosong. Cek kembali kolom yang bertanda * (wajib)."
-    
+
     if "value too long" in error_lower or "string data right truncation" in error_lower:
         return "Ada teks yang terlalu panjang di salah satu kolom. Persingkat teksnya."
-    
+
     if "invalid input syntax" in error_lower and "date" in error_lower:
         return "Ada format tanggal yang salah. Pastikan format DD/MM/YYYY (contoh: 15/02/2026)."
-    
+
+    if "invalid input syntax" in error_lower and ("integer" in error_lower or "numeric" in error_lower):
+        return "Ada nilai angka yang tidak valid atau di luar batas. Cek kolom angka (No, IPK, dll)."
+
     if "check constraint" in error_lower:
         return "Ada nilai yang tidak sesuai aturan. Cek kolom Status (OP/Closed/Cancel) dan FPTK Availability (V/X)."
-    
+
     if "foreign key" in error_lower:
         return "Data referensi tidak ditemukan. Pastikan Kode Unik sudah ada di FPTK."
-    
+
+    if "out of range" in error_lower:
+        return "Ada nilai angka yang melebihi batas maksimum. Cek kolom No atau lainnya."
+
     return "Terjadi kesalahan saat memproses file. Hubungi admin jika masalah berlanjut."
 
 
-# ============================================================
-# COMPILE FPTK - BULK UPSERT (SELF-CONTAINED)
-# ============================================================
-
 def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                  file_name: str, file_bytes: bytes, is_sto: bool = False):
-    """
-    Compile FPTK dengan BULK UPSERT (INSERT ON CONFLICT DO UPDATE).
-    Semua logic inline, tidak butuh helper function external.
-    """
     if isinstance(rows_or_df, list):
         df = pd.DataFrame(rows_or_df)
     else:
@@ -260,14 +281,10 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             "errors": ["Tidak ada data valid"]
         }
 
-    # ============================================================
-    # PREPARE ALL ROWS (INLINE)
-    # ============================================================
     rows_to_upsert = []
     skipped = 0
 
     for idx, row in df.iterrows():
-        # --- Basic fields ---
         kode_unik = safe_string_for_db(row.get('kode_unik', ''), max_length=100)
         posisi = safe_string_for_db(row.get('posisi', ''), max_length=500)
         status = safe_string_for_db(row.get('status', ''), max_length=50)
@@ -276,7 +293,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             skipped += 1
             continue
 
-        # --- Dates ---
         fptk_date_real = safe_date(row.get('fptk_date_real'))
         offering_date = safe_date(row.get('offering_date'))
         fptk_cancel_date = safe_date(row.get('fptk_cancel_date'))
@@ -291,7 +307,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         if deadline_sla_input and isinstance(deadline_sla_input, datetime):
             deadline_sla_input = deadline_sla_input.date()
 
-        # --- Level ---
         level_num = safe_level_number(row.get('level_number'))
         if level_num == 1:
             raw_level_fptk = row.get('level_fptk')
@@ -306,7 +321,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         if level_fptk == "1A" and level_num > 1:
             level_fptk = f"{level_num}A"
 
-        # --- SLA ---
         sla_days = calculate_sla_days(level_num)
         deadline_sla = fptk_date_real + timedelta(days=sla_days) if fptk_date_real else deadline_sla_input
 
@@ -314,14 +328,11 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             status=status, deadline_sla=deadline_sla, offering_date=offering_date
         )
 
-        # --- Week & Month ---
         week_num = fptk_date_real.isocalendar()[1] if fptk_date_real else None
         month_name = fptk_date_real.strftime("%B") if fptk_date_real else None
 
-        # --- Kode BU ---
         kode_bu = _get_kode_bu(row.get('kode_pic', ''))
 
-        # --- Filter Kategorisasi ---
         filter_kat = safe_string_for_db(row.get('filter_kategorisasi_fptk', ''), max_length=100)
         posisi_lower = posisi.lower()
         if not filter_kat:
@@ -334,10 +345,8 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             elif level_num == 4:
                 filter_kat = 'Level 4'
 
-        # --- Availability ---
         avail = get_boolean_value(row.get('fptk_availability', ''))
 
-        # --- Numeric ---
         jumlah_sla = safe_int_value(row.get('jumlah_sla'), sla_days)
         vacancy = safe_int_value(row.get('vacancy'), 1)
         level_number = int(level_num) if level_num else 1
@@ -346,7 +355,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         if pd.isna(kode_angka) or not kode_angka:
             kode_angka = safe_string_for_db(row.get('kode_pic', ''), max_length=50)[:4] + str(vacancy)
 
-        # --- Build dict ---
         rows_to_upsert.append({
             'kode_unik': kode_unik,
             'posisi': posisi,
@@ -385,7 +393,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
     if rows_to_upsert:
         seen_keys = {}
         duplicate_details = []
-        
+
         for r in rows_to_upsert:
             key = (r['kode_unik'], r['posisi'])
             if key in seen_keys:
@@ -397,30 +405,27 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 })
             else:
                 seen_keys[key] = len(seen_keys) + 1
-        
-        # Jika ada duplikat → TOLAK file
+
         if duplicate_details:
             db.rollback()
-            
-            # Build pesan user-friendly
-            pesan = f"⚠️ File ditolak karena ada {len(duplicate_details)} baris duplikat.\n\n"
+
+            pesan = f"File ditolak karena ada {len(duplicate_details)} baris duplikat.\n\n"
             pesan += "Baris duplikat artinya: ada 2+ baris dengan Kode Unik + Posisi yang SAMA.\n\n"
             pesan += "Daftar duplikat:\n"
             for dup in duplicate_details[:10]:
-                pesan += f"  • Kode Unik: {dup['kode_unik']}\n"
+                pesan += f"  - Kode Unik: {dup['kode_unik']}\n"
                 pesan += f"    Posisi: {dup['posisi']}\n"
                 pesan += f"    Muncul di baris ke-{dup['first_row']} dan ke-{dup['duplicate_row']}\n\n"
-            
+
             if len(duplicate_details) > 10:
                 pesan += f"  ... dan {len(duplicate_details) - 10} duplikat lainnya\n\n"
-            
+
             pesan += "Solusi:\n"
             pesan += "1. Buka file Excel-nya\n"
             pesan += "2. Cari baris dengan Kode Unik + Posisi yang sama\n"
             pesan += "3. Hapus salah satu (yang lama atau yang duplikat)\n"
             pesan += "4. Upload ulang file-nya"
-            
-            # Log failure dengan pesan friendly
+
             try:
                 log = UploadLog(
                     cycle_id=cycle_id,
@@ -434,15 +439,15 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
                 )
                 db.add(log)
                 db.commit()
-            except:
+            except Exception:
                 db.rollback()
-            
+
             return {
                 "success": False,
                 "imported": 0,
                 "updated": 0,
                 "skipped": 0,
-                "errors": [pesan],  # Pesan user-friendly
+                "errors": [pesan],
                 "duplicate_count": len(duplicate_details),
                 "duplicate_details": duplicate_details,
                 "rejection_type": "DUPLICATE"
@@ -454,9 +459,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             "errors": ["Tidak ada row valid untuk di-compile"]
         }
 
-    # ============================================================
-    # DETEKSI IMPORTED vs UPDATED
-    # ============================================================
     imported = 0
     updated = 0
 
@@ -474,9 +476,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             else:
                 imported += 1
 
-        # ============================================================
-        # BULK UPSERT
-        # ============================================================
         now = datetime.now()
         for r in rows_to_upsert:
             r['created_at'] = now
@@ -528,9 +527,6 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         db.execute(stmt)
         db.flush()
 
-        # ============================================================
-        # LOG SUCCESS
-        # ============================================================
         log = UploadLog(
             cycle_id=cycle_id,
             user_id=user_id,
@@ -569,7 +565,7 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
             )
             db.add(log)
             db.commit()
-        except:
+        except Exception:
             db.rollback()
 
         return {
@@ -579,104 +575,47 @@ def compile_fptk(db: Session, rows_or_df, user_id: int, cycle_id: int,
         }
 
 
-# ============================================================
-# COMPILE DB SOURCING - DIPERBAIKI
-# ============================================================
-
 def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
                         file_name: str, file_hash: str):
-    """
-    Compile DB Sourcing dari uploaded file.
-    - TETAP SIMPAN data meskipun ada warning
-    - NaT otomatis diganti dengan None atau date.today()
-    - Boolean fields di-truncate ke 1 karakter
-    - Kolom sudah di-rename oleh validator in-place
-    """
-    from core.validator import validate_db_sourcing_file
-    
     errors = []
     imported = 0
     updated = 0
     warnings = []
-    
+
     if db.is_active:
         db.rollback()
-    
-    # ============================================================
-    # VALIDASI (validator rename kolom df IN-PLACE)
-    # ============================================================
-    valid_rows, val_errors = validate_db_sourcing_file(df, db, user_id)
-    
-    critical_errors = []
-    for err in val_errors:
-        if err.get("warning", False):
-            warnings.append(err)
-        elif err.get("field") == "SUMMARY":
-            continue
-        else:
-            critical_errors.append(err)
-    
-    real_critical = []
-    for err in critical_errors:
-        if err.get("field") == "Sourcing Date" and "kosong" in str(err.get("error", "")):
-            warnings.append(err)
-        else:
-            real_critical.append(err)
-    
-    if real_critical:
-        db.rollback()
-        return {
-            "success": False,
-            "imported": 0,
-            "updated": 0,
-            "errors": real_critical,
-            "warnings": warnings
-        }
-    
-    # ============================================================
-    # ✅ FIX: PASTIKAN kolom yang dibutuhkan SUDAH ADA
-    # Validator sudah rename in-place, tapi kita double-check
-    # ============================================================
-    
-    # Cek kolom 'kode_unik'
+
     if 'kode_unik' not in df.columns:
         for col in df.columns:
             col_str = str(col).strip().lower()
             if col_str in ['kode unik', 'kode_unik', 'kodeunik', 'unique code',
-                          'kode unik (copy value dari fptk)']:
+                           'kode unik (copy value dari fptk)']:
                 df.rename(columns={col: 'kode_unik'}, inplace=True)
                 break
-    
-    # Cek kolom 'nama'
+
     if 'nama' not in df.columns:
         for col in df.columns:
             col_str = str(col).strip().lower()
             if col_str in ['nama', 'nama kandidat', 'name', 'nama lengkap',
-                          'candidate name', 'nama pelamar']:
+                           'candidate name', 'nama pelamar']:
                 df.rename(columns={col: 'nama'}, inplace=True)
                 break
-    
-    # Cek kolom 'sourcing_date'
+
     if 'sourcing_date' not in df.columns:
         for col in df.columns:
             col_str = str(col).strip().lower()
             if col_str in ['sourcing date', 'sourcing_date', 'tanggal sourcing',
-                          'tanggal input', 'tgl sourcing']:
+                           'tanggal input', 'tgl sourcing']:
                 df.rename(columns={col: 'sourcing_date'}, inplace=True)
                 break
-    
-    # Debug log
-    logging.warning(f"[DB Sourcing Compile] Kolom yang tersedia: {list(df.columns)}")
-    
-    # Kalau 'kode_unik' masih tidak ada, langsung gagalkan dengan pesan jelas
+
     if 'kode_unik' not in df.columns:
         db.rollback()
         error_msg = (
-            f"❌ Kolom 'Kode Unik' TIDAK DITEMUKAN di file DB Sourcing!\n\n"
+            f"Kolom 'Kode Unik' TIDAK DITEMUKAN di file DB Sourcing!\n\n"
             f"Kolom yang ada: {list(df.columns)}\n\n"
             f"Pastikan file DB Sourcing Anda memiliki kolom bernama 'Kode Unik'."
         )
-        logging.error(error_msg)
         return {
             "success": False,
             "imported": 0,
@@ -684,37 +623,30 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             "errors": [error_msg],
             "warnings": warnings
         }
-    
-    # ============================================================
-    # LOOP ROWS
-    # ============================================================
+
     for idx, row in df.iterrows():
         row_num = idx + 2
-        
+
         kode_unik = safe_string_for_db(row.get('kode_unik', ''), max_length=100)
         nama = safe_string_for_db(row.get('nama', ''), max_length=255)
-        
-        # ============================================================
-        # SOURCING DATE - DETEKSI NaT
-        # ============================================================
+
         sourcing_date_raw = row.get('sourcing_date')
-        
+
         is_nat = False
         if sourcing_date_raw is not None:
             try:
                 if pd.isna(sourcing_date_raw):
                     is_nat = True
-            except:
+            except Exception:
                 pass
-            
-            if hasattr(sourcing_date_raw, '__class__'):
-                class_name = str(sourcing_date_raw.__class__)
-                if 'NaT' in class_name or 'nat' in class_name.lower():
-                    is_nat = True
-            
+
+            class_name = str(sourcing_date_raw.__class__)
+            if 'NaT' in class_name:
+                is_nat = True
+
             if isinstance(sourcing_date_raw, str) and sourcing_date_raw.upper() == 'NAT':
                 is_nat = True
-        
+
         if is_nat or sourcing_date_raw is None:
             sourcing_date = datetime.now().date()
             warnings.append({
@@ -738,7 +670,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                         "warning": True,
                         "error": f"Format Sourcing Date tidak valid, otomatis diisi {sourcing_date.strftime('%d/%m/%Y')}"
                     })
-            except:
+            except Exception:
                 sourcing_date = datetime.now().date()
                 warnings.append({
                     "row": row_num,
@@ -747,10 +679,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     "warning": True,
                     "error": f"Error parsing Sourcing Date, otomatis diisi {sourcing_date.strftime('%d/%m/%Y')}"
                 })
-        
-        # ============================================================
-        # KODE UNIK - FALLBACK kalau kosong
-        # ============================================================
+
         if not kode_unik:
             kode_unik = f"UNKNOWN_{datetime.now().strftime('%Y%m%d%H%M%S')}_{idx}"
             warnings.append({
@@ -760,7 +689,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 "warning": True,
                 "error": f"Kode Unik kosong, auto-generated: {kode_unik}"
             })
-        
+
         if not nama:
             warnings.append({
                 "row": row_num,
@@ -770,24 +699,19 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 "error": "Nama kosong, row di-skip"
             })
             continue
-        
+
         try:
             existing = db.query(DBSourcing).filter(
                 DBSourcing.kode_unik == kode_unik,
                 DBSourcing.nama == nama
             ).first()
-            
-            # ============================================================
-            # ✅ SAFE CONVERSIONS dengan SANITASI NUMERIC
-            # ============================================================
-            # FIX: Sanitasi 'no' — clamp ke INTEGER range (max 2,147,483,647)
-            # Ini mencegah error "integer out of range" dari PostgreSQL
+
             no_raw = row.get('no')
             no_val = safe_int_value(no_raw)
-            
+
             if no_val is None or no_val < 0:
                 no_val = imported + updated + 1
-            elif no_val > 2147483647: 
+            elif no_val > 2147483647:
                 no_val = imported + updated + 1
                 warnings.append({
                     "row": row_num,
@@ -796,19 +720,17 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     "warning": True,
                     "error": f"Nilai 'no' {no_raw} melebihi INTEGER max, di-replace auto-increment: {no_val}"
                 })
-            
+
             tahun_lulus_val = safe_int_value(row.get('tahun_lulus'))
-            # Sanitasi tahun_lulus juga (tahun tidak masuk akal)
             if tahun_lulus_val is not None:
                 if tahun_lulus_val < 1900 or tahun_lulus_val > 2100:
                     tahun_lulus_val = None
-            
+
             ipk_raw = row.get('ipk')
             ipk_val = safe_numeric_value(ipk_raw)
-            
+
             if ipk_val is not None:
                 if ipk_val < 0:
-                    # Negatif, invalid
                     ipk_val = None
                     warnings.append({
                         "row": row_num,
@@ -818,7 +740,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                         "error": f"IPK {ipk_raw} negatif, di-set None"
                     })
                 elif ipk_val > 4 and ipk_val <= 100:
-                    # Kemungkinan format persen (0-100) → konversi ke GPA (0-4)
                     original = ipk_val
                     ipk_val = round(ipk_val / 25, 2)
                     warnings.append({
@@ -829,7 +750,6 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                         "error": f"IPK {original} terdeteksi sebagai persen, dikonversi ke GPA: {ipk_val}"
                     })
                 elif ipk_val > 100:
-                    # Di atas 100, invalid
                     ipk_val = None
                     warnings.append({
                         "row": row_num,
@@ -838,8 +758,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                         "warning": True,
                         "error": f"IPK {ipk_raw} tidak valid (> 100), di-set None"
                     })
-            
-            # String fields dengan max_length yang sesuai
+
             posisi_val = safe_string_for_db(row.get('posisi'), max_length=255)
             model_rekrutmen_val = safe_string_for_db(row.get('model_rekrutmen'), max_length=100)
             rekruter_val = safe_string_for_db(row.get('rekruter'), max_length=100)
@@ -848,6 +767,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             nama_univ_lain_val = safe_string_for_db(row.get('nama_universitas_lainnya'), max_length=255)
             jenjang_val = safe_string_for_db(row.get('jenjang_pendidikan'), max_length=50)
             jurusan_val = safe_string_for_db(row.get('jurusan'), max_length=100)
+            jurusan_lainnya_val = safe_string_for_db(row.get('jurusan_lainnya'), max_length=100)
             skor_inggris_val = safe_string_for_db(row.get('skor_bahasa_inggris'), max_length=50)
             university_tier_val = safe_string_for_db(row.get('university_tier'), max_length=20)
             ipk_tier_val = safe_string_for_db(row.get('ipk_tier'), max_length=20)
@@ -858,6 +778,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             last_company_val = safe_string_for_db(row.get('last_company'), max_length=255)
             last_tenure_val = safe_string_for_db(row.get('last_tenure'), max_length=50)
             total_tenure_val = safe_string_for_db(row.get('total_tenure'), max_length=50)
+
             raw_fmcg = row.get('pernah_di_fmcg')
             if raw_fmcg and isinstance(raw_fmcg, str):
                 v = raw_fmcg.strip().upper()
@@ -869,12 +790,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     pernah_di_fmcg_val = safe_string_for_db(raw_fmcg, max_length=50)
             else:
                 pernah_di_fmcg_val = safe_string_for_db(raw_fmcg, max_length=50)
-            
-            # ============================================================
-            # BOOLEAN FIELDS
-            # ============================================================
-            from core.utils import normalize_boolean_to_vx
-            
+
             sourcing_freelance_val = normalize_boolean_to_vx(row.get('sourcing_freelance'))
             sourcing_hr_val = normalize_boolean_to_vx(row.get('sourcing_hr'))
             shortlist_cv_val = normalize_boolean_to_vx(row.get('shortlist_cv'))
@@ -888,10 +804,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             panel_interview_val = normalize_boolean_to_vx(row.get('panel_interview'))
             reference_check_val = normalize_boolean_to_vx(row.get('reference_check'))
             mcu_val = normalize_boolean_to_vx(row.get('mcu'))
-            
-            # ============================================================
-            # DATE FIELDS
-            # ============================================================
+
             tanggal_sourcing_freelance = safe_date_fallback(row.get('tanggal_sourcing_freelance'))
             tanggal_sourcing = safe_date_fallback(row.get('tanggal_sourcing'))
             tanggal_shortlist_cv = safe_date_fallback(row.get('tanggal_shortlist_cv'))
@@ -905,8 +818,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             tanggal_panel_interview = safe_date_fallback(row.get('tanggal_panel_interview'))
             tanggal_reference_check = safe_date_fallback(row.get('tanggal_reference_check'))
             tanggal_mcu = safe_date_fallback(row.get('tanggal_mcu'))
-            
-            # Detail keterangan
+
             detail_keterangan_sourcing_hr = safe_string_for_db(row.get('detail_keterangan_sourcing_hr'), max_length=500)
             detail_keterangan_shortlist_cv = safe_string_for_db(row.get('detail_keterangan_shortlist_cv'), max_length=500)
             detail_keterangan_psikotes = safe_string_for_db(row.get('detail_keterangan_psikotes'), max_length=500)
@@ -915,31 +827,20 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             detail_keterangan_offering = safe_string_for_db(row.get('detail_keterangan_offering'), max_length=500)
             detail_keterangan_day1 = safe_string_for_db(row.get('detail_keterangan_day1'), max_length=500)
             notes_val = safe_string_for_db(row.get('notes'), max_length=500)
-            
-            # Psikotes
+
             kode_psikotes_val = safe_string_for_db(row.get('kode_psikotes'), max_length=50)
             nilai_logika_val = safe_string_for_db(row.get('nilai_logika'), max_length=20)
             nilai_iq_val = safe_string_for_db(row.get('nilai_iq'), max_length=20)
             nilai_daya_tangkap_val = safe_string_for_db(row.get('nilai_daya_tangkap'), max_length=20)
             nilai_ra_val = safe_string_for_db(row.get('nilai_ra'), max_length=20)
             disc_val = safe_string_for_db(row.get('disc'), max_length=20)
-            
-            # Technical test
+
             detail_keterangan_technical_test = safe_string_for_db(row.get('detail_keterangan_technical_test'), max_length=500)
-            
-            # Market visit
             detail_market_visit = safe_string_for_db(row.get('detail_market_visit'), max_length=500)
-            
-            # Panel interview
             detail_keterangan_panel_interview = safe_string_for_db(row.get('detail_keterangan_panel_interview'), max_length=500)
-            
-            # Reference check
             detail_keterangan_reference_check = safe_string_for_db(row.get('detail_keterangan_reference_check'), max_length=500)
-            
-            # MCU
             detail_keterangan_mcu = safe_string_for_db(row.get('detail_keterangan_mcu'), max_length=500)
-            
-            # Blacklist
+
             is_blacklisted = False
             blacklist_raw = row.get('is_blacklisted')
             if blacklist_raw is not None:
@@ -949,11 +850,10 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     is_blacklisted = blacklist_raw.strip().upper() in ['YES', 'TRUE', 'Y', '1']
                 elif isinstance(blacklist_raw, (int, float)):
                     is_blacklisted = bool(blacklist_raw)
-            
+
             blacklist_reason = safe_string_for_db(row.get('blacklist_reason'), max_length=500)
-            
+
             if existing:
-                # UPDATE
                 existing.no = no_val
                 existing.sourcing_date = sourcing_date
                 existing.kode_unik = kode_unik
@@ -966,6 +866,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 existing.nama_universitas_lainnya = nama_univ_lain_val
                 existing.jenjang_pendidikan = jenjang_val
                 existing.jurusan = jurusan_val
+                existing.jurusan_lainnya = jurusan_lainnya_val
                 existing.tahun_lulus = tahun_lulus_val
                 existing.ipk = ipk_val
                 existing.skor_bahasa_inggris = skor_inggris_val
@@ -1024,7 +925,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 existing.mcu = mcu_val
                 existing.detail_keterangan_mcu = detail_keterangan_mcu
                 existing.tanggal_mcu = tanggal_mcu
-                
+
                 if is_blacklisted and not existing.is_blacklisted:
                     existing.is_blacklisted = True
                     existing.blacklisted_at = datetime.now()
@@ -1035,12 +936,11 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     existing.blacklisted_at = None
                     existing.blacklisted_by = None
                     existing.blacklist_reason = None
-                
+
                 existing.last_updated_at = datetime.now()
                 existing.last_compile_action = "UPDATE"
                 updated += 1
             else:
-                # INSERT
                 new_sourcing = DBSourcing(
                     no=no_val,
                     sourcing_date=sourcing_date,
@@ -1054,6 +954,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                     nama_universitas_lainnya=nama_univ_lain_val,
                     jenjang_pendidikan=jenjang_val,
                     jurusan=jurusan_val,
+                    jurusan_lainnya=jurusan_lainnya_val,
                     tahun_lulus=tahun_lulus_val,
                     ipk=ipk_val,
                     skor_bahasa_inggris=skor_inggris_val,
@@ -1125,11 +1026,11 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
                 )
                 db.add(new_sourcing)
                 imported += 1
-                
+
         except Exception as e:
             errors.append(f"Row {idx + 2}: {str(e)}")
             db.rollback()
-    
+
     if errors:
         db.rollback()
         return {
@@ -1139,7 +1040,7 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
             "errors": errors,
             "warnings": warnings
         }
-    
+
     try:
         db.commit()
         return {
@@ -1160,39 +1061,24 @@ def compile_db_sourcing(db: Session, df: pd.DataFrame, user_id: int, cycle_id: i
         }
 
 
-# ============================================================
-# COMPILE DB KODE POSISI
-# ============================================================
-
 def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id: int,
                            file_name: str, file_hash: str):
-    """Compile DB Kode Posisi dari uploaded file"""
-    from core.validator import validate_db_kode_posisi_file
-    
     errors = []
     imported = 0
-    
+
     if db.is_active:
         db.rollback()
-    
-    valid_rows, val_errors = validate_db_kode_posisi_file(
-        df,
-        db,
-        user_id
-    )
-    if val_errors:
-        return {"success": False, "imported": 0, "errors": val_errors}
-    
+
     for _, row in df.iterrows():
         position = safe_string_for_db(row.get('position', ''), max_length=255)
         if not position:
             continue
-        
+
         try:
             existing = db.query(DBKodePosisi).filter(
                 DBKodePosisi.position == position
             ).first()
-            
+
             if existing:
                 existing.kode = safe_string_for_db(row.get('kode'), max_length=50)
                 existing.location = safe_string_for_db(row.get('location'), max_length=100)
@@ -1221,11 +1107,11 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
         except Exception as e:
             errors.append(str(e))
             db.rollback()
-    
+
     if errors:
         db.rollback()
         return {"success": False, "imported": 0, "errors": errors}
-    
+
     try:
         db.commit()
         return {"success": True, "imported": imported, "errors": []}
@@ -1234,55 +1120,40 @@ def compile_db_kode_posisi(db: Session, df: pd.DataFrame, user_id: int, cycle_id
         return {"success": False, "imported": 0, "errors": [str(e)]}
 
 
-# ============================================================
-# FUNGSI BLACKLIST
-# ============================================================
-
 def tag_blacklist(db: Session, kode_unik: str, user_id: int, reason: str = None):
-    """
-    Tag satu kandidat sebagai blacklist.
-    """
     candidate = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).first()
     if not candidate:
         return {"success": False, "error": f"Kandidat dengan kode_unik '{kode_unik}' tidak ditemukan"}
-    
+
     candidate.is_blacklisted = True
     candidate.blacklisted_at = datetime.now()
     candidate.blacklisted_by = user_id
     if reason:
         candidate.blacklist_reason = safe_string_for_db(reason, max_length=500)
     candidate.last_updated_at = datetime.now()
-    
+
     db.commit()
     return {"success": True, "message": f"Kandidat {candidate.nama} berhasil di-blacklist"}
 
 
 def untag_blacklist(db: Session, kode_unik: str, user_id: int):
-    """
-    Hapus tag blacklist dari kandidat.
-    """
     candidate = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).first()
     if not candidate:
         return {"success": False, "error": f"Kandidat dengan kode_unik '{kode_unik}' tidak ditemukan"}
-    
+
     candidate.is_blacklisted = False
     candidate.blacklisted_at = None
     candidate.blacklisted_by = None
     candidate.blacklist_reason = None
     candidate.last_updated_at = datetime.now()
-    
+
     db.commit()
     return {"success": True, "message": f"Kandidat {candidate.nama} berhasil di-unblacklist"}
 
 
 def get_blacklisted_candidates(db: Session, limit: int = 100):
-    """
-    Ambil daftar kandidat yang di-blacklist.
-    """
-    candidates = db.query(DBSourcing).filter(
+    return db.query(DBSourcing).filter(
         DBSourcing.is_blacklisted == True
     ).order_by(
         DBSourcing.blacklisted_at.desc()
     ).limit(limit).all()
-    
-    return candidates
