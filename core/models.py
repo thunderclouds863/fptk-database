@@ -1,27 +1,30 @@
+# core/models.py
 from sqlalchemy import (
-    Column, Integer, String, Date, Numeric, Text, Boolean, TIMESTAMP, 
+    Column, Integer, String, Date, Numeric, Text, Boolean, TIMESTAMP,
     ForeignKey, CheckConstraint, UniqueConstraint, JSON, DateTime
 )
 from sqlalchemy.sql import func
 from sqlalchemy.orm import relationship
 from core.database import Base
 
+
 class User(Base):
     __tablename__ = "users"
-    __table_args__ = {"extend_existing": True}
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'user', 'it')", name="ck_user_role"),
+        {"extend_existing": True},
+    )
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, nullable=False, index=True)
     password_hash = Column(String(255), nullable=False)
     role = Column(String(20), default="user")
-    __table_args__ = (
-        CheckConstraint("role IN ('admin', 'user', 'it')", name="ck_user_role"),
-    )
-    business_unit = Column(String(20)) 
-    kode_pic = Column(String(50))  
-    pic_recruiter = Column(String(100)) 
+    business_unit = Column(String(20))
+    kode_pic = Column(String(50))
+    pic_recruiter = Column(String(100))
     display_name = Column(String(100))
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_login = Column(TIMESTAMP)
+
 
 class UploadCycle(Base):
     __tablename__ = "upload_cycles"
@@ -33,6 +36,7 @@ class UploadCycle(Base):
     started_at = Column(TIMESTAMP, server_default=func.now())
     ended_at = Column(TIMESTAMP)
 
+
 class UploadStatus(Base):
     __tablename__ = "upload_status"
     __table_args__ = {"extend_existing": True}
@@ -42,6 +46,7 @@ class UploadStatus(Base):
     status = Column(String(20), default="Belum Mulai")
     first_compile_at = Column(TIMESTAMP)
     done_at = Column(TIMESTAMP)
+
 
 class UploadLog(Base):
     __tablename__ = "upload_logs"
@@ -57,9 +62,13 @@ class UploadLog(Base):
     error_details = Column(Text)
     uploaded_at = Column(TIMESTAMP, server_default=func.now())
 
+
 class FPTK(Base):
     __tablename__ = "fptk"
-    __table_args__ = {"extend_existing": True}
+    __table_args__ = (
+        UniqueConstraint("kode_unik", "posisi", name="uq_fptk_kode_unik_posisi"),
+        {"extend_existing": True},
+    )
     id = Column(Integer, primary_key=True, index=True)
     kode_unik = Column(String(50), nullable=False, index=True)
     posisi = Column(String(255), nullable=False, index=True)
@@ -119,6 +128,7 @@ class FPTK(Base):
     source_cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
     is_sto = Column(Boolean, default=False)
 
+
 class DBKodePosisi(Base):
     __tablename__ = "db_kode_posisi"
     __table_args__ = {'extend_existing': True}
@@ -134,10 +144,11 @@ class DBKodePosisi(Base):
     directorate = Column(String(100))
     year = Column(Integer)
 
+
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
     __table_args__ = {"extend_existing": True}
-    
+
     id = Column(Integer, primary_key=True, index=True)
     no = Column(Integer)
     sourcing_date = Column(Date, nullable=False, index=True)
@@ -151,9 +162,9 @@ class DBSourcing(Base):
     nama_universitas_lainnya = Column(String(255))
     jenjang_pendidikan = Column(String(50))
     jurusan = Column(String(100))
-    jurusan_lainnya = Column(String(100)) 
+    jurusan_lainnya = Column(String(100))
     tahun_lulus = Column(Integer)
-    ipk = Column(Numeric(3,2))
+    ipk = Column(Numeric(3, 2))
     skor_bahasa_inggris = Column(String(50))
     university_tier = Column(String(20))
     ipk_tier = Column(String(20))
@@ -165,8 +176,7 @@ class DBSourcing(Base):
     last_company = Column(String(255))
     total_tenure = Column(String(50))
     pernah_di_fmcg = Column(String(3))
-    
-    # Pipeline stages
+
     sourcing_freelance = Column(String(3))
     tanggal_sourcing_freelance = Column(Date)
     sourcing_hr = Column(String(3))
@@ -212,12 +222,12 @@ class DBSourcing(Base):
     day1 = Column(String(3))
     detail_keterangan_day1 = Column(Text)
     tanggal_day1 = Column(Date)
+
     is_blacklisted = Column(Boolean, default=False, nullable=True)
     blacklisted_at = Column(DateTime, nullable=True)
     blacklisted_by = Column(Integer, nullable=True)
     blacklist_reason = Column(String(500), nullable=True)
-    
-    # Audit
+
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_updated_at = Column(TIMESTAMP)
     last_compile_action = Column(String(20))
@@ -225,6 +235,7 @@ class DBSourcing(Base):
     source_file_hash = Column(String(64))
     source_user_id = Column(Integer, ForeignKey("users.id"))
     source_cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
+
 
 class MasterDropdown(Base):
     __tablename__ = "master_dropdown"
@@ -250,6 +261,8 @@ class MasterDropdown(Base):
     jurusan = Column(String(100))
     university_tier = Column(String(20))
     ipk_tier = Column(String(20))
+    divisi = Column(String(100))
+    department = Column(String(100))
     keterangan_tidak_lolos_sourcing_1 = Column(Text)
     keterangan_tidak_lolos_sourcing_2 = Column(Text)
     keterangan_tidak_lolos_psikotes = Column(Text)
@@ -264,12 +277,14 @@ class MasterDropdown(Base):
     lokasi_pic_recruiter = Column(String(50))
     is_active = Column(Boolean, default=True)
 
+
 class Blacklist(Base):
     __tablename__ = "blacklist"
     __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     key_value = Column(String(255), unique=True, nullable=False)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
 
 class AuditLog(Base):
     __tablename__ = "audit_logs"
@@ -284,6 +299,7 @@ class AuditLog(Base):
     ip_address = Column(String(45))
     user_agent = Column(Text)
     created_at = Column(TIMESTAMP, server_default=func.now())
+
 
 class Evidence(Base):
     __tablename__ = "evidences"
@@ -301,10 +317,10 @@ class Evidence(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
     file_data = Column(Text, nullable=True)
 
+
 class UploadTemplate(Base):
     __tablename__ = "upload_templates"
     __table_args__ = {"extend_existing": True}
-
     id = Column(Integer, primary_key=True, index=True)
     file_name = Column(String(255), nullable=False)
     file_data = Column(Text, nullable=False)
@@ -313,8 +329,10 @@ class UploadTemplate(Base):
     is_active = Column(Boolean, default=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
+
 class TransferHistory(Base):
     __tablename__ = "transfer_history"
+    __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     fptk_id = Column(Integer, ForeignKey("fptk.id", ondelete="CASCADE"))
     kode_unik = Column(String(50), nullable=False, index=True)
@@ -325,72 +343,49 @@ class TransferHistory(Base):
     transferred_by = Column(Integer, ForeignKey("users.id"))
     transferred_by_name = Column(String(100))
     created_at = Column(TIMESTAMP, server_default=func.now())
-    
-    # Relasi ke FPTK
+
     fptk = relationship("FPTK", backref="transfers")
     user = relationship("User", backref="transfers")
+
 
 class FPTKDeleteRequest(Base):
     __tablename__ = "fptk_delete_requests"
     __table_args__ = {"extend_existing": True}
-    
     id = Column(Integer, primary_key=True, index=True)
     fptk_id = Column(Integer, ForeignKey("fptk.id", ondelete="CASCADE"))
     kode_unik = Column(String(50), nullable=False, index=True)
     posisi = Column(String(255))
     pic_recruiter = Column(String(100), index=True)
-    
-    # Alasan dari PIC
     reason = Column(Text, nullable=False)
-    
-    # Status: PENDING, APPROVED, REJECTED
     status = Column(String(20), default="PENDING", index=True)
-    
-    # Audit
     requested_by = Column(Integer, ForeignKey("users.id"))
     requested_by_name = Column(String(100))
     requested_at = Column(TIMESTAMP, server_default=func.now())
-    
-    # Admin review
     reviewed_by = Column(Integer, ForeignKey("users.id"))
     reviewed_by_name = Column(String(100))
     reviewed_at = Column(TIMESTAMP)
     admin_notes = Column(Text)
-    
-    # Relasi
+
     fptk = relationship("FPTK", backref="delete_requests")
 
+
 class RecruitmentProgress(Base):
-    """
-    Progress recruitment per FPTK per week.
-    Menyimpan progress week ini + next action week depan.
-    """
     __tablename__ = "recruitment_progress"
     __table_args__ = {"extend_existing": True}
-
     id = Column(Integer, primary_key=True, index=True)
     fptk_id = Column(Integer, ForeignKey("fptk.id", ondelete="CASCADE"), index=True)
     kode_unik = Column(String(50), nullable=False, index=True)
     posisi = Column(String(255))
     pic_recruiter = Column(String(100), index=True)
-
-    # Info week
-    week_number = Column(Integer, index=True)  # ISO week number
+    week_number = Column(Integer, index=True)
     year = Column(Integer, index=True)
-    week_label = Column(String(20))  # "Week 36, 2026"
-
-    # Progress
-    progress_this_week = Column(Text)  # "Send 25 CV di Week 36..."
-    next_action = Column(Text)         # "Follow up user di Week 37..."
-
-    # Status
-    status = Column(String(20), default="DRAFT")  # DRAFT, SUBMITTED, APPROVED
-
-    # Audit
+    week_label = Column(String(20))
+    progress_this_week = Column(Text)
+    next_action = Column(Text)
+    status = Column(String(20), default="DRAFT")
     created_by = Column(Integer, ForeignKey("users.id"))
     created_by_name = Column(String(100))
     created_at = Column(TIMESTAMP, server_default=func.now())
     updated_at = Column(TIMESTAMP)
 
-    # Relasi
     fptk = relationship("FPTK", backref="progress_entries")
