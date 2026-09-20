@@ -540,6 +540,7 @@ with st.sidebar:
             "📝 Update Progres Recruitment": "update_progres",
             "👤 Sourcing Input": "sourcing_input",
             "👩🏻‍💻 Sourcing View": "sourcing_view",
+            "🚫 Blacklist Kandidat": "blacklist_list",
             "🏢 DB Kode Posisi": "db_kode_posisi",
             "🔍 Funnel Report": "funnel_report",
             "📊 Monitoring Sourcing": "monitoring_sourcing",
@@ -559,6 +560,7 @@ with st.sidebar:
             base_pages["🔄 Update Cycle"] = "upload_cycle"
             base_pages["👥 User Management"] = "user_management"
             base_pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
+            base_pages["📩 Request Un-Blacklist"] = "admin_blacklist_requests"
 
         st.session_state.pages_dict = base_pages
         st.session_state.pages_dict_role = current_role
@@ -875,6 +877,20 @@ elif page == "transfer_fptk":
         transfer_fptk.show_transfer_fptk()
     except ModuleNotFoundError:
         st.error("File pages/transfer_fptk.py tidak ditemukan!")
+
+elif page == "blacklist_list":
+    try:
+        blacklist_list = importlib.import_module("pages.blacklist_list")
+        blacklist_list.show_blacklist_list()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/blacklist_list.py tidak ditemukan!")
+
+elif page == "admin_blacklist_requests":
+    try:
+        admin_blacklist_requests = importlib.import_module("pages.admin_blacklist_requests")
+        admin_blacklist_requests.show_admin_blacklist_requests()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/admin_blacklist_requests.py tidak ditemukan!")
 
 
 st.markdown("---")
