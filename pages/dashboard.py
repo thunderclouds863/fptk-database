@@ -1,3 +1,4 @@
+# pages/dashboard.py
 import streamlit as st
 import pandas as pd
 import plotly.express as px
@@ -10,30 +11,14 @@ from datetime import datetime, timedelta
 import time
 
 
-# ============================================================
-# ⭐ CACHE FIX: Clear cache sekali per session
-# ============================================================
-# Ini wajib di paling atas, sebelum function apapun dipanggil.
-# Supaya cache lama (yang kosong) gak nyangkut.
-# ============================================================
-
 if "cache_cleared_v2" not in st.session_state:
     st.cache_data.clear()
     st.cache_resource.clear()
     st.session_state["cache_cleared_v2"] = True
 
 
-# ============================================================
-# BACKWARD COMPATIBILITY: get_filter_options (alias)
-# ============================================================
-
 @st.cache_data(ttl=3600)
 def get_filter_options():
-    """
-    BACKWARD COMPATIBILITY.
-    Mengembalikan tuple (pic_options, bu_options, dir_options)
-    yang sudah termasuk "Semua" di depan.
-    """
     try:
         opts = get_filter_options_from_db()
         pic_options = ["Semua"] + opts.get("pic_options", [])
@@ -44,23 +29,18 @@ def get_filter_options():
         return ["Semua"], ["Semua"], ["Semua"]
 
 
-# ============================================================
-# CACHE UNTUK DATA FPTK (5 menit auto refresh)
-# ============================================================
-
 @st.cache_data(ttl=300, show_spinner=False)
 def load_fptk_data(
     pic_filter=None,
     status_filter=None,
     bu_filter=None,
     dir_filter=None,
+    divisi_filter=None,
+    dept_filter=None,
     filter_kat=None,
     date_from=None,
     date_to=None
 ):
-    """
-    Memuat data FPTK dengan filter - cache 5 menit
-    """
     try:
         db = next(get_db())
         query = db.query(FPTK)
@@ -73,6 +53,10 @@ def load_fptk_data(
             query = query.filter(FPTK.business_unit == bu_filter)
         if dir_filter and dir_filter != "Semua":
             query = query.filter(FPTK.direktorat == dir_filter)
+        if divisi_filter and divisi_filter != "Semua":
+            query = query.filter(FPTK.divisi == divisi_filter)
+        if dept_filter and dept_filter != "Semua":
+            query = query.filter(FPTK.department == dept_filter)
         if filter_kat and filter_kat != "Semua":
             query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
         if date_from:
@@ -86,21 +70,12 @@ def load_fptk_data(
 
         return df
     except Exception as e:
-        st.error(f"❌ Gagal membaca data FPTK: {str(e)}")
+        st.error(f"Gagal membaca data FPTK: {str(e)}")
         return pd.DataFrame()
 
 
-# ============================================================
-# CACHE UNTUK DATA SOURCING (5 menit auto refresh)
-# ============================================================
-
 @st.cache_data(ttl=300, show_spinner=False)
-def load_sourcing_data(
-    pic_filter=None,
-    date_from=None,
-    date_to=None
-):
-    """Memuat data sourcing dengan cache 5 menit"""
+def load_sourcing_data(pic_filter=None, date_from=None, date_to=None):
     try:
         db = next(get_db())
         query = db.query(DBSourcing)
@@ -117,19 +92,12 @@ def load_sourcing_data(
         st.session_state['last_sourcing_load'] = datetime.now()
 
         return df
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
 
-# ============================================================
-# CACHE UNTUK METRIK (tergantung data FPTK)
-# ============================================================
-
 @st.cache_data(ttl=300)
 def calculate_metrics(df):
-    """
-    Menghitung semua metrik dari DataFrame - cache 5 menit
-    """
     if df.empty or 'status' not in df:
         return {
             'total': 0, 'op': 0, 'closed': 0, 'cancel': 0,
@@ -162,13 +130,8 @@ def calculate_metrics(df):
     }
 
 
-# ============================================================
-# CACHE UNTUK UPLOAD CYCLE (1 menit - lebih dinamis)
-# ============================================================
-
 @st.cache_data(ttl=60)
 def get_upload_cycle_progress():
-    """Mendapatkan progress upload cycle - cache 1 menit"""
     try:
         db = next(get_db())
         cycle = db.query(UploadCycle).filter(
@@ -189,48 +152,37 @@ def get_upload_cycle_progress():
                 })
             return pd.DataFrame(progress_data)
         return pd.DataFrame()
-    except Exception as e:
+    except Exception:
         return pd.DataFrame()
 
 
-# ============================================================
-# CACHE UNTUK ROLE ADMIN (5 menit)
-# ============================================================
-
 @st.cache_data(ttl=300)
 def check_admin_role():
-    """Cek apakah user admin - cache 5 menit"""
     try:
         db = next(get_db())
         return is_admin(db)
-    except:
+    except Exception:
         return False
 
-
-# ============================================================
-# FUNGSI UTAMA DASHBOARD
-# ============================================================
 
 def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
     st.markdown("---")
 
-    # ============================================================
-    # ⭐ LOAD FILTER OPTIONS (dengan cache fallback)
-    # ============================================================
     try:
         filter_opts = get_filter_options_from_db()
     except Exception as e:
-        st.error(f"❌ Gagal load filter options: {e}")
+        st.error(f"Gagal load filter options: {e}")
         filter_opts = {
             "pic_options": [],
             "bu_options": [],
             "direktorat_options": [],
             "filter_kategorisasi_options": [],
+            "divisi_options": [],
+            "dept_options": [],
             "status_options": ["OP", "Closed", "Cancel"],
         }
 
-    # Fallback: kalau kosong, coba clear cache & load ulang
     if not filter_opts.get("pic_options"):
         get_filter_options_from_db.clear()
         try:
@@ -238,18 +190,16 @@ def show_dashboard():
         except Exception:
             pass
 
-    # ============================================================
-    # SIDEBAR FILTERS
-    # ============================================================
     with st.sidebar:
         st.markdown("### 🔍 Filters")
 
-        # Debug — hapus setelah berhasil
         with st.expander("🐛 Debug Filter", expanded=False):
             st.caption(
                 f"PIC: {len(filter_opts.get('pic_options', []))} | "
                 f"BU: {len(filter_opts.get('bu_options', []))} | "
                 f"Dir: {len(filter_opts.get('direktorat_options', []))} | "
+                f"Divisi: {len(filter_opts.get('divisi_options', []))} | "
+                f"Dept: {len(filter_opts.get('dept_options', []))} | "
                 f"Kat: {len(filter_opts.get('filter_kategorisasi_options', []))}"
             )
 
@@ -259,23 +209,24 @@ def show_dashboard():
         with col2:
             date_to = st.date_input("Sampai", datetime.now())
 
-        # PIC Recruiter
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
         pic_filter = st.selectbox("PIC Recruiter", pic_options)
 
-        # Status
         status_options = ["Semua"] + filter_opts.get("status_options", ["OP", "Closed", "Cancel"])
         status_filter = st.selectbox("Status", status_options)
 
-        # Business Unit
         bu_options = ["Semua"] + filter_opts.get("bu_options", [])
         bu_filter = st.selectbox("Business Unit", bu_options)
 
-        # Direktorat
         dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
         dir_filter = st.selectbox("Direktorat", dir_options)
 
-        # Filter Kategorisasi
+        divisi_options = ["Semua"] + filter_opts.get("divisi_options", [])
+        divisi_filter = st.selectbox("Divisi", divisi_options)
+
+        dept_options = ["Semua"] + filter_opts.get("dept_options", [])
+        dept_filter = st.selectbox("Department", dept_options)
+
         filter_kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
         filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options)
 
@@ -294,15 +245,14 @@ def show_dashboard():
 
         st.caption("💡 Filter diambil langsung dari database")
 
-    # ============================================================
-    # LOAD DATA
-    # ============================================================
     with st.spinner("📊 Memuat data..."):
         df = load_fptk_data(
             pic_filter=pic_filter,
             status_filter=status_filter,
             bu_filter=bu_filter,
             dir_filter=dir_filter,
+            divisi_filter=divisi_filter,
+            dept_filter=dept_filter,
             filter_kat=filter_kat,
             date_from=date_from,
             date_to=date_to
@@ -316,9 +266,6 @@ def show_dashboard():
 
     admin = check_admin_role()
 
-    # ============================================================
-    # METRIC CARDS
-    # ============================================================
     metrics = calculate_metrics(df)
 
     c1, c2, c3, c4, c5, c6 = st.columns(6)
@@ -330,9 +277,6 @@ def show_dashboard():
     c6.metric("Closed Sesuai SLA", f"{metrics['closed_sla_rate']:.1f}%")
     st.markdown("---")
 
-    # ============================================================
-    # ROW 1: LINE CHART + STATUS PIE
-    # ============================================================
     col1, col2 = st.columns(2)
 
     with col1:
@@ -358,9 +302,6 @@ def show_dashboard():
         else:
             st.info("Tidak ada data status")
 
-    # ============================================================
-    # ROW 2: 3 PIE/DONUT CHARTS
-    # ============================================================
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -393,9 +334,6 @@ def show_dashboard():
         else:
             st.info("Tidak ada data")
 
-    # ============================================================
-    # ROW 3: BOXPLOT + TOP PIC
-    # ============================================================
     col1, col2 = st.columns(2)
 
     with col1:
@@ -423,9 +361,6 @@ def show_dashboard():
         else:
             st.info("Tidak ada data PIC")
 
-    # ============================================================
-    # ROW 4: FUNNEL SOURCING
-    # ============================================================
     st.subheader("🔍 Funnel Sourcing")
 
     if not df_sourcing.empty:
@@ -462,9 +397,6 @@ def show_dashboard():
     else:
         st.info("Tidak ada data sourcing")
 
-    # ============================================================
-    # ROW 5: SLA COMPLIANCE + HEATMAP
-    # ============================================================
     try:
         c1, c2 = st.columns(2)
 
@@ -530,9 +462,6 @@ def show_dashboard():
     except Exception as e:
         st.error(f"Error grafik ROW 5: {str(e)}")
 
-    # ============================================================
-    # ROW 6: UPLOAD CYCLE PROGRESS (ADMIN ONLY)
-    # ============================================================
     if admin:
         st.markdown("---")
         st.subheader("🔄 Upload Cycle Progress (Admin)")
@@ -545,9 +474,6 @@ def show_dashboard():
         else:
             st.info("Belum ada data upload cycle")
 
-    # ============================================================
-    # EXPORT
-    # ============================================================
     if st.session_state.get('export_data', False):
         st.session_state.export_data = False
         if not df.empty:
