@@ -1,3 +1,4 @@
+# pages/06_upload_cycle.py
 import streamlit as st
 from sqlalchemy.orm import Session
 from core.database import get_db
@@ -11,12 +12,7 @@ from core.utils import get_filter_options_from_db
 import pandas as pd
 
 
-# ============================================================
-# HELPER: REFRESH FILTER CACHE
-# ============================================================
-
 def refresh_filter_cache():
-    """Clear cache filter options supaya data cycle baru langsung muncul."""
     try:
         get_filter_options_from_db.clear()
     except Exception:
@@ -28,16 +24,13 @@ def refresh_filter_cache():
 
 
 def show_upload_cycle():
-    st.title("🔄 Upload Cycle Management")
+    st.title("Upload Cycle Management")
     st.markdown("Kelola siklus upload untuk setiap periode.")
 
     db = next(get_db())
 
-    # ============================================================
-    # MODE VIEW-ONLY (IT)
-    # ============================================================
     if is_it(db):
-        st.info("🔍 Mode View-Only (IT)")
+        st.info("Mode View-Only (IT)")
         cycles = db.query(UploadCycle).order_by(UploadCycle.created_at.desc()).all()
         if cycles:
             data = [{
@@ -51,9 +44,6 @@ def show_upload_cycle():
             st.info("Belum ada upload cycle.")
         return
 
-    # ============================================================
-    # CHECK ACCESS - ADMIN ONLY
-    # ============================================================
     if not is_admin(db):
         st.error("Hanya Admin yang bisa mengelola Upload Cycle.")
         return
@@ -63,10 +53,7 @@ def show_upload_cycle():
         st.warning("Silakan login terlebih dahulu.")
         return
 
-    # ============================================================
-    # LIST CYCLES
-    # ============================================================
-    st.subheader("📋 Riwayat Upload Cycle")
+    st.subheader("Riwayat Upload Cycle")
     cycles = db.query(UploadCycle).order_by(UploadCycle.created_at.desc()).all()
 
     if cycles:
@@ -85,11 +72,8 @@ def show_upload_cycle():
     else:
         st.info("Belum ada upload cycle.")
 
-    # ============================================================
-    # CREATE NEW CYCLE
-    # ============================================================
     st.markdown("---")
-    st.subheader("➕ Buat Upload Cycle Baru")
+    st.subheader("Buat Upload Cycle Baru")
 
     with st.form("create_cycle"):
         cycle_name = st.text_input("Nama Cycle", placeholder="Contoh: Periode Januari 2026")
@@ -98,22 +82,16 @@ def show_upload_cycle():
         if submitted and cycle_name:
             new_cycle = create_upload_cycle(db, cycle_name, user.id)
 
-            # ============================================================
-            # REFRESH FILTER CACHE
-            # ============================================================
             refresh_filter_cache()
             st.cache_data.clear()
 
-            st.success(f"✅ Cycle '{cycle_name}' berhasil dibuat!")
+            st.success(f"Cycle '{cycle_name}' berhasil dibuat!")
             st.rerun()
         elif submitted and not cycle_name:
             st.error("Nama Cycle wajib diisi")
 
-    # ============================================================
-    # CURRENT CYCLE PROGRESS DETAIL
-    # ============================================================
     st.markdown("---")
-    st.subheader("📊 Progress Cycle Aktif")
+    st.subheader("Progress Cycle Aktif")
 
     active_cycle = db.query(UploadCycle).filter(
         UploadCycle.ended_at.is_(None)
@@ -137,7 +115,6 @@ def show_upload_cycle():
                 })
             df_progress = pd.DataFrame(progress_data)
 
-            # Summary
             total = len(df_progress)
             done = len(df_progress[df_progress['Status'] == 'Done'])
             uploading = len(df_progress[df_progress['Status'] == 'Sedang Upload'])
@@ -151,14 +128,10 @@ def show_upload_cycle():
 
             st.dataframe(df_progress, use_container_width=True)
 
-            # ============================================================
-            # CLOSE CYCLE
-            # ============================================================
             if done == total:
-                if st.button("🔒 Tutup Cycle", type="primary"):
+                if st.button("Tutup Cycle", type="primary"):
                     close_cycle(db, active_cycle.id)
 
-                    # Refresh filter cache
                     refresh_filter_cache()
                     st.cache_data.clear()
 
