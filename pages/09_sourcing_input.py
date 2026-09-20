@@ -1,963 +1,1165 @@
-# app.py
+# pages/09_sourcing_input.py
 import streamlit as st
-import importlib
-import time
-import base64
-import os
 import pandas as pd
-from datetime import datetime, timedelta
-
-from core.session_manager import get_session_manager, check_idle_timeout, touch_session
-from core.database import SessionLocal, init_db
-from core.auth import (
-    login_user,
-    is_admin,
-    init_default_users,
-    verify_password,
-    hash_password,
-    init_master_dropdown
+from datetime import datetime
+from core.database import get_db
+from core.models import DBSourcing, FPTK, MasterDropdown
+from core.auth import get_current_user, is_it, is_editor
+from core.utils import (
+    safe_int, safe_float, parse_phone, is_valid_email,
+    find_duplicate_candidates, get_last_pipeline_stage
 )
-from core.models import User
+from core.model_rekrutmen import auto_detect_model_rekrutmen, get_model_options
+import time
+import re
+
+COPILOT_AGENT_URL = "https://m365.cloud.microsoft/chat/?titleId=T_e0524666-839c-757c-7ef5-d5e72311417d&source=embedded-builder"
 
 
-st.set_page_config(
-    page_title="FPTK & Sourcing System",
-    page_icon="📊",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
-
-
-def get_cached_db():
-    return SessionLocal()
-
-
-@st.cache_resource
-def initialize_system():
-    init_db()
-    db = SessionLocal()
+@st.cache_data(ttl=3600)
+def get_master_options_sourcing(_db):
     try:
-        init_default_users(db)
-        init_master_dropdown(db)
-    finally:
-        db.close()
-    return True
-
-
-if 'system_initialized' not in st.session_state:
-    initialize_system()
-    st.session_state.system_initialized = True
-
-
-session_mgr = get_session_manager()
-
-
-if "user_id" not in st.session_state:
-    st.session_state.user_id = session_mgr.user_id
-
-if "username" not in st.session_state:
-    st.session_state.username = session_mgr.username
-
-if "role" not in st.session_state:
-    st.session_state.role = session_mgr.role
-
-if "user_display" not in st.session_state:
-    st.session_state.user_display = session_mgr.user_display
-
-if "page" not in st.session_state:
-    st.session_state.page = "dashboard"
-
-if "filter_stack" not in st.session_state:
-    st.session_state.filter_stack = []
-
-if "detail_id" not in st.session_state:
-    st.session_state.detail_id = None
-
-if "edit_id" not in st.session_state:
-    st.session_state.edit_id = None
-
-if "last_fptk_load" not in st.session_state:
-    st.session_state.last_fptk_load = datetime.now()
-
-if "last_sourcing_load" not in st.session_state:
-    st.session_state.last_sourcing_load = datetime.now()
-
-if "sort_column" not in st.session_state:
-    st.session_state.sort_column = None
-
-if "sort_ascending" not in st.session_state:
-    st.session_state.sort_ascending = True
-
-if "date_filter_start" not in st.session_state:
-    st.session_state.date_filter_start = None
-
-if "date_filter_end" not in st.session_state:
-    st.session_state.date_filter_end = None
-
-if "status_filter" not in st.session_state:
-    st.session_state.status_filter = []
-
-if "search_keyword" not in st.session_state:
-    st.session_state.search_keyword = ""
-
-if "filter_applied" not in st.session_state:
-    st.session_state.filter_applied = False
-
-if "last_activity" not in st.session_state:
-    st.session_state.last_activity = None
-
-
-if st.session_state.user_id and not session_mgr.is_logged_in:
-    session_mgr.login(
-        st.session_state.user_id,
-        st.session_state.username,
-        st.session_state.role,
-        st.session_state.user_display
-    )
-
-elif not st.session_state.user_id and session_mgr.is_logged_in:
-    st.session_state.user_id = session_mgr.user_id
-    st.session_state.username = session_mgr.username
-    st.session_state.role = session_mgr.role
-    st.session_state.user_display = session_mgr.user_display
-
-
-if st.session_state.user_id:
-    touch_session()
-    expired = check_idle_timeout()
-    if expired:
-        st.rerun()
-
-
-if "session_expired_message" in st.session_state and not st.session_state.user_id:
-    st.warning(st.session_state.session_expired_message)
-    del st.session_state.session_expired_message
-    if "session_expired_username" in st.session_state:
-        del st.session_state.session_expired_username
-
-
-if not st.session_state.user_id:
-
-    @st.cache_data(ttl=3600)
-    def load_logo():
-        try:
-            with open("asset/cimory_logo.png", "rb") as logo_file:
-                return base64.b64encode(logo_file.read()).decode("utf-8")
-        except FileNotFoundError:
-            return ""
-
-    logo_base64 = load_logo()
-
-    st.markdown(
-        """
-        <style>
-
-        .stApp {
-            background:
-                radial-gradient(
-                    ellipse at 50% 20%,
-                    #151b29 0%,
-                    #0d1119 45%,
-                    #080b10 100%
-                );
-            min-height: 100vh;
-        }
-
-        header {
-            visibility: hidden;
-        }
-
-        .block-container {
-            padding-top: 30px !important;
-            padding-bottom: 50px !important;
-        }
-
-        .cimory-logo-container {
-            width: 100vw !important;
-            max-width: 100vw !important;
-            position: relative !important;
-            left: 50% !important;
-            transform: translateX(-50%) !important;
-            display: flex !important;
-            justify-content: center !important;
-            align-items: center !important;
-            margin-top: 10px !important;
-            margin-bottom: 55px !important;
-            padding: 0 !important;
-            box-sizing: border-box !important;
-            text-align: center !important;
-        }
-
-        .cimory-logo {
-            width: 260px !important;
-            max-width: 260px !important;
-            height: auto !important;
-            display: block !important;
-            margin: 0 auto !important;
-            padding: 0 !important;
-            object-fit: contain !important;
-        }
-
-        div[data-testid="stForm"] {
-            width: 700px !important;
-            max-width: calc(100vw - 40px) !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
-            padding: 42px 42px 38px 42px !important;
-            background:
-                linear-gradient(
-                    145deg,
-                    rgba(20, 24, 34, 0.90),
-                    rgba(12, 15, 22, 0.90)
-                ) !important;
-            border:
-                1px solid
-                rgba(125, 140, 170, 0.28) !important;
-            border-radius: 20px !important;
-            box-shadow:
-                0 25px 70px
-                rgba(0, 0, 0, 0.45) !important;
-            backdrop-filter: blur(15px);
-            -webkit-backdrop-filter: blur(15px);
-            box-sizing: border-box !important;
-        }
-
-        .login-title {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: #f5f7fb;
-            font-size: 38px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 35px;
-            letter-spacing: -1px;
-        }
-
-        .login-icon {
-            font-size: 30px !important;
-            line-height: 1 !important;
-            width: 38px;
-            height: 38px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        div[data-testid="stTextInput"] label {
-            color: #f1f3f7 !important;
-            font-size: 16px !important;
-            font-weight: 600 !important;
-            margin-bottom: 8px !important;
-        }
-
-        div[data-baseweb="input"] {
-            height: 58px !important;
-            background:
-                linear-gradient(
-                    145deg,
-                    #242731,
-                    #1e212b
-                ) !important;
-            border:
-                1px solid
-                rgba(150, 160, 180, 0.20) !important;
-            border-radius: 12px !important;
-            transition:
-                border 0.2s ease,
-                box-shadow 0.2s ease;
-        }
-
-        div[data-baseweb="input"]:focus-within {
-            border:
-                1px solid
-                rgba(255, 255, 255, 0.38) !important;
-            box-shadow:
-                0 0 0 2px
-                rgba(255, 255, 255, 0.04) !important;
-        }
-
-        div[data-baseweb="input"] input {
-            height: 56px !important;
-            color: #f5f5f7 !important;
-            font-size: 16px !important;
-            font-weight: 400 !important;
-        }
-
-        div[data-baseweb="input"] input::placeholder {
-            color: #a0a3ad !important;
-            opacity: 1 !important;
-        }
-
-        div[data-baseweb="input"] button {
-            color: #f4f5f8 !important;
-        }
-
-        div[data-testid="stTextInput"] {
-            margin-bottom: 20px;
-        }
-
-        div[data-testid="stFormSubmitButton"] {
-            margin-top: 8px !important;
-        }
-
-        div[data-testid="stFormSubmitButton"] button {
-            width: 100% !important;
-            height: 62px !important;
-            border: none !important;
-            border-radius: 13px !important;
-            background:
-                linear-gradient(
-                    90deg,
-                    #ff3d48,
-                    #ff4d54
-                ) !important;
-            color: white !important;
-            font-size: 18px !important;
-            font-weight: 700 !important;
-            transition:
-                transform 0.15s ease,
-                box-shadow 0.15s ease;
-        }
-
-        div[data-testid="stFormSubmitButton"] button:hover {
-            background:
-                linear-gradient(
-                    90deg,
-                    #ff4751,
-                    #ff5960
-                ) !important;
-            transform: translateY(-1px);
-            box-shadow:
-                0 10px 25px
-                rgba(255, 60, 70, 0.25);
-        }
-
-        div[data-testid="stFormSubmitButton"] button:active {
-            transform: translateY(0);
-        }
-
-        @media (max-width: 768px) {
-
-            .block-container {
-                padding-left: 15px !important;
-                padding-right: 15px !important;
-                padding-top: 20px !important;
-            }
-
-            .cimory-logo-container {
-                width: 100vw !important;
-                max-width: 100vw !important;
-                left: 50% !important;
-                transform: translateX(-50%) !important;
-                margin-top: 10px !important;
-                margin-bottom: 35px !important;
-            }
-
-            .cimory-logo {
-                width: 220px !important;
-                max-width: 220px !important;
-            }
-
-            div[data-testid="stForm"] {
-                width: auto !important;
-                max-width: calc(100vw - 30px) !important;
-                padding:
-                    30px 22px 28px 22px !important;
-                border-radius: 17px !important;
-            }
-
-            .login-title {
-                font-size: 32px;
-                gap: 10px;
-            }
-
-            .login-icon {
-                font-size: 26px !important;
-                width: 34px;
-                height: 34px;
-            }
-
-            div[data-baseweb="input"] {
-                height: 56px !important;
-            }
-
-            div[data-baseweb="input"] input {
-                height: 54px !important;
-                font-size: 15px !important;
-            }
-
-            div[data-testid="stFormSubmitButton"] button {
-                height: 56px !important;
-            }
-
-        }
-
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-    if logo_base64:
-        st.markdown(
-            f"""
-            <div class="cimory-logo-container">
-                <img
-                    src="data:image/png;base64,{logo_base64}"
-                    class="cimory-logo"
-                    alt="Cimory Logo"
-                >
-            </div>
-            """,
-            unsafe_allow_html=True
+        master = _db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+        pic_options = sorted(set([m.pic_recruiter for m in master if m.pic_recruiter]))
+        bu_options = sorted(set([m.bu for m in master if m.bu]))
+        return {'pic_options': pic_options, 'bu_options': bu_options}
+    except Exception:
+        return {'pic_options': [], 'bu_options': []}
+
+
+@st.cache_data(ttl=3600)
+def get_sourcing_options():
+    return {
+        'sumber_options': ["Jobstreet", "LinkedIn", "Google Form", "Referensi User", "Referensi Karyawan", "Campus Hiring", "Walk-in Interview", "Database Internal", "Freelance", "Lainnya"],
+        'jenjang_options': ["SMA/SMK", "D3", "D4", "S1", "S2"],
+        'univ_options': ["Universitas Indonesia", "Universitas Gadjah Mada", "Institut Teknologi Bandung", "Universitas Airlangga", "Universitas Padjadjaran", "Universitas Diponegoro", "Universitas Brawijaya", "Institut Pertanian Bogor", "Universitas Sebelas Maret", "Telkom University", "Lainnya"],
+        'jurusan_options': ["Manajemen", "Akuntansi", "Teknik Industri", "Teknik Informatika", "Sistem Informasi", "Psikologi", "Ilmu Komunikasi", "Hukum", "Ekonomi", "Lainnya"],
+        'fmcg_options': ["", "Ya", "Tidak"],
+        'pipeline_options': ["", "V", "X"],
+        'university_tier_options': ["Top 3 PTN", "Top 10 PTN", "Top 20 PTN", "Top 10 PTS", "Lainnya"]
+    }
+
+
+@st.cache_data(ttl=3600)
+def get_pipeline_stages():
+    return [
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance", "desc": "Sourcing oleh freelance"},
+        {"field": "sourcing_hr", "label": "Sourcing HR", "desc": "Sourcing oleh HR internal"},
+        {"field": "shortlist_cv", "label": "Shortlist CV", "desc": "CV sudah di-shortlist"},
+        {"field": "psikotes", "label": "Psikotes", "desc": "Tes psikotes"},
+        {"field": "hr_interview", "label": "HR Interview", "desc": "Interview dengan HR"},
+        {"field": "technical_test_case_study", "label": "Technical Test / Case Study", "desc": "Tes teknis / case study"},
+        {"field": "market_visit", "label": "Market Visit", "desc": "Kunjungan ke pasar / outlet"},
+        {"field": "user_interview", "label": "User Interview", "desc": "Interview dengan user"},
+        {"field": "panel_interview", "label": "Panel Interview", "desc": "Interview panel"},
+        {"field": "reference_check", "label": "Reference Check", "desc": "Cek referensi"},
+        {"field": "mcu", "label": "MCU", "desc": "Medical Check Up"},
+        {"field": "offering", "label": "Offering", "desc": "Penawaran"},
+        {"field": "day1", "label": "Day 1", "desc": "Hari pertama kerja"}
+    ]
+
+
+UNIV_TIER_MAP = {
+    "Universitas Indonesia": "Top 3 PTN",
+    "Universitas Gadjah Mada": "Top 3 PTN",
+    "Institut Teknologi Bandung": "Top 3 PTN",
+    "Universitas Airlangga": "Top 10 PTN",
+    "IPB University": "Top 10 PTN",
+    "Institut Teknologi Sepuluh Nopember": "Top 10 PTN",
+    "Universitas Padjadjaran": "Top 10 PTN",
+    "Universitas Diponegoro": "Top 10 PTN",
+    "Universitas Brawijaya": "Top 10 PTN",
+    "Universitas Hasanuddin": "Top 20 PTN",
+    "Universitas Sebelas Maret": "Top 20 PTN",
+    "Universitas Sumatera Utara": "Top 20 PTN",
+    "Universitas Pendidikan Indonesia": "Top 20 PTN",
+    "Universitas Negeri Yogyakarta": "Top 20 PTN",
+    "Universitas Negeri Padang": "Top 20 PTN",
+    "Universitas Negeri Malang": "Top 20 PTN",
+    "Universitas Syiah Kuala": "Top 20 PTN",
+    "Universitas Andalas": "Top 20 PTN",
+    "Universitas Udayana": "Top 20 PTN",
+    "Universitas Negeri Semarang": "Top 20 PTN",
+    "Bina Nusantara University": "Top 10 PTS",
+    "Telkom University": "Top 10 PTS",
+    "Institut Teknologi Nasional Bandung": "Top 10 PTS",
+    "Universitas Muhammadiyah Yogyakarta": "Top 10 PTS",
+    "Universitas Katolik Indonesia Atma Jaya": "Top 10 PTS",
+    "Universitas Islam Indonesia": "Top 10 PTS",
+    "Universitas Kristen Petra": "Top 10 PTS",
+    "Universitas Trisakti": "Top 10 PTS",
+    "Universitas Pelita Harapan": "Top 10 PTS",
+    "Swiss German University": "Top 10 PTS",
+}
+
+
+UNIV_ALIASES = {
+    "Universitas Indonesia": ["universitas indonesia", "university of indonesia", "ui"],
+    "Universitas Gadjah Mada": ["universitas gadjah mada", "gadjah mada university", "ugm"],
+    "Institut Teknologi Bandung": ["institut teknologi bandung", "bandung institute of technology", "itb"],
+    "Universitas Airlangga": ["universitas airlangga", "airlangga university", "unair", "airlangga"],
+    "IPB University": ["ipb university", "institut pertanian bogor", "bogor agricultural university", "ipb"],
+    "Institut Teknologi Sepuluh Nopember": ["institut teknologi sepuluh nopember", "its surabaya", "its"],
+    "Universitas Padjadjaran": ["universitas padjadjaran", "padjadjaran university", "unpad", "padjadjaran"],
+    "Universitas Diponegoro": ["universitas diponegoro", "diponegoro university", "undip", "diponegoro"],
+    "Universitas Brawijaya": ["universitas brawijaya", "brawijaya university", "ub brawijaya", "brawijaya"],
+    "Universitas Hasanuddin": ["universitas hasanuddin", "hasanuddin university", "unhas", "hasanuddin"],
+    "Universitas Sebelas Maret": ["universitas sebelas maret", "sebelas maret university", "uns", "sebelas maret"],
+    "Universitas Sumatera Utara": ["universitas sumatera utara", "university of sumatera utara", "usu"],
+    "Universitas Pendidikan Indonesia": ["universitas pendidikan indonesia", "indonesia university of education", "upi"],
+    "Universitas Negeri Yogyakarta": ["universitas negeri yogyakarta", "yogyakarta state university", "uny"],
+    "Universitas Negeri Padang": ["universitas negeri padang", "padang state university", "unp"],
+    "Universitas Negeri Malang": ["universitas negeri malang", "state university of malang", "um"],
+    "Universitas Syiah Kuala": ["universitas syiah kuala", "syiah kuala university", "usk", "unsyiah"],
+    "Universitas Andalas": ["universitas andalas", "andalas university", "unand"],
+    "Universitas Udayana": ["universitas udayana", "udayana university", "unud"],
+    "Universitas Negeri Semarang": ["universitas negeri semarang", "semarang state university", "unnes"],
+    "Bina Nusantara University": ["bina nusantara", "binus university", "binus", "universitas bina nusantara"],
+    "Telkom University": ["telkom university", "universitas telkom", "tel-u", "telkom"],
+    "Institut Teknologi Nasional Bandung": ["institut teknologi nasional bandung", "itenas"],
+    "Universitas Muhammadiyah Yogyakarta": ["universitas muhammadiyah yogyakarta", "umy"],
+    "Universitas Katolik Indonesia Atma Jaya": ["atma jaya", "unika atma jaya", "atma jaya catholic university"],
+    "Universitas Islam Indonesia": ["universitas islam indonesia", "uii"],
+    "Universitas Kristen Petra": ["universitas kristen petra", "petra christian university", "petra"],
+    "Universitas Trisakti": ["universitas trisakti", "trisakti university", "usakti", "trisakti"],
+    "Universitas Pelita Harapan": ["universitas pelita harapan", "pelita harapan university", "uph"],
+    "Swiss German University": ["swiss german university", "sgu"],
+}
+
+JURUSAN_ALIASES = {
+    "Manajemen": ["manajemen", "management"],
+    "Akuntansi": ["akuntansi", "accounting"],
+    "Teknik Industri": ["teknik industri", "industrial engineering"],
+    "Teknik Informatika": ["teknik informatika", "informatics", "computer science", "ilmu komputer"],
+    "Sistem Informasi": ["sistem informasi", "information system"],
+    "Psikologi": ["psikologi", "psychology"],
+    "Ilmu Komunikasi": ["ilmu komunikasi", "communication science", "komunikasi"],
+    "Hukum": ["hukum", "law"],
+    "Ekonomi": ["ekonomi", "economics"],
+}
+
+GENERIC_UNIV_WORDS = {"universitas", "university", "univ", "sekolah", "school"}
+GENERIC_JURUSAN_WORDS = {"jurusan", "major", "program studi", "prodi", "department"}
+
+
+def _clean_text(s: str) -> str:
+    if not s:
+        return ""
+    s = s.lower()
+    s = re.sub(r"[^a-z0-9\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+
+def normalize_univ(raw_val: str):
+    if not raw_val or not str(raw_val).strip():
+        return "", ""
+    raw_clean = _clean_text(str(raw_val))
+    for canonical, aliases in UNIV_ALIASES.items():
+        for alias in aliases:
+            if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
+                return canonical, ""
+    pretty = " ".join([w.capitalize() for w in str(raw_val).split()])
+    return "Lainnya", pretty
+
+
+def get_university_tier(univ_name: str) -> str:
+    if not univ_name:
+        return ""
+    return UNIV_TIER_MAP.get(univ_name, "Lainnya")
+
+
+def normalize_jurusan(raw_val: str):
+    if not raw_val or not str(raw_val).strip():
+        return "", ""
+    raw_clean = _clean_text(str(raw_val))
+    for canonical, aliases in JURUSAN_ALIASES.items():
+        for alias in aliases:
+            if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
+                return canonical, ""
+    pretty = " ".join([w.capitalize() for w in str(raw_val).split()])
+    return "Lainnya", pretty
+
+
+KNOWN_LABELS = [
+    "Jenjang Pendidikan",
+    "Nama Universitas/Sekolah",
+    "Nama Universitas/sekolah",
+    "Nama Universitas",
+    "Nama Sekolah",
+    "University Tier",
+    "Ipk Tier",
+    "IPK Tier",
+    "Nomor Hp",
+    "Nomor HP",
+    "Pernah Di Fmcg?",
+    "Pernah di FMCG?",
+    "Pernah Di FMCG",
+    "Pernah di Fmcg",
+    "Last Position",
+    "Last Tenure",
+    "Last Company",
+    "Total Tenure",
+    "Tahun Lulus",
+    "Kode Unik",
+    "Posisi FPTK",
+    "Sumber",
+    "Jurusan",
+    "Domisili",
+    "Email",
+    "Nama",
+    "Ipk",
+    "IPK",
+    "HP",
+]
+
+
+def preprocess_cv_text(raw_text: str) -> str:
+    if not raw_text:
+        return raw_text
+    if raw_text.count('\n') > 3:
+        return raw_text
+
+    text = raw_text
+    labels_sorted = sorted(KNOWN_LABELS, key=len, reverse=True)
+
+    for label in labels_sorted:
+        pattern = re.compile(
+            r'(?i)(?<!^)\s*(' + re.escape(label) + r'\s*:)',
+            re.IGNORECASE
         )
+        text = pattern.sub(r'\n\1', text)
 
-    with st.form("login_form"):
+    text = text.lstrip('\n')
+    text = re.sub(r'[ \t]+', ' ', text)
+    return text
 
-        st.markdown(
-            """
-            <div class="login-title">
-                <span class="login-icon">🔐</span>
-                <span>Login</span>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
 
-        username = st.text_input(
-            "Username",
-            placeholder="Masukkan username"
-        )
+def parse_cv_text(raw_text: str) -> dict:
+    parsed = {
+        'nama': '', 'email': '', 'hp': '',
+        'univ': '', 'univ_lain': '',
+        'jurusan': '', 'jurusan_lain': '',
+        'ipk': '', 'tahun_lulus': '', 'domisili': '',
+        'last_position': '', 'last_company': '',
+        'last_tenure': '', 'total_tenure': '',
+        'sumber': '', 'posisi': '', 'kode_unik': '',
+        'jenjang': '', 'fmcg': '',
+        'university_tier': ''
+    }
 
-        password = st.text_input(
-            "Password",
-            type="password",
-            placeholder="Masukkan password"
-        )
+    if not raw_text:
+        return parsed
 
-        submitted = st.form_submit_button(
-            "Login  →",
-            use_container_width=True
-        )
+    raw_text = preprocess_cv_text(raw_text)
+    lines = raw_text.split('\n')
 
-        if submitted:
+    email_pattern = r'[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}'
+    phone_pattern = r'(\+62|0)[0-9\s\-\(\)]{9,15}'
+    ipk_pattern = r'([0-4][\.,]\d{1,2})'
 
-            if not username or not password:
+    email_match = re.search(email_pattern, raw_text)
+    if email_match:
+        parsed['email'] = email_match.group()
 
-                st.error(
-                    "Username dan password wajib diisi!"
-                )
+    phone_match = re.search(phone_pattern, raw_text)
+    if phone_match:
+        parsed['hp'] = re.sub(r'[\s\-\(\)]', '', phone_match.group())
 
-            else:
+    ipk_match = re.search(ipk_pattern, raw_text)
+    if ipk_match:
+        parsed['ipk'] = ipk_match.group().replace(',', '.')
 
-                db = get_cached_db()
+    year_matches = re.findall(r'\b(20[0-9]{2})\b', raw_text)
+    for y in year_matches:
+        y_int = int(y)
+        if 1990 <= y_int <= 2030:
+            parsed['tahun_lulus'] = y
+            break
 
-                try:
+    univ_label_seen = False
+    jurusan_label_seen = False
 
-                    user = login_user(
-                        db,
-                        username,
-                        password
-                    )
+    for line in lines:
+        line = line.strip()
+        if ':' in line:
+            key, val = line.split(':', 1)
+            key = key.strip().lower()
+            val = val.strip()
 
-                    if user:
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
+                univ_label_seen = True
+            if any(k in key for k in ['jurusan', 'major']):
+                jurusan_label_seen = True
 
-                        session_mgr.login(
-                            user.id,
-                            user.username,
-                            user.role,
-                            user.display_name or user.username
-                        )
-                        st.session_state.user_id = user.id
-                        st.session_state.username = user.username
-                        st.session_state.role = user.role
-                        st.session_state.user_display = (
-                            user.display_name
-                            or user.username
-                        )
-                        st.session_state.last_activity = datetime.now()
-                        st.session_state.page = "dashboard"
+            if any(k in key for k in ['jurusan', 'major']):
+                if not val:
+                    parsed['jurusan'] = "Lainnya"
+                    parsed['jurusan_lain'] = ""
+                    continue
 
-                        if "pages_dict" in st.session_state:
-                            del st.session_state.pages_dict
-                        if "user_is_admin" in st.session_state:
-                            del st.session_state.user_is_admin
-                        if "pages_dict_role" in st.session_state:
-                            del st.session_state.pages_dict_role
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
+                if not val:
+                    parsed['univ'] = "Lainnya"
+                    parsed['univ_lain'] = ""
+                    parsed['university_tier'] = "Lainnya"
+                    continue
 
-                        st.success(
-                            f"Selamat datang, "
-                            f"{st.session_state.user_display}!"
-                        )
+            if not val:
+                continue
 
-                        time.sleep(0.3)
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
+                univ_dd, univ_lain = normalize_univ(val)
+                parsed['univ'] = univ_dd
+                parsed['univ_lain'] = univ_lain
+                parsed['university_tier'] = get_university_tier(univ_dd)
 
-                        st.rerun()
+            elif any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
+                parsed['nama'] = val
 
+            elif any(k in key for k in ['jenjang', 'education', 'level']):
+                vl = val.lower()
+                if 's1' in vl or 'bachelor' in vl or 'sarjana' in vl:
+                    parsed['jenjang'] = 'S1'
+                elif 's2' in vl or 'master' in vl or 'magister' in vl:
+                    parsed['jenjang'] = 'S2'
+                elif 'd3' in vl or 'diploma 3' in vl:
+                    parsed['jenjang'] = 'D3'
+                elif 'd4' in vl or 'diploma 4' in vl:
+                    parsed['jenjang'] = 'D4'
+                elif 'smk' in vl or 'vocational' in vl:
+                    parsed['jenjang'] = 'SMA/SMK'
+                elif 'sma' in vl or 'high school' in vl:
+                    parsed['jenjang'] = 'SMA/SMK'
+                else:
+                    parsed['jenjang'] = val
+
+            elif any(k in key for k in ['jurusan', 'major']):
+                jur_dd, jur_lain = normalize_jurusan(val)
+                parsed['jurusan'] = jur_dd
+                parsed['jurusan_lain'] = jur_lain
+
+            elif any(k in key for k in ['domisili', 'domicile', 'location', 'kota', 'city']):
+                parsed['domisili'] = val
+
+            elif any(k in key for k in ['nomor hp', 'no hp', 'hp', 'phone', 'nomor', 'no telp']):
+                parsed['hp'] = re.sub(r'[\s\-\(\)]', '', val)
+
+            elif any(k in key for k in ['last position', 'posisi terakhir']):
+                parsed['last_position'] = val
+
+            elif any(k in key for k in ['last company', 'perusahaan terakhir', 'company']):
+                parsed['last_company'] = val
+
+            elif any(k in key for k in ['last tenure', 'tenure last']):
+                parsed['last_tenure'] = val
+
+            elif any(k in key for k in ['total tenure', 'lama kerja', 'pengalaman']):
+                parsed['total_tenure'] = val
+
+            elif any(k in key for k in ['sumber', 'source']):
+                parsed['sumber'] = val
+
+            elif any(k in key for k in ['pernah di fmcg', 'pernah di fmcg?', 'fmcg']):
+                vl = val.lower()
+                if 'ya' in vl or 'yes' in vl or vl == 'y':
+                    parsed['fmcg'] = 'Ya'
+                elif 'tidak' in vl or 'no' in vl or vl == 'n':
+                    parsed['fmcg'] = 'Tidak'
+                else:
+                    parsed['fmcg'] = val
+
+            elif any(k in key for k in ['posisi fptk', 'fptk posisi']):
+                parsed['posisi'] = val
+
+            elif any(k in key for k in ['kode unik', 'unique code']):
+                parsed['kode_unik'] = val
+
+    if not parsed['nama']:
+        for line in lines:
+            line = line.strip()
+            if line and ':' not in line and len(line) > 2 and not line.startswith('http'):
+                parsed['nama'] = line
+                break
+
+    if not parsed['jenjang']:
+        tl = raw_text.lower()
+        if 's1' in tl or 'bachelor' in tl or 'sarjana' in tl:
+            parsed['jenjang'] = 'S1'
+        elif 's2' in tl or 'master' in tl or 'magister' in tl:
+            parsed['jenjang'] = 'S2'
+        elif 'd3' in tl or 'diploma 3' in tl:
+            parsed['jenjang'] = 'D3'
+        elif 'smk' in tl or 'vocational' in tl:
+            parsed['jenjang'] = 'SMA/SMK'
+        elif 'sma' in tl or 'high school' in tl:
+            parsed['jenjang'] = 'SMA/SMK'
+
+    if not parsed['fmcg']:
+        tl = raw_text.lower()
+        if 'fmcg' in tl:
+            if 'ya' in tl or 'yes' in tl:
+                parsed['fmcg'] = 'Ya'
+            elif 'tidak' in tl or 'no' in tl:
+                parsed['fmcg'] = 'Tidak'
+
+    if not parsed['univ'] and not univ_label_seen:
+        univ_dd, univ_lain = normalize_univ(raw_text)
+        if univ_dd and univ_dd != "Lainnya":
+            parsed['univ'] = univ_dd
+            parsed['university_tier'] = get_university_tier(univ_dd)
+        elif univ_dd == "Lainnya" and univ_lain:
+            ul_clean = univ_lain.strip().lower()
+            if ul_clean not in GENERIC_UNIV_WORDS:
+                parsed['univ'] = "Lainnya"
+                parsed['univ_lain'] = univ_lain
+                parsed['university_tier'] = "Lainnya"
+
+    if not parsed['jurusan'] and not jurusan_label_seen:
+        jur_dd, jur_lain = normalize_jurusan(raw_text)
+        if jur_dd and jur_dd != "Lainnya":
+            parsed['jurusan'] = jur_dd
+        elif jur_dd == "Lainnya" and jur_lain:
+            jl_clean = jur_lain.strip().lower()
+            if jl_clean not in GENERIC_JURUSAN_WORDS:
+                parsed['jurusan'] = "Lainnya"
+                parsed['jurusan_lain'] = jur_lain
+
+    return parsed
+
+
+def show_duplicate_warning_dialog(db, nama, email, hp):
+    duplicates = find_duplicate_candidates(db, nama, email=email, nomor_hp=hp)
+
+    if not duplicates:
+        st.session_state["duplicate_action"] = "no_duplicate"
+        return
+
+    @st.dialog("⚠️ Kandidat Duplikat Ditemukan")
+    def _dialog():
+        st.warning(f"⚠️ Kandidat dengan nama **{nama}** sudah pernah diproses!")
+        st.caption(f"Ditemukan {len(duplicates)} kandidat dengan nama sama.")
+
+        st.markdown("### 📋 Kandidat yang Sudah Ada:")
+
+        for i, dup in enumerate(duplicates, 1):
+            with st.expander(f"#{i} - {dup['nama']} | {dup['kode_unik']}", expanded=(i == 1)):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**Kode Unik:** {dup['kode_unik']}")
+                    st.markdown(f"**Posisi:** {dup['posisi'] or '-'}")
+                    st.markdown(f"**PIC:** {dup['rekruter'] or '-'}")
+                    st.markdown(f"**Email:** {dup['email'] or '-'}")
+                    st.markdown(f"**No HP:** {dup['nomor_hp'] or '-'}")
+
+                with col2:
+                    last = dup.get("last_stage")
+                    if last:
+                        st.markdown(f"**Tahap Terakhir:** {last['stage_label']}")
+                        st.markdown(f"**Status:** {last['status']}")
+                        st.markdown(f"**Tanggal:** {last['tanggal'].strftime('%d/%m/%Y') if last['tanggal'] else '-'}")
                     else:
-
-                        st.error(
-                            "Username atau password salah!"
-                        )
-
-                finally:
-
-                    db.close()
-
-    st.stop()
-
-
-with st.sidebar:
-
-    st.markdown(
-        f"### 👤 {st.session_state.user_display}"
-    )
-
-    st.caption(
-        f"Role: {st.session_state.role}"
-    )
-
-    if session_mgr.is_logged_in:
-        remaining = session_mgr.get_idle_remaining_seconds()
-        if remaining > 0:
-            mins = remaining // 60
-            secs = remaining % 60
-            if remaining < 300:
-                st.caption(f"⏰ Auto-logout dalam **{mins}m {secs}s**")
-            else:
-                st.caption(f"⏰ Auto-logout dalam {mins}m {secs}s")
-
-    st.markdown("---")
-
-    current_role = st.session_state.get("role", "user")
-
-    if "pages_dict" not in st.session_state or st.session_state.get("pages_dict_role") != current_role:
-
-        base_pages = {
-            "📊 Dashboard": "dashboard",
-            "📤 Upload & Compile FPTK": "upload_compile",
-            "📋 FPTK View": "fptk_view",
-            "📝 Update Progres Recruitment": "update_progres",
-            "👤 Sourcing Input": "sourcing_input",
-            "👩🏻‍💻 Sourcing View": "sourcing_view",
-            "🔄 Transfer Kandidat": "candidate_transfer",
-            "🚫 Blacklist Kandidat": "blacklist_list",
-            "🏢 DB Kode Posisi": "db_kode_posisi",
-            "🔍 Funnel Report": "funnel_report",
-            "📊 Monitoring Sourcing": "monitoring_sourcing",
-            "📎 Upload Evidence": "upload_evidence",
-            "📩 Transfer FPTK": "transfer_fptk",
-        }
-
-        db = get_cached_db()
-        try:
-            user_is_admin = is_admin(db)
-        finally:
-            db.close()
-
-        st.session_state["user_is_admin"] = user_is_admin
-
-        if user_is_admin:
-            base_pages["🔄 Update Cycle"] = "upload_cycle"
-            base_pages["👥 User Management"] = "user_management"
-            base_pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
-            base_pages["📩 Request Un-Blacklist"] = "admin_blacklist_requests"
-
-        st.session_state.pages_dict = base_pages
-        st.session_state.pages_dict_role = current_role
-
-    pages = st.session_state.pages_dict
-
-    st.markdown("### 📋 Navigasi")
-
-    current_page = st.session_state.get("page", "dashboard")
-
-    for label, page_key in pages.items():
-        is_active = (page_key == current_page)
-
-        if is_active:
-            btn_type = "primary"
-            btn_label = f"▶ {label}"
-        else:
-            btn_type = "secondary"
-            btn_label = f"   {label}"
-
-        if st.button(
-            btn_label,
-            key=f"nav_btn_{page_key}",
-            use_container_width=True,
-            type=btn_type,
-        ):
-            st.session_state.page = page_key
-            st.rerun()
-
-    st.markdown("---")
-
-    st.markdown("### ⚡ Cache Control")
-
-    def get_cache_functions():
-        try:
-            from pages.dashboard import (
-                load_fptk_data,
-                load_sourcing_data,
-                calculate_metrics,
-                get_upload_cycle_progress,
-            )
-            from core.utils import get_filter_options_from_db
-            return {
-                'load_fptk_data': load_fptk_data,
-                'load_sourcing_data': load_sourcing_data,
-                'calculate_metrics': calculate_metrics,
-                'get_upload_cycle_progress': get_upload_cycle_progress,
-                'get_filter_options_from_db': get_filter_options_from_db,
-            }
-        except ImportError as e:
-            st.caption(f"Cache functions not available: {str(e)}")
-            return None
-
-    cache_funcs = get_cache_functions()
-
-    if cache_funcs:
-        load_fptk_data = cache_funcs['load_fptk_data']
-        load_sourcing_data = cache_funcs['load_sourcing_data']
-        calculate_metrics = cache_funcs['calculate_metrics']
-        get_upload_cycle_progress = cache_funcs['get_upload_cycle_progress']
-        get_filter_options_from_db = cache_funcs['get_filter_options_from_db']
-
-        last_fptk = st.session_state.get('last_fptk_load', datetime.now())
-        last_sourcing = st.session_state.get('last_sourcing_load', datetime.now())
-
-        st.caption(f"🕐 FPTK: {last_fptk.strftime('%H:%M:%S')}")
-        st.caption(f"🕐 Sourcing: {last_sourcing.strftime('%H:%M:%S')}")
-
-        time_diff = (datetime.now() - last_fptk).seconds
-        remaining = max(0, 300 - time_diff)
-        if remaining > 0:
-            st.caption(f"⏳ Auto refresh in {remaining//60}m {remaining%60}s")
-        else:
-            st.caption("🔄 Auto refreshing...")
+                        st.info("Belum masuk tahap pipeline apapun.")
 
         st.markdown("---")
+        st.markdown("### Pilihan Aksi:")
 
         col1, col2 = st.columns(2)
+
         with col1:
-            if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
-                st.cache_data.clear()
-                st.session_state.last_fptk_load = datetime.now()
-                st.session_state.last_sourcing_load = datetime.now()
-                st.success("All cache cleared! Reloading...")
-                time.sleep(0.5)
+            if st.button("✅ Lanjut Input (Duplicate)", use_container_width=True, key="dup_continue"):
+                st.session_state["duplicate_action"] = "continue"
                 st.rerun()
 
         with col2:
-            if st.button("🗑️ Clear Cache", use_container_width=True):
-                load_fptk_data.clear()
-                load_sourcing_data.clear()
-                calculate_metrics.clear()
-                get_upload_cycle_progress.clear()
-                st.success("Data cache cleared! Reloading...")
-                time.sleep(0.5)
-                st.rerun()
-
-        with st.expander("🔧 Advanced Cache Control", expanded=False):
-            if st.button("🧹 Clear FPTK Cache", use_container_width=True):
-                load_fptk_data.clear()
-                calculate_metrics.clear()
-                st.session_state.last_fptk_load = datetime.now()
-                st.success("FPTK cache cleared!")
-                st.rerun()
-
-            if st.button("🧹 Clear Sourcing Cache", use_container_width=True):
-                load_sourcing_data.clear()
-                st.session_state.last_sourcing_load = datetime.now()
-                st.success("Sourcing cache cleared!")
-                st.rerun()
-
-            if st.button("🧹 Clear Filter Options", use_container_width=True):
-                get_filter_options_from_db.clear()
-                st.success("Filter options cache cleared!")
-                time.sleep(0.5)
-                st.rerun()
-
-            if st.button("🧹 Clear All Cache", use_container_width=True):
-                st.cache_data.clear()
-                st.session_state.last_fptk_load = datetime.now()
-                st.session_state.last_sourcing_load = datetime.now()
-                st.success("All cache cleared!")
+            if st.button("🔄 Transfer Kandidat Lama", use_container_width=True, key="dup_transfer"):
+                st.session_state["duplicate_action"] = "transfer"
                 st.rerun()
 
         st.markdown("---")
-    else:
-        st.caption("Cache functions not available")
-        st.markdown("---")
+        if st.button("❌ Batal Input", use_container_width=True, key="dup_cancel"):
+            st.session_state["duplicate_action"] = "cancel"
+            st.rerun()
 
-    with st.expander("🔑 Ganti Password"):
+    _dialog()
 
-        with st.form("change_password"):
 
-            db = get_cached_db()
+def show_sourcing_input():
+    st.title("👤 Input Sourcing / CV")
+    st.markdown("Input kandidat baru ke DB Sourcing")
 
-            try:
+    db = next(get_db())
+    if not is_editor(db):
+        st.error("❌ Anda tidak memiliki akses untuk input sourcing. Hubungi Admin.")
+        return
+    user = get_current_user(db)
+    if not user:
+        st.warning("Silakan login.")
+        return
 
-                user = (
-                    db.query(User)
-                    .filter(
-                        User.id
-                        == st.session_state.user_id
-                    )
-                    .first()
-                )
+    with st.spinner("📋 Memuat data..."):
+        master_options = get_master_options_sourcing(db)
+        sourcing_options = get_sourcing_options()
+        pipeline_stages = get_pipeline_stages()
 
-                old = st.text_input(
-                    "Password Lama",
-                    type="password"
-                )
+        fptk_list = db.query(FPTK).filter(FPTK.status == 'OP').order_by(FPTK.kode_unik).all()
+        fptk_options = [(f.kode_unik, f.posisi, f.pic_recruiter) for f in fptk_list]
 
-                new = st.text_input(
-                    "Password Baru (min 6 karakter)",
-                    type="password"
-                )
+    pic_options = master_options['pic_options']
+    pipeline_options = sourcing_options['pipeline_options']
 
-                confirm = st.text_input(
-                    "Konfirmasi",
-                    type="password"
-                )
+    if 'parsed_cv_data' not in st.session_state:
+        st.session_state.parsed_cv_data = {}
+    if 'show_parsed_form' not in st.session_state:
+        st.session_state.show_parsed_form = False
 
-                update_password = (
-                    st.form_submit_button(
-                        "Update Password"
-                    )
-                )
-
-                if update_password:
-
-                    if (
-                        new
-                        and new == confirm
-                        and len(new) >= 6
-                    ):
-
-                        if (
-                            user
-                            and verify_password(
-                                old,
-                                user.password_hash
-                            )
-                        ):
-
-                            user.password_hash = (
-                                hash_password(new)
-                            )
-
-                            db.commit()
-
-                            st.success(
-                                "Password berhasil diubah!"
-                            )
-
-                        else:
-
-                            st.error(
-                                "Password lama salah!"
-                            )
-
-                    else:
-
-                        st.error(
-                            "Password baru minimal 6 "
-                            "karakter dan harus sama!"
-                        )
-
-            finally:
-
-                db.close()
+    st.markdown("---")
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        st.markdown("### 🤖 Copilot Agent")
+        st.caption("Parsing CV gambar/PDF scan menggunakan Copilot Agent")
+    with col2:
+        st.link_button("🚀 Buka Copilot Agent", COPILOT_AGENT_URL, use_container_width=True, type="primary")
+    with col3:
+        st.caption("Upload CV → Copy hasil → Paste di sini")
 
     st.markdown("---")
 
-    if st.button(
-        "🚪 Logout",
-        use_container_width=True
-    ):
+    tab1, tab2, tab3 = st.tabs(["📝 Manual Input", "📋 Paste Text", "📦 Batch CV"])
 
-        session_mgr.logout()
-        st.session_state.clear()
+    with tab1:
+        st.subheader("Manual Input Kandidat")
+        show_manual_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options)
 
-        st.rerun()
+    with tab2:
+        st.subheader("Paste Text CV")
+        st.caption("Paste hasil copy dari Jobstreet / LinkedIn / Copilot Agent")
 
+        raw_text = st.text_area("Paste teks CV di sini", height=150)
 
-if st.session_state.user_id and not session_mgr.is_logged_in:
-    session_mgr.login(
-        st.session_state.user_id,
-        st.session_state.username,
-        st.session_state.role,
-        st.session_state.user_display
-    )
-elif not st.session_state.user_id and session_mgr.is_logged_in:
-    st.session_state.user_id = session_mgr.user_id
-    st.session_state.username = session_mgr.username
-    st.session_state.role = session_mgr.role
-    st.session_state.user_display = session_mgr.user_display
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            parse_btn = st.button("🔍 Parse & Tampilkan di Form", use_container_width=True, type="primary")
 
+        if parse_btn and raw_text:
+            with st.spinner("Memproses..."):
+                parsed = parse_cv_text(raw_text)
+                if parsed.get('nama'):
+                    st.success(f"✅ Data ditemukan: {parsed.get('nama')}")
+                    with st.expander("🐛 Debug Parsed Data"):
+                        st.json({k: v for k, v in parsed.items() if v})
+                    st.session_state.parsed_cv_data = parsed
+                    st.session_state.show_parsed_form = True
+                else:
+                    st.warning("Tidak ada data terdeteksi. Pastikan formatnya 'Nama: ...'")
 
-page = st.session_state.page
+        if st.session_state.show_parsed_form and st.session_state.parsed_cv_data:
+            st.markdown("---")
+            st.markdown("### ✏️ Review & Edit Data Sebelum Simpan")
+            st.caption("Data dari hasil parse sudah diisi otomatis. Silakan edit jika diperlukan.")
 
-
-if page == "dashboard":
-    dashboard = importlib.import_module("pages.dashboard")
-    dashboard.show_dashboard()
-
-elif page == "upload_compile":
-    upload_compile = importlib.import_module("pages.02_upload_compile")
-    upload_compile.show_upload_compile()
-
-elif page == "fptk_view":
-    fptk_view = importlib.import_module("pages.03_fptk_view")
-    fptk_view.show_fptk_view()
-
-elif page == "update_progres":
-    try:
-        update_progres = importlib.import_module("pages.11_update_progres")
-        update_progres.show_update_progres()
-    except ModuleNotFoundError:
-        st.error("File pages/11_update_progres.py tidak ditemukan!")
-
-elif page == "sourcing_view":
-    sourcing_view = importlib.import_module("pages.04_sourcing_view")
-    sourcing_view.show_sourcing_view()
-
-elif page == "candidate_transfer":
-    try:
-        candidate_transfer = importlib.import_module("pages.candidate_transfer")
-        candidate_transfer.show_candidate_transfer()
-    except ModuleNotFoundError:
-        st.error("File pages/candidate_transfer.py tidak ditemukan!")
-
-elif page == "blacklist_list":
-    try:
-        blacklist_list = importlib.import_module("pages.blacklist_list")
-        blacklist_list.show_blacklist_list()
-    except ModuleNotFoundError:
-        st.error("File pages/blacklist_list.py tidak ditemukan!")
-
-elif page == "admin_blacklist_requests":
-    try:
-        admin_blacklist_requests = importlib.import_module("pages.admin_blacklist_requests")
-        admin_blacklist_requests.show_admin_blacklist_requests()
-    except ModuleNotFoundError:
-        st.error("File pages/admin_blacklist_requests.py tidak ditemukan!")
-
-elif page == "db_kode_posisi":
-    db_kode_posisi = importlib.import_module("pages.05_db_kode_posisi")
-    db_kode_posisi.show_db_kode_posisi()
-
-elif page == "upload_cycle":
-    upload_cycle = importlib.import_module("pages.06_upload_cycle")
-    upload_cycle.show_upload_cycle()
-
-elif page == "user_management":
-    user_management = importlib.import_module("pages.07_user_management")
-    user_management.show_user_management()
-
-elif page == "admin_delete_requests":
-    try:
-        admin_delete_requests = importlib.import_module("pages.10_admin_delete_requests")
-        admin_delete_requests.show_admin_delete_requests()
-    except ModuleNotFoundError:
-        st.error("File pages/10_admin_delete_requests.py tidak ditemukan!")
-
-elif page == "sourcing_input":
-    try:
-        sourcing_input = importlib.import_module("pages.09_sourcing_input")
-        sourcing_input.show_sourcing_input()
-    except ModuleNotFoundError:
-        st.error("File pages/09_sourcing_input.py tidak ditemukan!")
-
-elif page == "funnel_report":
-    try:
-        funnel_report = importlib.import_module("pages.funnel_report")
-        funnel_report.show_funnel_report()
-    except ModuleNotFoundError:
-        st.error("File pages/funnel_report.py tidak ditemukan!")
-
-elif page == "monitoring_sourcing":
-    try:
-        monitoring_sourcing = importlib.import_module("pages.monitoring_sourcing")
-        monitoring_sourcing.show_monitoring_sourcing()
-    except ModuleNotFoundError:
-        st.error("File pages/monitoring_sourcing.py tidak ditemukan!")
-
-elif page == "upload_evidence":
-    try:
-        upload_evidence = importlib.import_module("pages.upload_evidence")
-        upload_evidence.show_upload_evidence()
-    except ModuleNotFoundError:
-        st.error("File pages/upload_evidence.py tidak ditemukan!")
-
-elif page == "transfer_fptk":
-    try:
-        transfer_fptk = importlib.import_module("pages.transfer_fptk")
-        transfer_fptk.show_transfer_fptk()
-    except ModuleNotFoundError:
-        st.error("File pages/transfer_fptk.py tidak ditemukan!")
-
-
-st.markdown("---")
-st.markdown("### 📥 Export Data")
-
-if st.button("📊 Export All Data", use_container_width=True):
-    with st.spinner("Mengekspor data..."):
-        db = get_cached_db()
-        try:
-            from core.export_excel import export_database_to_excel
-            filepath = export_database_to_excel(db)
-
-            with open(filepath, "rb") as f:
-                file_data = f.read()
-
-            st.download_button(
-                label="📥 Download Excel",
-                data=file_data,
-                file_name=os.path.basename(filepath),
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+            show_sourcing_form(
+                db=db, user=user,
+                pic_options=pic_options,
+                fptk_options=fptk_options,
+                sourcing_options=sourcing_options,
+                pipeline_options=pipeline_options,
+                initial_data=st.session_state.parsed_cv_data,
+                form_key="form_parse_edit",
+                is_parse_mode=True
             )
-            st.success(f"Export berhasil! File: {os.path.basename(filepath)}")
-        finally:
-            db.close()
 
-with st.expander("📋 Export Sheet Spesifik"):
-    sheet_options = [
-        "Blacklist Candidate",
-        "DB Kode Posisi",
-        "FPTK",
-        "DB Sourcing",
-        "Grafik MPP",
-        "Recruiter Performance",
-        "Master Dropdown",
-        "Evidence"
-    ]
-    selected_sheet = st.selectbox("Pilih Sheet", sheet_options)
+    with tab3:
+        st.subheader("Batch Paste CV (Banyak Kandidat)")
+        st.caption("Paste hasil dari Copilot Agent atau multiple CV. Pisahkan dengan separator.")
 
-    if st.button(f"Export {selected_sheet}"):
-        with st.spinner(f"Mengekspor {selected_sheet}..."):
-            db = get_cached_db()
-            try:
-                from core.export_excel import export_single_sheet
-                df = export_single_sheet(db, selected_sheet)
+        separator = st.text_input("Separator kandidat", value="=== CV ===")
+        batch_text = st.text_area("Paste batch CV di sini", height=300)
 
-                from io import BytesIO
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df.to_excel(writer, sheet_name=selected_sheet, index=False)
-                output.seek(0)
+        if batch_text and st.button("🚀 Proses Batch", type="primary"):
+            candidates = [c.strip() for c in batch_text.split(separator) if c.strip()]
+            st.info(f"📋 Ditemukan {len(candidates)} kandidat")
+            st.session_state.batch_candidates = candidates
+            st.session_state.batch_index = 0
+            st.rerun()
 
-                st.download_button(
-                    label=f"📥 Download {selected_sheet}.xlsx",
-                    data=output.getvalue(),
-                    file_name=f"{selected_sheet}.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+        if 'batch_candidates' in st.session_state and st.session_state.batch_candidates:
+            idx = st.session_state.batch_index
+            candidates = st.session_state.batch_candidates
+
+            if idx < len(candidates):
+                st.markdown("---")
+                st.subheader(f"📄 Kandidat {idx+1} dari {len(candidates)}")
+
+                raw_text = candidates[idx]
+                parsed = parse_cv_text(raw_text)
+
+                if parsed.get('nama'):
+                    show_sourcing_form(
+                        db=db, user=user,
+                        pic_options=pic_options,
+                        fptk_options=fptk_options,
+                        sourcing_options=sourcing_options,
+                        pipeline_options=pipeline_options,
+                        initial_data=parsed,
+                        form_key=f"form_batch_{idx}",
+                        is_parse_mode=True,
+                        batch_mode=True
+                    )
+                else:
+                    st.warning(f"⚠️ Kandidat {idx+1} tidak terdeteksi datanya")
+                    if st.button("⏭️ Lewati", key=f"skip_{idx}"):
+                        st.session_state.batch_index = idx + 1
+                        st.rerun()
+            else:
+                st.success("✅ Semua kandidat selesai diproses!")
+                st.session_state.batch_candidates = []
+                st.session_state.batch_index = 0
+
+
+def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options,
+                       initial_data=None, form_key="sourcing_form", is_parse_mode=False, batch_mode=False):
+
+    sumber_options = sourcing_options['sumber_options']
+    jenjang_options = sourcing_options['jenjang_options']
+    univ_options = sourcing_options['univ_options']
+    jurusan_options = sourcing_options['jurusan_options']
+    fmcg_options = sourcing_options['fmcg_options']
+    pipeline_opts = pipeline_options
+
+    nama = initial_data.get('nama', '') if initial_data else ''
+    email = initial_data.get('email', '') if initial_data else ''
+    hp = initial_data.get('hp', '') if initial_data else ''
+    univ = initial_data.get('univ', '') if initial_data else ''
+    univ_lain_init = initial_data.get('univ_lain', '') if initial_data else ''
+    jurusan = initial_data.get('jurusan', '') if initial_data else ''
+    jurusan_lain_init = initial_data.get('jurusan_lain', '') if initial_data else ''
+    ipk = initial_data.get('ipk', '') if initial_data else ''
+    tahun_lulus = initial_data.get('tahun_lulus', '') if initial_data else ''
+    domisili = initial_data.get('domisili', '') if initial_data else ''
+    jenjang = initial_data.get('jenjang', '') if initial_data else ''
+    last_position = initial_data.get('last_position', '') if initial_data else ''
+    last_company = initial_data.get('last_company', '') if initial_data else ''
+    last_tenure = initial_data.get('last_tenure', '') if initial_data else ''
+    total_tenure = initial_data.get('total_tenure', '') if initial_data else ''
+    fmcg = initial_data.get('fmcg', '') if initial_data else ''
+    sumber = initial_data.get('sumber', '') if initial_data else ''
+    posisi = initial_data.get('posisi', '') if initial_data else ''
+    kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
+
+    univ_original = univ
+    if univ_original and univ_original not in univ_options:
+        univ = "Lainnya"
+        if not univ_lain_init and univ_original.strip().lower() not in GENERIC_UNIV_WORDS:
+            univ_lain_init = univ_original
+    elif univ_original == "Lainnya":
+        univ = "Lainnya"
+        if univ_lain_init and univ_lain_init.strip().lower() in GENERIC_UNIV_WORDS:
+            univ_lain_init = ""
+    elif univ_original in univ_options and univ_original != "":
+        univ = univ_original
+        univ_lain_init = ""
+    else:
+        univ = ""
+        univ_lain_init = ""
+
+    jurusan_original = jurusan
+    if jurusan_original and jurusan_original not in jurusan_options:
+        jurusan = "Lainnya"
+        if not jurusan_lain_init and jurusan_original.strip().lower() not in GENERIC_JURUSAN_WORDS:
+            jurusan_lain_init = jurusan_original
+    elif jurusan_original == "Lainnya":
+        jurusan = "Lainnya"
+        if jurusan_lain_init and jurusan_lain_init.strip().lower() in GENERIC_JURUSAN_WORDS:
+            jurusan_lain_init = ""
+    elif jurusan_original in jurusan_options and jurusan_original != "":
+        jurusan = jurusan_original
+        jurusan_lain_init = ""
+    else:
+        jurusan = ""
+        jurusan_lain_init = ""
+
+    fptk_display = []
+    fptk_map = {}
+    fptk_posisi_map = {}
+    for kode, pos, pic in fptk_options:
+        display = f"{kode} - {pos[:50]}"
+        fptk_display.append(display)
+        fptk_map[display] = kode
+        fptk_posisi_map[display] = pos
+
+    default_fptk_index = 0
+    if kode_unik or posisi:
+        for idx, (kode, pos, pic) in enumerate(fptk_options):
+            if kode_unik and kode == kode_unik:
+                default_fptk_index = idx
+                break
+            if posisi and pos == posisi:
+                default_fptk_index = idx
+                break
+
+    if is_parse_mode and initial_data:
+        st.info(f"📋 Data dari parse: **{nama}**")
+
+    model_options_local = [""] + get_model_options()
+
+    with st.form(form_key):
+        st.markdown("### 📋 Data Pribadi")
+        col1, col2 = st.columns(2)
+        with col1:
+            nama_input = st.text_input("Nama *", value=nama)
+
+            if fptk_display:
+                selected_fptk = st.selectbox(
+                    "Pilih FPTK (Kode Unik - Posisi)",
+                    fptk_display,
+                    index=min(default_fptk_index, len(fptk_display) - 1)
                 )
-                st.success(f"Export {selected_sheet} berhasil!")
-            finally:
-                db.close()
+                kode_unik_input = fptk_map.get(selected_fptk, '')
+                posisi_input = fptk_posisi_map.get(selected_fptk, '')
+                st.text_input("Kode Unik (auto)", value=kode_unik_input, disabled=True)
+                st.text_input("Posisi (auto)", value=posisi_input, disabled=True)
+            else:
+                st.warning("⚠️ Tidak ada FPTK OP yang tersedia. Buat FPTK dulu.")
+                kode_unik_input = ''
+                posisi_input = ''
+                selected_fptk = None
+
+            pic_recruiter_input = st.selectbox("PIC Recruiter *", [""] + pic_options)
+            hp_input = st.text_input("No HP", value=hp)
+            email_input = st.text_input("Email", value=email)
+
+            sumber_input = st.selectbox("Sumber *", [""] + sumber_options,
+                                       index=([""] + sumber_options).index(sumber) if sumber in sumber_options else 0)
+
+            auto_model = auto_detect_model_rekrutmen(posisi_input if posisi_input else posisi)
+            model_default_idx = model_options_local.index(auto_model) if auto_model in model_options_local else 0
+            model_rekrutmen_input = st.selectbox("Model Rekrutmen", model_options_local, index=model_default_idx, key=f"{form_key}_model")
+
+            domisili_input = st.text_input("Domisili", value=domisili)
+
+        with col2:
+            jenjang_input = st.selectbox("Jenjang", [""] + jenjang_options,
+                                        index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0)
+
+            default_univ_index = 0
+            if univ in univ_options:
+                default_univ_index = ([""] + univ_options).index(univ) if univ != "" else 0
+            elif univ:
+                default_univ_index = ([""] + univ_options).index("Lainnya")
+
+            univ_input = st.selectbox(
+                "Universitas", [""] + univ_options,
+                index=default_univ_index,
+                key=f"{form_key}_univ"
+            )
+
+            if univ_input == "Lainnya":
+                univ_lain = st.text_input(
+                    "Univ Lainnya *",
+                    value=univ_lain_init
+                )
+            else:
+                univ_lain = ""
+
+            tier_auto = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
+            st.text_input("University Tier (auto)", value=tier_auto, disabled=True)
+
+            default_jur_index = 0
+            if jurusan in jurusan_options:
+                default_jur_index = ([""] + jurusan_options).index(jurusan) if jurusan != "" else 0
+            elif jurusan:
+                default_jur_index = ([""] + jurusan_options).index("Lainnya")
+
+            jurusan_input = st.selectbox(
+                "Jurusan", [""] + jurusan_options,
+                index=default_jur_index,
+                key=f"{form_key}_jurusan"
+            )
+
+            if jurusan_input == "Lainnya":
+                jurusan_lain = st.text_input(
+                    "Jurusan Lainnya *",
+                    value=jurusan_lain_init
+                )
+            else:
+                jurusan_lain = ""
+
+            ipk_input = st.text_input("IPK", value=ipk, placeholder="Contoh: 3.50")
+
+            try:
+                default_tahun = int(tahun_lulus) if tahun_lulus and str(tahun_lulus).isdigit() else None
+            except Exception:
+                default_tahun = None
+
+            if default_tahun is not None and (default_tahun < 1990 or default_tahun > 2030):
+                default_tahun = None
+
+            tahun_lulus_input = st.number_input("Tahun Lulus", min_value=1990, max_value=2030, step=1,
+                                                value=default_tahun)
+            fmcg_input = st.selectbox("Pernah di FMCG?", [""] + fmcg_options,
+                                     index=([""] + fmcg_options).index(fmcg) if fmcg in fmcg_options else 0)
+
+        st.markdown("---")
+        st.markdown("### 💼 Riwayat Pekerjaan")
+        col1, col2 = st.columns(2)
+        with col1:
+            last_position_input = st.text_input("Last Position", value=last_position)
+            last_company_input = st.text_input("Last Company", value=last_company)
+        with col2:
+            last_tenure_input = st.text_input("Last Tenure", value=last_tenure)
+            total_tenure_input = st.text_input("Total Tenure", value=total_tenure)
+
+        st.markdown("---")
+        st.markdown("### 📊 Pipeline (Status awal)")
+
+        pipeline_inputs = {}
+
+        with st.expander("Sourcing Freelance", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                sf_input = st.selectbox("Sourcing Freelance", [""] + pipeline_opts, key=f"{form_key}_sf")
+            with col2:
+                if sf_input:
+                    tsf_input = st.date_input("Tanggal Sourcing Freelance", datetime.now(), key=f"{form_key}_tsf")
+                else:
+                    tsf_input = None
+                    st.date_input("Tanggal Sourcing Freelance", datetime.now(), disabled=True, key=f"{form_key}_tsf_dis")
+            pipeline_inputs['sourcing_freelance'] = sf_input if sf_input else None
+            pipeline_inputs['tanggal_sourcing_freelance'] = tsf_input if sf_input else None
+
+        with st.expander("Sourcing HR", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                shr_input = st.selectbox("Sourcing HR", [""] + pipeline_opts, key=f"{form_key}_shr")
+            with col2:
+                if shr_input:
+                    tshr_input = st.date_input("Tanggal Sourcing HR", datetime.now(), key=f"{form_key}_tshr")
+                else:
+                    tshr_input = None
+                    st.date_input("Tanggal Sourcing HR", datetime.now(), disabled=True, key=f"{form_key}_tshr_dis")
+            pipeline_inputs['sourcing_hr'] = shr_input if shr_input else None
+            pipeline_inputs['tanggal_sourcing'] = tshr_input if shr_input else None
+            pipeline_inputs['detail_keterangan_sourcing_hr'] = st.text_area("Detail Keterangan Sourcing HR", key=f"{form_key}_dkshr") or None
+
+        with st.expander("Shortlist CV", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                scv_input = st.selectbox("Shortlist CV", [""] + pipeline_opts, key=f"{form_key}_scv")
+            with col2:
+                if scv_input:
+                    tscv_input = st.date_input("Tanggal Shortlist CV", datetime.now(), key=f"{form_key}_tscv")
+                else:
+                    tscv_input = None
+                    st.date_input("Tanggal Shortlist CV", datetime.now(), disabled=True, key=f"{form_key}_tscv_dis")
+            pipeline_inputs['shortlist_cv'] = scv_input if scv_input else None
+            pipeline_inputs['tanggal_shortlist_cv'] = tscv_input if scv_input else None
+            pipeline_inputs['detail_keterangan_shortlist_cv'] = st.text_area("Detail Keterangan Shortlist CV", key=f"{form_key}_dkscv") or None
+
+        with st.expander("Psikotes", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                psikotes_input = st.selectbox("Psikotes", [""] + pipeline_opts, key=f"{form_key}_psikotes")
+                kode_psikotes_input = st.text_input("Kode Psikotes", key=f"{form_key}_kpsikotes")
+            with col2:
+                if psikotes_input:
+                    tpsikotes_input = st.date_input("Tanggal Psikotes", datetime.now(), key=f"{form_key}_tpsikotes")
+                else:
+                    tpsikotes_input = None
+                    st.date_input("Tanggal Psikotes", datetime.now(), disabled=True, key=f"{form_key}_tpsikotes_dis")
+                nilai_logika_input = st.text_input("Nilai Logika", key=f"{form_key}_nlogika")
+                nilai_iq_input = st.text_input("Nilai IQ", key=f"{form_key}_niq")
+            col3, col4 = st.columns(2)
+            with col3:
+                nilai_daya_tangkap_input = st.text_input("Nilai Daya Tangkap", key=f"{form_key}_ndaya")
+                nilai_ra_input = st.text_input("Nilai RA", key=f"{form_key}_nra")
+            with col4:
+                disc_input = st.text_input("DISC", key=f"{form_key}_disc")
+
+            pipeline_inputs['psikotes'] = psikotes_input if psikotes_input else None
+            pipeline_inputs['kode_psikotes'] = kode_psikotes_input or None
+            pipeline_inputs['nilai_logika'] = nilai_logika_input or None
+            pipeline_inputs['nilai_iq'] = nilai_iq_input or None
+            pipeline_inputs['nilai_daya_tangkap'] = nilai_daya_tangkap_input or None
+            pipeline_inputs['nilai_ra'] = nilai_ra_input or None
+            pipeline_inputs['disc'] = disc_input or None
+            pipeline_inputs['tanggal_psikotes'] = tpsikotes_input if psikotes_input else None
+            pipeline_inputs['detail_keterangan_psikotes'] = st.text_area("Detail Keterangan Psikotes", key=f"{form_key}_dkpsikotes") or None
+
+        with st.expander("HR Interview", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                hri_input = st.selectbox("HR Interview", [""] + pipeline_opts, key=f"{form_key}_hri")
+            with col2:
+                if hri_input:
+                    thri_input = st.date_input("Tanggal HR Interview", datetime.now(), key=f"{form_key}_thri")
+                else:
+                    thri_input = None
+                    st.date_input("Tanggal HR Interview", datetime.now(), disabled=True, key=f"{form_key}_thri_dis")
+            pipeline_inputs['hr_interview'] = hri_input if hri_input else None
+            pipeline_inputs['tanggal_hr_interview'] = thri_input if hri_input else None
+            pipeline_inputs['detail_keterangan_hr_interview'] = st.text_area("Detail Keterangan HR Interview", key=f"{form_key}_dkhri") or None
+
+        with st.expander("Technical Test / Case Study", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                tt_input = st.selectbox("Technical Test", [""] + pipeline_opts, key=f"{form_key}_tt")
+            with col2:
+                if tt_input:
+                    ttt_input = st.date_input("Tanggal Technical Test", datetime.now(), key=f"{form_key}_ttt")
+                else:
+                    ttt_input = None
+                    st.date_input("Tanggal Technical Test", datetime.now(), disabled=True, key=f"{form_key}_ttt_dis")
+            pipeline_inputs['technical_test_case_study'] = tt_input if tt_input else None
+            pipeline_inputs['tanggal_technical_test'] = ttt_input if tt_input else None
+            pipeline_inputs['detail_keterangan_technical_test'] = st.text_area("Detail Keterangan Technical Test", key=f"{form_key}_dktt") or None
+
+        with st.expander("Market Visit", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                mv_input = st.selectbox("Market Visit", [""] + pipeline_opts, key=f"{form_key}_mv")
+            with col2:
+                if mv_input:
+                    tmv_input = st.date_input("Tanggal Market Visit", datetime.now(), key=f"{form_key}_tmv")
+                else:
+                    tmv_input = None
+                    st.date_input("Tanggal Market Visit", datetime.now(), disabled=True, key=f"{form_key}_tmv_dis")
+            pipeline_inputs['market_visit'] = mv_input if mv_input else None
+            pipeline_inputs['tanggal_market_visit'] = tmv_input if mv_input else None
+            pipeline_inputs['detail_market_visit'] = st.text_area("Detail Market Visit", key=f"{form_key}_dkmv") or None
+
+        with st.expander("User Interview", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                ui_input = st.selectbox("User Interview", [""] + pipeline_opts, key=f"{form_key}_ui")
+            with col2:
+                if ui_input:
+                    tui_input = st.date_input("Tanggal User Interview", datetime.now(), key=f"{form_key}_tui")
+                else:
+                    tui_input = None
+                    st.date_input("Tanggal User Interview", datetime.now(), disabled=True, key=f"{form_key}_tui_dis")
+            pipeline_inputs['user_interview'] = ui_input if ui_input else None
+            pipeline_inputs['tanggal_user_interview'] = tui_input if ui_input else None
+            pipeline_inputs['detail_keterangan_user_interview'] = st.text_area("Detail Keterangan User Interview", key=f"{form_key}_dkui") or None
+
+        with st.expander("Panel Interview", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                pi_input = st.selectbox("Panel Interview", [""] + pipeline_opts, key=f"{form_key}_pi")
+            with col2:
+                if pi_input:
+                    tpi_input = st.date_input("Tanggal Panel Interview", datetime.now(), key=f"{form_key}_tpi")
+                else:
+                    tpi_input = None
+                    st.date_input("Tanggal Panel Interview", datetime.now(), disabled=True, key=f"{form_key}_tpi_dis")
+            pipeline_inputs['panel_interview'] = pi_input if pi_input else None
+            pipeline_inputs['tanggal_panel_interview'] = tpi_input if pi_input else None
+            pipeline_inputs['detail_keterangan_panel_interview'] = st.text_area("Detail Keterangan Panel Interview", key=f"{form_key}_dkpi") or None
+
+        with st.expander("Reference Check", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                rc_input = st.selectbox("Reference Check", [""] + pipeline_opts, key=f"{form_key}_rc")
+            with col2:
+                if rc_input:
+                    trc_input = st.date_input("Tanggal Reference Check", datetime.now(), key=f"{form_key}_trc")
+                else:
+                    trc_input = None
+                    st.date_input("Tanggal Reference Check", datetime.now(), disabled=True, key=f"{form_key}_trc_dis")
+            pipeline_inputs['reference_check'] = rc_input if rc_input else None
+            pipeline_inputs['tanggal_reference_check'] = trc_input if rc_input else None
+            pipeline_inputs['detail_keterangan_reference_check'] = st.text_area("Detail Keterangan Reference Check", key=f"{form_key}_dkrc") or None
+
+        with st.expander("MCU", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                mcu_input = st.selectbox("MCU", [""] + pipeline_opts, key=f"{form_key}_mcu")
+            with col2:
+                if mcu_input:
+                    tmcu_input = st.date_input("Tanggal MCU", datetime.now(), key=f"{form_key}_tmcu")
+                else:
+                    tmcu_input = None
+                    st.date_input("Tanggal MCU", datetime.now(), disabled=True, key=f"{form_key}_tmcu_dis")
+            pipeline_inputs['mcu'] = mcu_input if mcu_input else None
+            pipeline_inputs['tanggal_mcu'] = tmcu_input if mcu_input else None
+            pipeline_inputs['detail_keterangan_mcu'] = st.text_area("Detail Keterangan MCU", key=f"{form_key}_dkmcu") or None
+
+        with st.expander("Offering", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                off_input = st.selectbox("Offering", [""] + pipeline_opts, key=f"{form_key}_off")
+            with col2:
+                if off_input:
+                    toff_input = st.date_input("Tanggal Offering", datetime.now(), key=f"{form_key}_toff")
+                else:
+                    toff_input = None
+                    st.date_input("Tanggal Offering", datetime.now(), disabled=True, key=f"{form_key}_toff_dis")
+            pipeline_inputs['offering'] = off_input if off_input else None
+            pipeline_inputs['tanggal_offering'] = toff_input if off_input else None
+            pipeline_inputs['detail_keterangan_offering'] = st.text_area("Detail Keterangan Offering", key=f"{form_key}_dkoff") or None
+
+        with st.expander("Day 1", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                d1_input = st.selectbox("Day 1", [""] + pipeline_opts, key=f"{form_key}_d1")
+            with col2:
+                if d1_input:
+                    td1_input = st.date_input("Tanggal Day 1", datetime.now(), key=f"{form_key}_td1")
+                else:
+                    td1_input = None
+                    st.date_input("Tanggal Day 1", datetime.now(), disabled=True, key=f"{form_key}_td1_dis")
+            pipeline_inputs['day1'] = d1_input if d1_input else None
+            pipeline_inputs['tanggal_day1'] = td1_input if d1_input else None
+            pipeline_inputs['detail_keterangan_day1'] = st.text_area("Detail Keterangan Day 1", key=f"{form_key}_dkd1") or None
+
+        st.markdown("---")
+        st.markdown("### 📝 Catatan")
+        notes_input = st.text_area("Notes / Catatan", key=f"{form_key}_notes") or None
+
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            submitted = st.form_submit_button("💾 Simpan", type="primary")
+        if is_parse_mode:
+            with col2:
+                if st.form_submit_button("🔄 Reset / Parse Ulang", type="secondary"):
+                    st.session_state.parsed_cv_data = {}
+                    st.session_state.show_parsed_form = False
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(form_key):
+                            del st.session_state[k]
+                    st.rerun()
+
+    if submitted:
+        errors = []
+        if not nama_input:
+            errors.append("Nama wajib diisi")
+        if not sumber_input:
+            errors.append("Sumber wajib diisi")
+        if not pic_recruiter_input:
+            errors.append("PIC Recruiter wajib diisi")
+        if not fptk_display:
+            errors.append("Tidak ada FPTK OP yang tersedia")
+        elif not selected_fptk:
+            errors.append("Pilih FPTK")
+        if univ_input == "Lainnya" and not univ_lain:
+            errors.append("Universitas Lainnya wajib diisi karena memilih 'Lainnya'")
+        if jurusan_input == "Lainnya" and not jurusan_lain:
+            errors.append("Jurusan Lainnya wajib diisi karena memilih 'Lainnya'")
+
+        if errors:
+            for err in errors:
+                st.error(f"❌ {err}")
+        else:
+            duplicates = find_duplicate_candidates(
+                db,
+                nama_input,
+                email=email_input,
+                nomor_hp=hp_input
+            )
+
+            dup_action = st.session_state.get("duplicate_action", None)
+
+            if duplicates and dup_action is None:
+                show_duplicate_warning_dialog(db, nama_input, email_input, hp_input)
+                st.stop()
+
+            if dup_action == "cancel":
+                st.session_state["duplicate_action"] = None
+                st.info("❌ Input dibatalkan.")
+                st.stop()
+
+            if duplicates and dup_action == "transfer":
+                st.session_state["duplicate_action"] = None
+                st.info("🔄 Silakan pilih FPTK tujuan di halaman **Transfer Kandidat**.")
+                st.stop()
+
+            st.session_state["duplicate_action"] = None
+
+            try:
+                existing = db.query(DBSourcing).filter(DBSourcing.nama == nama_input).first()
+                if existing:
+                    st.warning(f"⚠️ Nama '{nama_input}' sudah ada di database.")
+
+                last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
+                next_no = (last_no.no + 1) if last_no and last_no.no else 1
+
+                tier_final = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
+
+                model_kategori = ""
+                if model_rekrutmen_input:
+                    from core.model_rekrutmen import get_model_description
+                    model_kategori = get_model_description(model_rekrutmen_input)
+
+                new = DBSourcing(
+                    no=next_no,
+                    nama=nama_input,
+                    posisi=posisi_input,
+                    kode_unik=kode_unik_input,
+                    rekruter=pic_recruiter_input,
+                    sumber_sourcing=sumber_input,
+                    model_rekrutmen=model_rekrutmen_input if model_rekrutmen_input else None,
+                    model_rekrutmen_kategori=model_kategori if model_kategori else None,
+                    domisili=domisili_input,
+                    jenjang_pendidikan=jenjang_input,
+                    nama_universitas_top10=univ_input if univ_input != "Lainnya" else "",
+                    nama_universitas_lainnya=univ_lain if univ_input == "Lainnya" else "",
+                    jurusan=jurusan_input if jurusan_input != "Lainnya" else "",
+                    jurusan_lainnya=jurusan_lain if jurusan_input == "Lainnya" else "",
+                    university_tier=tier_final,
+                    ipk=safe_float(ipk_input.replace(',', '.')) if ipk_input else None,
+                    tahun_lulus=tahun_lulus_input if tahun_lulus_input and tahun_lulus_input > 0 else None,
+                    nomor_hp=hp_input,
+                    email=email_input,
+                    last_position=last_position_input,
+                    last_company=last_company_input,
+                    last_tenure=last_tenure_input,
+                    total_tenure=total_tenure_input,
+                    pernah_di_fmcg=fmcg_input,
+                    sourcing_date=datetime.now().date(),
+                    notes=notes_input,
+                    source_user_id=user.id,
+                    created_at=datetime.now(),
+                    last_compile_action="MANUAL_INPUT"
+                )
+
+                for field_name, value in pipeline_inputs.items():
+                    if hasattr(new, field_name):
+                        setattr(new, field_name, value)
+
+                db.add(new)
+                db.commit()
+                st.success(f"✅ '{nama_input}' berhasil disimpan! Tier: {tier_final}")
+                st.balloons()
+
+                if is_parse_mode:
+                    st.session_state.parsed_cv_data = {}
+                    st.session_state.show_parsed_form = False
+                    for k in list(st.session_state.keys()):
+                        if k.startswith(form_key):
+                            del st.session_state[k]
+
+                if batch_mode:
+                    if 'batch_index' in st.session_state:
+                        st.session_state.batch_index += 1
+                    st.rerun()
+
+                time.sleep(1)
+                st.rerun()
+
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                db.rollback()
+
+
+def show_manual_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options):
+    show_sourcing_form(
+        db=db, user=user,
+        pic_options=pic_options,
+        fptk_options=fptk_options,
+        sourcing_options=sourcing_options,
+        pipeline_options=pipeline_options,
+        initial_data=None,
+        form_key="form_manual",
+        is_parse_mode=False,
+        batch_mode=False
+    )
