@@ -959,3 +959,118 @@ def get_candidate_transfer_history(db, sourcing_id=None, limit=100):
         query = query.filter(CandidateTransfer.sourcing_id == sourcing_id)
 
     return query.limit(limit).all()
+
+def generate_progress_from_sourcing(db, kode_unik):
+    """
+    Generate progress text dari DB Sourcing untuk kode_unik tertentu.
+    Return dict:
+    {
+        "text": str,          # full text progress
+        "stage_counts": dict, # {stage_label: count}
+        "top_candidates": list, # [{nama, stage_label}]
+        "total_kandidat": int,
+        "total_by_stage": dict,
+    }
+    """
+    from core.models import DBSourcing
+    from datetime import datetime
+
+    candidates = db.query(DBSourcing).filter(
+        DBSourcing.kode_unik == kode_unik
+    ).all()
+
+    if not candidates:
+        return {
+            "text": "Belum ada kandidat di DB Sourcing untuk FPTK ini.",
+            "stage_counts": {},
+            "top_candidates": [],
+            "total_kandidat": 0,
+            "total_by_stage": {},
+        }
+
+    pipeline_stages = [
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
+        {"field": "sourcing_hr", "label": "Sourcing HR"},
+        {"field": "shortlist_cv", "label": "Shortlist CV"},
+        {"field": "psikotes", "label": "Psikotes"},
+        {"field": "hr_interview", "label": "HR Interview"},
+        {"field": "technical_test_case_study", "label": "Technical Test"},
+        {"field": "market_visit", "label": "Market Visit"},
+        {"field": "user_interview", "label": "User Interview"},
+        {"field": "panel_interview", "label": "Panel Interview"},
+        {"field": "reference_check", "label": "Reference Check"},
+        {"field": "mcu", "label": "MCU"},
+        {"field": "offering", "label": "Offering"},
+        {"field": "day1", "label": "Day 1"},
+    ]
+
+    stage_counts = {}
+    for stage in pipeline_stages:
+        field = stage["field"]
+        count = len([c for c in candidates if getattr(c, field, None) == "V"])
+        stage_counts[stage["label"]] = count
+
+    total_kandidat = len(candidates)
+    total_sourcing = len([c for c in candidates if getattr(c, "sourcing_hr", None) == "V" or getattr(c, "sourcing_freelance", None) == "V"])
+
+    candidate_with_stage = []
+    for c in candidates:
+        last = get_last_pipeline_stage(c)
+        if last:
+            stage_order_idx = next((i for i, s in enumerate(pipeline_stages) if s["field"] == last["stage_field"]), -1)
+            candidate_with_stage.append({
+                "nama": c.nama,
+                "stage_label": last["stage_label"],
+                "stage_idx": stage_order_idx,
+                "tanggal": last["tanggal"],
+            })
+        else:
+            candidate_with_stage.append({
+                "nama": c.nama,
+                "stage_label": "Belum ada stage",
+                "stage_idx": -1,
+                "tanggal": None,
+            })
+
+    candidate_with_stage.sort(key=lambda x: x["stage_idx"], reverse=True)
+
+    top_candidates = [c for c in candidate_with_stage if c["stage_idx"] >= 0][:3]
+    more_than_3 = len([c for c in candidate_with_stage if c["stage_idx"] >= 0]) > 3
+
+    lines = []
+    lines.append(f"📊 Progress dari DB Sourcing ({datetime.now().strftime('%d/%m/%Y')}):")
+    lines.append(f"")
+    lines.append(f"Total Kandidat: {total_kandidat}")
+    lines.append(f"Total yang sudah di-sourcing: {total_sourcing}")
+    lines.append(f"")
+
+    active_stages = [(label, count) for label, count in stage_counts.items() if count > 0]
+
+    if active_stages:
+        lines.append("Rincian per Tahap:")
+        for label, count in active_stages:
+            lines.append(f"  • {label}: {count} kandidat")
+    else:
+        lines.append("Belum ada kandidat yang masuk tahap pipeline.")
+
+    lines.append("")
+
+    if top_candidates:
+        lines.append(f"🏆 Top {len(top_candidates)} Kandidat Paling Maju:")
+        for i, c in enumerate(top_candidates, 1):
+            lines.append(f"  {i}. {c['nama']} - {c['stage_label']}")
+        if more_than_3:
+            total_advanced = len([c for c in candidate_with_stage if c["stage_idx"] >= 0])
+            lines.append(f"  ... dan {total_advanced - 3} kandidat lainnya di tahap berbeda")
+    else:
+        lines.append("Belum ada kandidat yang masuk tahap pipeline.")
+
+    text = "\n".join(lines)
+
+    return {
+        "text": text,
+        "stage_counts": stage_counts,
+        "top_candidates": top_candidates,
+        "total_kandidat": total_kandidat,
+        "total_by_stage": stage_counts,
+    }
