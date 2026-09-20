@@ -1074,3 +1074,79 @@ def generate_progress_from_sourcing(db, kode_unik):
         "total_kandidat": total_kandidat,
         "total_by_stage": stage_counts,
     }
+
+def request_blacklist(db, sourcing_id, kode_unik, nama, posisi, pic_name, reason, user_id, user_name):
+    """
+    Buat request blacklist dari PIC.
+    Return: {success, error}
+    """
+    from core.models import BlacklistRequest
+
+    try:
+        existing = db.query(BlacklistRequest).filter(
+            BlacklistRequest.sourcing_id == sourcing_id,
+            BlacklistRequest.action == "BLACKLIST",
+            BlacklistRequest.status == "PENDING"
+        ).first()
+
+        if existing:
+            return {"success": False, "error": "Request blacklist untuk kandidat ini sudah ada dan masih PENDING"}
+
+        new_req = BlacklistRequest(
+            sourcing_id=sourcing_id,
+            kode_unik=kode_unik,
+            nama=nama,
+            posisi=posisi,
+            action="BLACKLIST",
+            reason=reason.strip(),
+            status="PENDING",
+            requested_by=user_id,
+            requested_by_name=user_name,
+            requested_at=datetime.now()
+        )
+        db.add(new_req)
+        db.commit()
+
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
+
+
+def request_unblacklist(db, sourcing_id, kode_unik, nama, posisi, pic_name, reason, user_id, user_name):
+    """
+    Buat request un-blacklist dari PIC.
+    """
+    from core.models import BlacklistRequest
+
+    try:
+        existing = db.query(BlacklistRequest).filter(
+            BlacklistRequest.sourcing_id == sourcing_id,
+            BlacklistRequest.action == "UNBLACKLIST",
+            BlacklistRequest.status == "PENDING"
+        ).first()
+
+        if existing:
+            return {"success": False, "error": "Request un-blacklist untuk kandidat ini sudah ada dan masih PENDING"}
+
+        new_req = BlacklistRequest(
+            sourcing_id=sourcing_id,
+            kode_unik=kode_unik,
+            nama=nama,
+            posisi=posisi,
+            action="UNBLACKLIST",
+            reason=reason.strip(),
+            status="PENDING",
+            requested_by=user_id,
+            requested_by_name=user_name,
+            requested_at=datetime.now()
+        )
+        db.add(new_req)
+        db.commit()
+
+        return {"success": True}
+
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
