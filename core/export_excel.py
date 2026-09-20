@@ -356,6 +356,7 @@ def _build_evidence_df(db: Session) -> pd.DataFrame:
             'file_path': item.file_path,
             'file_size': item.file_size,
             'total_cv': item.total_cv,
+            'keterangan': getattr(item, 'keterangan', None),
             'pic_recruiter': item.pic_recruiter,
             'created_at': item.created_at
         })
