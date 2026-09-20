@@ -1041,13 +1041,40 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
         if errors:
             for err in errors:
-                st.error(f"{err}")
+                st.error(f"❌ {err}")
         else:
+            from core.utils import find_duplicate_candidates
+
+            duplicates = find_duplicate_candidates(
+                db,
+                nama_input,
+                email=email_input,
+                nomor_hp=hp_input
+            )
+
+            dup_action = st.session_state.get("duplicate_action", None)
+
+            if duplicates and dup_action is None:
+                show_duplicate_warning_dialog(db, nama_input, email_input, hp_input)
+                st.stop()
+
+            if dup_action == "cancel":
+                st.session_state["duplicate_action"] = None
+                st.info("❌ Input dibatalkan.")
+                st.stop()
+
+            if duplicates and dup_action == "transfer":
+                st.session_state["duplicate_action"] = None
+                st.info("🔄 Silakan pilih FPTK tujuan di halaman **Transfer Kandidat**.")
+                st.stop()
+
+            st.session_state["duplicate_action"] = None
+
             try:
                 existing = db.query(DBSourcing).filter(DBSourcing.nama == nama_input).first()
                 if existing:
-                    st.warning(f"Nama '{nama_input}' sudah ada!")
-
+                    st.warning(f"⚠️ Nama '{nama_input}' sudah ada di database.")
+                    
                 last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
                 next_no = (last_no.no + 1) if last_no and last_no.no else 1
 
