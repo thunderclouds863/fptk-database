@@ -286,7 +286,7 @@ def determine_category_fptk(alasan: str) -> str:
 
     if any(k in alasan_lower for k in ["keluar", "mutasi", "promosi", "replace"]):
         return "REPLACEMENT"
-    elif any(k in alasan_lower for k in ["penambahan", "jabatan baru", "new"]):
+    elif any(k in alasan_lower for k in ["jabatan baru", "penambahan", "new"]):
         return "NEW"
     return "REPLACEMENT"
 
@@ -685,6 +685,20 @@ def get_filter_options_from_db():
         ).distinct().all()
         rekruter_options = sorted(set([r[0] for r in rekruter_rows if r[0]]))
 
+        alasan_rows = db.query(MasterDropdown.alasan).filter(
+            MasterDropdown.is_active == True,
+            MasterDropdown.alasan.isnot(None),
+            MasterDropdown.alasan != ""
+        ).distinct().all()
+        alasan_options = sorted(set([r[0] for r in alasan_rows if r[0]]))
+
+        lokasi_rows = db.query(MasterDropdown.lokasi_onboarding).filter(
+            MasterDropdown.is_active == True,
+            MasterDropdown.lokasi_onboarding.isnot(None),
+            MasterDropdown.lokasi_onboarding != ""
+        ).distinct().all()
+        lokasi_onboarding_options = sorted(set([r[0] for r in lokasi_rows if r[0]]))
+
         level_options = ["1A", "1B", "1C", "2A", "2B", "2C",
                          "3A", "3B", "3C", "4A", "4B", "5A", "5B"]
         status_options = ["OP", "Closed", "Cancel"]
@@ -699,6 +713,8 @@ def get_filter_options_from_db():
             "sumber_options": sumber_options,
             "model_options": model_options,
             "rekruter_options": rekruter_options,
+            "alasan_options": alasan_options,
+            "lokasi_onboarding_options": lokasi_onboarding_options,
             "level_options": level_options,
             "status_options": status_options,
         }
@@ -715,6 +731,8 @@ def get_filter_options_from_db():
             "sumber_options": [],
             "model_options": [],
             "rekruter_options": [],
+            "alasan_options": [],
+            "lokasi_onboarding_options": [],
             "level_options": ["1A", "1B", "1C", "2A", "2B", "2C",
                               "3A", "3B", "3C", "4A", "4B", "5A", "5B"],
             "status_options": ["OP", "Closed", "Cancel"],
@@ -732,11 +750,8 @@ def get_filter_options_from_db_simple():
         ["Semua"] + opts["direktorat_options"],
     )
 
+
 def find_duplicate_candidates(db, nama, email=None, nomor_hp=None, exclude_id=None):
-    """
-    Cari kandidat duplikat berdasarkan nama + (email atau nomor_hp).
-    Return: list of dict {id, kode_unik, posisi, nama, email, nomor_hp, last_stage}
-    """
     from core.models import DBSourcing
 
     if not nama:
@@ -782,12 +797,6 @@ def find_duplicate_candidates(db, nama, email=None, nomor_hp=None, exclude_id=No
 
 
 def get_last_pipeline_stage(candidate):
-    """
-    Cari stage pipeline terakhir yang di-update dari kandidat.
-    Return: dict {stage_label, stage_field, status, tanggal}
-    """
-    from datetime import datetime
-
     pipeline_stages = [
         {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
         {"field": "sourcing_hr", "label": "Sourcing HR"},
@@ -837,13 +846,7 @@ def get_last_pipeline_stage(candidate):
 
 
 def transfer_candidate(db, sourcing_id, new_kode_unik, reason, user_id, user_name):
-    """
-    Transfer kandidat ke kode_unik baru.
-    Buat record DUPLIKAT di DB Sourcing dengan kode_unik baru (konsep A).
-    Return: {success, new_id, error}
-    """
     from core.models import DBSourcing, CandidateTransfer
-    from datetime import datetime
 
     try:
         old_candidate = db.query(DBSourcing).filter(DBSourcing.id == sourcing_id).first()
@@ -853,7 +856,6 @@ def transfer_candidate(db, sourcing_id, new_kode_unik, reason, user_id, user_nam
         old_kode_unik = old_candidate.kode_unik
         old_last_stage = get_last_pipeline_stage(old_candidate)
 
-        # Cek apakah kandidat dengan kode_unik baru sudah ada
         existing = db.query(DBSourcing).filter(
             DBSourcing.kode_unik == new_kode_unik,
             DBSourcing.nama == old_candidate.nama
@@ -862,14 +864,13 @@ def transfer_candidate(db, sourcing_id, new_kode_unik, reason, user_id, user_nam
         if existing:
             return {"success": False, "error": f"Kandidat {old_candidate.nama} sudah ada di kode unik {new_kode_unik}"}
 
-        # Buat record duplikat dengan kode_unik baru
         new_candidate = DBSourcing(
             no=old_candidate.no,
             sourcing_date=datetime.now().date(),
             kode_unik=new_kode_unik,
             posisi=old_candidate.posisi,
             model_rekrutmen=old_candidate.model_rekrutmen,
-            model_rekrutmen_kategori=old_candidate.model_rekrutmen_kategori,
+            model_rekrutmen_kategori=getattr(old_candidate, 'model_rekrutmen_kategori', None),
             rekruter=old_candidate.rekruter,
             sumber_sourcing=old_candidate.sumber_sourcing,
             nama=old_candidate.nama,
@@ -877,7 +878,7 @@ def transfer_candidate(db, sourcing_id, new_kode_unik, reason, user_id, user_nam
             nama_universitas_lainnya=old_candidate.nama_universitas_lainnya,
             jenjang_pendidikan=old_candidate.jenjang_pendidikan,
             jurusan=old_candidate.jurusan,
-            jurusan_lainnya=old_candidate.jurusan_lainnya,
+            jurusan_lainnya=getattr(old_candidate, 'jurusan_lainnya', None),
             tahun_lulus=old_candidate.tahun_lulus,
             ipk=old_candidate.ipk,
             skor_bahasa_inggris=old_candidate.skor_bahasa_inggris,
@@ -900,7 +901,6 @@ def transfer_candidate(db, sourcing_id, new_kode_unik, reason, user_id, user_nam
         db.add(new_candidate)
         db.flush()
 
-        # Record history transfer
         transfer_history = CandidateTransfer(
             sourcing_id=new_candidate.id,
             old_kode_unik=old_kode_unik,
@@ -930,10 +930,6 @@ def transfer_candidate(db, sourcing_id, new_kode_unik, reason, user_id, user_nam
 
 
 def transfer_candidates_bulk(db, sourcing_ids, new_kode_unik, reason, user_id, user_name):
-    """
-    Bulk transfer kandidat.
-    Return: {success_count, error_count, errors}
-    """
     success_count = 0
     error_count = 0
     errors = []
@@ -955,9 +951,6 @@ def transfer_candidates_bulk(db, sourcing_ids, new_kode_unik, reason, user_id, u
 
 
 def get_candidate_transfer_history(db, sourcing_id=None, limit=100):
-    """
-    Ambil history transfer kandidat.
-    """
     from core.models import CandidateTransfer
 
     query = db.query(CandidateTransfer).order_by(CandidateTransfer.transferred_at.desc())
