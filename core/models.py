@@ -370,6 +370,25 @@ class FPTKDeleteRequest(Base):
 
     fptk = relationship("FPTK", backref="delete_requests")
 
+class SourcingDeleteRequest(Base):
+    __tablename__ = "sourcing_delete_requests"
+    __table_args__ = {"extend_existing": True}
+    id = Column(Integer, primary_key=True, index=True)
+    sourcing_id = Column(Integer, ForeignKey("db_sourcing.id", ondelete="CASCADE"))
+    kode_unik = Column(String(50), index=True)
+    nama = Column(String(255))
+    posisi = Column(String(255))
+    pic_recruiter = Column(String(100), index=True)
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), default="PENDING", index=True)
+    requested_by = Column(Integer, ForeignKey("users.id"))
+    requested_by_name = Column(String(100))
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    reviewed_by = Column(Integer, ForeignKey("users.id"))
+    reviewed_by_name = Column(String(100))
+    reviewed_at = Column(TIMESTAMP)
+    admin_notes = Column(Text)
+
 
 class BlacklistRequest(Base):
     __tablename__ = "blacklist_requests"
