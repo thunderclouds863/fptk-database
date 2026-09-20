@@ -556,6 +556,67 @@ def show_sourcing_input():
                 st.session_state.batch_candidates = []
                 st.session_state.batch_index = 0
 
+def show_duplicate_warning_dialog(db, nama, email, hp, on_continue=None):
+    """
+    Tampilkan dialog warning kalau ada kandidat duplikat.
+    User bisa pilih: lanjut input, transfer kandidat lama, atau batal.
+    """
+    from core.utils import find_duplicate_candidates
+
+    duplicates = find_duplicate_candidates(db, nama, email=email, nomor_hp=hp)
+
+    if not duplicates:
+        return "no_duplicate"
+
+    @st.dialog("⚠️ Kandidat Duplikat Ditemukan")
+    def _dialog():
+        st.warning(f"⚠️ Kandidat dengan nama **{nama}** sudah pernah diproses!")
+        st.caption(f"Ditemukan {len(duplicates)} kandidat dengan nama sama.")
+
+        st.markdown("### 📋 Kandidat yang Sudah Ada:")
+
+        for i, dup in enumerate(duplicates, 1):
+            with st.expander(f"#{i} - {dup['nama']} | {dup['kode_unik']}", expanded=(i == 1)):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**Kode Unik:** {dup['kode_unik']}")
+                    st.markdown(f"**Posisi:** {dup['posisi'] or '-'}")
+                    st.markdown(f"**PIC:** {dup['rekruter'] or '-'}")
+                    st.markdown(f"**Email:** {dup['email'] or '-'}")
+                    st.markdown(f"**No HP:** {dup['nomor_hp'] or '-'}")
+
+                with col2:
+                    last = dup.get("last_stage")
+                    if last:
+                        st.markdown(f"**Tahap Terakhir:** {last['stage_label']}")
+                        st.markdown(f"**Status:** {last['status']}")
+                        st.markdown(f"**Tanggal:** {last['tanggal'].strftime('%d/%m/%Y') if last['tanggal'] else '-'}")
+                    else:
+                        st.info("Belum masuk tahap pipeline apapun.")
+
+        st.markdown("---")
+        st.markdown("### Pilihan Aksi:")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.button("✅ Lanjut Input (Duplicate)", use_container_width=True, key="dup_continue"):
+                st.session_state["duplicate_action"] = "continue"
+                st.rerun()
+
+        with col2:
+            if st.button("🔄 Transfer Kandidat Lama", use_container_width=True, key="dup_transfer"):
+                st.session_state["duplicate_action"] = "transfer"
+                st.rerun()
+
+        st.markdown("---")
+        if st.button("❌ Batal Input", use_container_width=True, key="dup_cancel"):
+            st.session_state["duplicate_action"] = "cancel"
+            st.rerun()
+
+    _dialog()
+
+    return st.session_state.get("duplicate_action", "pending")
 
 def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options,
                        initial_data=None, form_key="sourcing_form", is_parse_mode=False, batch_mode=False):
