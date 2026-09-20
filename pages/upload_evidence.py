@@ -41,12 +41,12 @@ def check_column_exists(table, column_name, db):
 
 
 def show_upload_evidence():
-    st.title("Upload Evidence Sourcing")
+    st.title("📎 Upload Evidence Sourcing")
     st.markdown("Upload bukti evidence sourcing dan lihat histori upload.")
 
     db = next(get_db())
     if not is_editor(db):
-        st.error("Anda tidak memiliki akses untuk upload evidence. Hubungi Admin.")
+        st.error("❌ Anda tidak memiliki akses untuk upload evidence. Hubungi Admin.")
         return
     user = get_current_user(db)
     if not user:
@@ -54,14 +54,20 @@ def show_upload_evidence():
         return
 
     admin = is_admin(db)
+    it_mode = is_it(db)
 
     has_file_data = check_column_exists('evidences', 'file_data', db)
+    has_keterangan = check_column_exists('evidences', 'keterangan', db)
 
     if not has_file_data:
-        st.warning("Kolom 'file_data' belum ada di database. File tidak akan disimpan di database.")
-        st.info("Jalankan SQL: ALTER TABLE evidences ADD COLUMN file_data TEXT;")
+        st.warning("⚠️ Kolom 'file_data' belum ada di database. File tidak akan disimpan di database.")
+        st.info("💡 Jalankan SQL: ALTER TABLE evidences ADD COLUMN file_data TEXT;")
 
-    with st.spinner("Memuat data..."):
+    if not has_keterangan:
+        st.warning("⚠️ Kolom 'keterangan' belum ada di database.")
+        st.info("💡 Jalankan SQL: ALTER TABLE evidences ADD COLUMN keterangan TEXT;")
+
+    with st.spinner("📋 Memuat data..."):
         sourcing_data = get_sourcing_kode_unik(db)
         pic_list = get_pic_options_evidence(db)
 
@@ -69,7 +75,22 @@ def show_upload_evidence():
         st.warning("Belum ada data sourcing dengan Kode Unik.")
         return
 
-    st.subheader("Upload Evidence Baru")
+    if it_mode:
+        st.info("🔍 Mode View-Only (IT) - Anda hanya bisa melihat dan download.")
+        show_histori_only(db, pic_list, has_file_data)
+        return
+
+    tab1, tab2 = st.tabs(["📤 Upload Evidence Baru", "📋 Histori Evidence"])
+
+    with tab1:
+        show_upload_form(db, user, sourcing_data, has_file_data, has_keterangan)
+
+    with tab2:
+        show_histori(db, user, admin, pic_list, has_file_data, has_keterangan)
+
+
+def show_upload_form(db, user, sourcing_data, has_file_data, has_keterangan):
+    st.subheader("📤 Upload Evidence Baru")
 
     posisi_options = {}
     for s in sourcing_data:
@@ -83,12 +104,40 @@ def show_upload_evidence():
 
     tanggal = st.date_input("Tanggal Evidence", datetime.now())
 
-    total_cv = db.query(DBSourcing).filter(
+    auto_count = db.query(DBSourcing).filter(
         DBSourcing.kode_unik == kode_unik,
         DBSourcing.sourcing_date == tanggal
     ).count()
 
-    st.metric("Jumlah CV", total_cv)
+    col1, col2 = st.columns([2, 1])
+
+    with col1:
+        st.markdown("**Jumlah CV yang dikirim ke user hari ini**")
+        st.caption(f"ℹ️ Auto-count dari DB Sourcing: **{auto_count} CV**. Anda bisa edit manual kalau berbeda.")
+
+        total_cv = st.number_input(
+            "Jumlah CV *",
+            min_value=0,
+            value=auto_count,
+            step=1,
+            key="evidence_total_cv_input"
+        )
+
+    with col2:
+        st.metric("📊 Auto-count", auto_count)
+        if total_cv != auto_count:
+            st.caption("✏️ Manual override")
+
+    keterangan = ""
+    if has_keterangan:
+        st.markdown("**Keterangan (opsional)**")
+        st.caption("Contoh: '15 CV dikirim ke user Bpk. Andi via email pagi ini'")
+        keterangan = st.text_area(
+            "Keterangan",
+            placeholder="Contoh: 15 CV yang dikirim ke user hari ini",
+            height=100,
+            key="evidence_keterangan_input"
+        )
 
     uploaded_file = st.file_uploader(
         "Pilih file bukti evidence (PDF, Image, Excel)",
@@ -96,9 +145,9 @@ def show_upload_evidence():
     )
 
     if uploaded_file:
-        st.info(f"{uploaded_file.name} ({uploaded_file.size/1024:.1f} KB)")
+        st.info(f"📄 {uploaded_file.name} ({uploaded_file.size/1024:.1f} KB)")
 
-        if st.button("Upload Evidence", type="primary"):
+        if st.button("💾 Upload Evidence", type="primary"):
             file_bytes = uploaded_file.getvalue()
             file_hash = hashlib.sha256(file_bytes).hexdigest()
             file_name = uploaded_file.name
@@ -127,20 +176,25 @@ def show_upload_evidence():
                 if has_file_data:
                     new_evidence.file_data = file_data_b64
 
+                if has_keterangan and keterangan:
+                    new_evidence.keterangan = keterangan.strip()
+
                 db.add(new_evidence)
                 db.commit()
 
-                st.success("Evidence berhasil direkam!")
-                st.info(f"Nama file: {safe_name}")
-                st.info(f"Total CV: {total_cv}")
+                st.success("✅ Evidence berhasil direkam!")
+                st.info(f"📋 Nama file: {safe_name}")
+                st.info(f"📋 Total CV: {total_cv}")
+                if keterangan:
+                    st.info(f"📋 Keterangan: {keterangan}")
 
                 if has_file_data:
-                    st.info("File disimpan di database")
+                    st.info("📁 File disimpan di database")
                 else:
-                    st.warning("File tidak disimpan di database (kolom file_data tidak ada)")
+                    st.warning("⚠️ File tidak disimpan di database (kolom file_data tidak ada)")
 
                 st.download_button(
-                    "Download File",
+                    "📥 Download File",
                     file_bytes,
                     safe_name,
                     uploaded_file.type
@@ -149,17 +203,18 @@ def show_upload_evidence():
                 st.balloons()
 
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"❌ Error: {str(e)}")
                 db.rollback()
 
-    st.markdown("---")
-    st.subheader("Histori Evidence")
+
+def show_histori(db, user, admin, pic_list, has_file_data, has_keterangan):
+    st.subheader("📋 Histori Evidence")
 
     col1, col2 = st.columns(2)
     with col1:
-        pic_filter = st.selectbox("Filter PIC", ["Semua"] + pic_list)
+        pic_filter = st.selectbox("Filter PIC", ["Semua"] + pic_list, key="evidence_pic_filter")
     with col2:
-        search_filter = st.text_input("Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...")
+        search_filter = st.text_input("Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...", key="evidence_search")
 
     query = db.query(Evidence)
     if pic_filter != "Semua":
@@ -175,7 +230,7 @@ def show_upload_evidence():
     if evidences:
         data = []
         for e in evidences:
-            data.append({
+            row = {
                 "ID": e.id,
                 "Kode Unik": e.kode_unik,
                 "Posisi": e.posisi[:40] + "..." if len(e.posisi or "") > 40 else e.posisi,
@@ -184,19 +239,30 @@ def show_upload_evidence():
                 "CV": e.total_cv,
                 "PIC": e.pic_recruiter,
                 "Upload": e.created_at.strftime("%d/%m/%Y %H:%M") if e.created_at else "-"
-            })
+            }
+            if has_keterangan:
+                row["Keterangan"] = (e.keterangan or "")[:50] + "..." if e.keterangan and len(e.keterangan) > 50 else (e.keterangan or "-")
+            data.append(row)
 
         df = pd.DataFrame(data)
         st.dataframe(df, use_container_width=True, height=300)
 
-        if st.button("Export CSV"):
-            csv = df.to_csv(index=False)
-            st.download_button("Download", csv, f"evidence_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
+        col_export1, col_export2 = st.columns(2)
+        with col_export1:
+            if st.button("📥 Export CSV", use_container_width=True, key="evidence_export_csv"):
+                csv = df.to_csv(index=False)
+                st.download_button(
+                    "⬇️ Download CSV",
+                    csv,
+                    f"evidence_{datetime.now().strftime('%Y%m%d')}.csv",
+                    "text/csv",
+                    key="dl_evidence_csv"
+                )
 
         st.markdown("---")
-        st.subheader("Detail Evidence")
+        st.subheader("🔍 Detail Evidence")
 
-        selected_id = st.selectbox("Pilih ID untuk lihat detail", [e.id for e in evidences])
+        selected_id = st.selectbox("Pilih ID untuk lihat detail", [e.id for e in evidences], key="evidence_detail_select")
         if selected_id:
             detail = db.query(Evidence).filter(Evidence.id == selected_id).first()
             if detail:
@@ -211,30 +277,41 @@ def show_upload_evidence():
                     st.markdown(f"**File:** {detail.file_name}")
                     st.markdown(f"**PIC:** {detail.pic_recruiter}")
 
+                if has_keterangan and detail.keterangan:
+                    st.markdown("---")
+                    st.markdown("### 📝 Keterangan")
+                    st.info(detail.keterangan)
+
                 st.markdown("---")
-                st.markdown("### File Evidence")
+                st.markdown("### 📎 File Evidence")
 
                 if has_file_data and hasattr(detail, 'file_data') and detail.file_data:
                     try:
                         image_data = base64.b64decode(detail.file_data)
-                        st.image(image_data, caption=detail.file_name, use_container_width=True)
+                        file_lower = detail.file_name.lower()
+
+                        if file_lower.endswith(('.jpg', '.jpeg', '.png')):
+                            st.image(image_data, caption=detail.file_name, use_container_width=True)
+                        else:
+                            st.info(f"📄 File {detail.file_name} - klik Download untuk membuka")
 
                         st.download_button(
-                            "Download File",
+                            "📥 Download File",
                             image_data,
                             detail.file_name,
-                            mime="application/octet-stream"
+                            mime="application/octet-stream",
+                            key=f"dl_evidence_detail_{detail.id}"
                         )
                     except Exception as e:
                         st.error(f"Error menampilkan gambar: {str(e)}")
                 else:
-                    st.info("File tidak ditemukan di database")
+                    st.info("💡 File tidak ditemukan di database")
 
                     if detail.file_path and os.path.exists(detail.file_path):
                         with open(detail.file_path, "rb") as f:
                             file_data = f.read()
                         st.download_button(
-                            "Download File (dari path)",
+                            "📥 Download File (dari path)",
                             file_data,
                             detail.file_name,
                             mime="application/octet-stream"
@@ -242,13 +319,87 @@ def show_upload_evidence():
 
                 if admin:
                     st.markdown("---")
-                    if st.button("Hapus Evidence", type="secondary"):
-                        db.delete(detail)
-                        db.commit()
-                        st.success("Data berhasil dihapus!")
-                        st.rerun()
+                    col_edit1, col_edit2 = st.columns(2)
+
+                    with col_edit1:
+                        with st.expander("✏️ Edit Total CV & Keterangan"):
+                            with st.form(f"edit_evidence_{detail.id}"):
+                                new_total = st.number_input(
+                                    "Total CV",
+                                    min_value=0,
+                                    value=detail.total_cv or 0,
+                                    step=1
+                                )
+
+                                new_ket = detail.keterangan if has_keterangan and detail.keterangan else ""
+                                if has_keterangan:
+                                    new_ket = st.text_area("Keterangan", value=new_ket, height=100)
+
+                                if st.form_submit_button("💾 Simpan", type="primary"):
+                                    try:
+                                        detail.total_cv = new_total
+                                        if has_keterangan:
+                                            detail.keterangan = new_ket.strip() if new_ket else None
+                                        db.commit()
+                                        st.success("✅ Evidence diupdate!")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error: {str(e)}")
+                                        db.rollback()
+
+                    with col_edit2:
+                        if st.button("🗑️ Hapus Evidence", type="secondary", key=f"del_evidence_{detail.id}"):
+                            try:
+                                db.delete(detail)
+                                db.commit()
+                                st.success("Data berhasil dihapus!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Error: {str(e)}")
+                                db.rollback()
     else:
         st.info("Belum ada evidence yang diupload.")
+
+
+def show_histori_only(db, pic_list, has_file_data):
+    st.subheader("📋 Histori Evidence (View-Only)")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        pic_filter = st.selectbox("Filter PIC", ["Semua"] + pic_list, key="it_pic_filter")
+    with col2:
+        search_filter = st.text_input("Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...", key="it_search")
+
+    query = db.query(Evidence)
+    if pic_filter != "Semua":
+        query = query.filter(Evidence.pic_recruiter == pic_filter)
+    if search_filter:
+        query = query.filter(
+            (Evidence.kode_unik.ilike(f"%{search_filter}%")) |
+            (Evidence.posisi.ilike(f"%{search_filter}%"))
+        )
+
+    evidences = query.order_by(Evidence.created_at.desc()).limit(100).all()
+
+    if not evidences:
+        st.info("Belum ada evidence.")
+        return
+
+    data = []
+    for e in evidences:
+        data.append({
+            "ID": e.id,
+            "Kode Unik": e.kode_unik,
+            "Posisi": e.posisi[:40] + "..." if len(e.posisi or "") > 40 else e.posisi,
+            "Tanggal": e.tanggal.strftime("%d/%m/%Y") if e.tanggal else "-",
+            "File": e.file_name,
+            "CV": e.total_cv,
+            "PIC": e.pic_recruiter,
+            "Upload": e.created_at.strftime("%d/%m/%Y %H:%M") if e.created_at else "-"
+        })
+
+    df = pd.DataFrame(data)
+    st.dataframe(df, use_container_width=True, height=400)
 
 
 if __name__ == "__main__":
