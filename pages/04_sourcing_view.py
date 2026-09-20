@@ -186,8 +186,11 @@ def show_sourcing_view():
 
         df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
 
-        exclude_cols = ['created_at', 'last_updated_at', 'last_compile_action',
-                       'source_file', 'source_file_hash', 'source_user_id', 'source_cycle_id']
+        exclude_cols = [
+            'created_at', 'last_updated_at', 'last_compile_action',
+            'source_file', 'source_file_hash', 'source_user_id', 'source_cycle_id',
+            'model_rekrutmen_kategori'
+        ]
         display_cols = [c for c in df.columns if c not in exclude_cols]
 
         if 'blacklisted_by' in display_cols:
