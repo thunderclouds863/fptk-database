@@ -540,6 +540,8 @@ with st.sidebar:
             "📝 Update Progres Recruitment": "update_progres",
             "👤 Sourcing Input": "sourcing_input",
             "👩🏻‍💻 Sourcing View": "sourcing_view",
+            "📎 Lampiran CV": "cv_attachments",
+            "🔄 Transfer Kandidat": "candidate_transfer",
             "🚫 Blacklist Kandidat": "blacklist_list",
             "🏢 DB Kode Posisi": "db_kode_posisi",
             "🔍 Funnel Report": "funnel_report",
@@ -824,6 +826,34 @@ elif page == "sourcing_view":
     sourcing_view = importlib.import_module("pages.04_sourcing_view")
     sourcing_view.show_sourcing_view()
 
+elif page == "cv_attachments":
+    try:
+        cv_attachments = importlib.import_module("pages.cv_attachments")
+        cv_attachments.show_cv_attachments()
+    except ModuleNotFoundError:
+        st.error("❌ File pages/cv_attachments.py tidak ditemukan!")
+
+elif page == "candidate_transfer":
+    try:
+        candidate_transfer = importlib.import_module("pages.candidate_transfer")
+        candidate_transfer.show_candidate_transfer()
+    except ModuleNotFoundError:
+        st.error("File pages/candidate_transfer.py tidak ditemukan!")
+
+elif page == "blacklist_list":
+    try:
+        blacklist_list = importlib.import_module("pages.blacklist_list")
+        blacklist_list.show_blacklist_list()
+    except ModuleNotFoundError:
+        st.error("File pages/blacklist_list.py tidak ditemukan!")
+
+elif page == "admin_blacklist_requests":
+    try:
+        admin_blacklist_requests = importlib.import_module("pages.admin_blacklist_requests")
+        admin_blacklist_requests.show_admin_blacklist_requests()
+    except ModuleNotFoundError:
+        st.error("File pages/admin_blacklist_requests.py tidak ditemukan!")
+
 elif page == "db_kode_posisi":
     db_kode_posisi = importlib.import_module("pages.05_db_kode_posisi")
     db_kode_posisi.show_db_kode_posisi()
@@ -878,20 +908,6 @@ elif page == "transfer_fptk":
     except ModuleNotFoundError:
         st.error("File pages/transfer_fptk.py tidak ditemukan!")
 
-elif page == "blacklist_list":
-    try:
-        blacklist_list = importlib.import_module("pages.blacklist_list")
-        blacklist_list.show_blacklist_list()
-    except ModuleNotFoundError:
-        st.error("❌ File pages/blacklist_list.py tidak ditemukan!")
-
-elif page == "admin_blacklist_requests":
-    try:
-        admin_blacklist_requests = importlib.import_module("pages.admin_blacklist_requests")
-        admin_blacklist_requests.show_admin_blacklist_requests()
-    except ModuleNotFoundError:
-        st.error("❌ File pages/admin_blacklist_requests.py tidak ditemukan!")
-
 
 st.markdown("---")
 st.markdown("### 📥 Export Data")
@@ -923,7 +939,7 @@ with st.expander("📋 Export Sheet Spesifik"):
         "DB Kode Posisi",
         "FPTK",
         "DB Sourcing",
-        "Grafik MPP",
+        "Graik MPP",
         "Recruiter Performance",
         "Master Dropdown",
         "Evidence"
