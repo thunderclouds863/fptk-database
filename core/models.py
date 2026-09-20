@@ -155,6 +155,7 @@ class DBSourcing(Base):
     kode_unik = Column(String(50), nullable=False, index=True)
     posisi = Column(String(255))
     model_rekrutmen = Column(String(50))
+    model_rekrutmen_kategori = Column(String(100))
     rekruter = Column(String(100))
     sumber_sourcing = Column(String(100))
     nama = Column(String(255), nullable=False, index=True)
@@ -312,6 +313,7 @@ class Evidence(Base):
     file_path = Column(String(500))
     file_size = Column(Integer)
     total_cv = Column(Integer, default=0)
+    keterangan = Column(Text)
     pic_recruiter = Column(String(100), index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
@@ -367,6 +369,59 @@ class FPTKDeleteRequest(Base):
     admin_notes = Column(Text)
 
     fptk = relationship("FPTK", backref="delete_requests")
+
+
+class BlacklistRequest(Base):
+    __tablename__ = "blacklist_requests"
+    __table_args__ = {"extend_existing": True}
+    id = Column(Integer, primary_key=True, index=True)
+    sourcing_id = Column(Integer, ForeignKey("db_sourcing.id", ondelete="CASCADE"))
+    kode_unik = Column(String(50))
+    nama = Column(String(255))
+    posisi = Column(String(255))
+    action = Column(String(20), nullable=False)
+    reason = Column(Text, nullable=False)
+    status = Column(String(20), default="PENDING", index=True)
+    requested_by = Column(Integer, ForeignKey("users.id"))
+    requested_by_name = Column(String(100))
+    requested_at = Column(TIMESTAMP, server_default=func.now())
+    reviewed_by = Column(Integer, ForeignKey("users.id"))
+    reviewed_by_name = Column(String(100))
+    reviewed_at = Column(TIMESTAMP)
+    admin_notes = Column(Text)
+
+
+class CandidateTransfer(Base):
+    __tablename__ = "candidate_transfers"
+    __table_args__ = {"extend_existing": True}
+    id = Column(Integer, primary_key=True, index=True)
+    sourcing_id = Column(Integer, ForeignKey("db_sourcing.id", ondelete="CASCADE"))
+    old_kode_unik = Column(String(50), index=True)
+    new_kode_unik = Column(String(50), index=True)
+    nama = Column(String(255))
+    posisi = Column(String(255))
+    old_pipeline_stage = Column(String(50))
+    new_pipeline_stage = Column(String(50))
+    reason = Column(Text)
+    transferred_by = Column(Integer, ForeignKey("users.id"))
+    transferred_by_name = Column(String(100))
+    transferred_at = Column(TIMESTAMP, server_default=func.now())
+
+
+class CVAttachment(Base):
+    __tablename__ = "cv_attachments"
+    __table_args__ = {"extend_existing": True}
+    id = Column(Integer, primary_key=True, index=True)
+    sourcing_id = Column(Integer, ForeignKey("db_sourcing.id", ondelete="CASCADE"))
+    kode_unik = Column(String(50), index=True)
+    nama_kandidat = Column(String(255))
+    file_name = Column(String(255), nullable=False)
+    file_data = Column(Text, nullable=False)
+    file_size = Column(Integer)
+    file_type = Column(String(100))
+    uploaded_by = Column(Integer, ForeignKey("users.id"))
+    uploaded_by_name = Column(String(100))
+    created_at = Column(TIMESTAMP, server_default=func.now())
 
 
 class RecruitmentProgress(Base):
