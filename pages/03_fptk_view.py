@@ -208,7 +208,7 @@ def confirm_delete_fptk(db, fptk_id: int, kode_unik: str, posisi: str):
 
 
 def show_fptk_view():
-    st.title("FPTK Database")
+    st.title("📋 FPTK Database")
     st.markdown("Lihat semua data FPTK. Edit hanya untuk data milik PIC Anda (Admin bisa semua).")
 
     db = next(get_db())
@@ -222,7 +222,7 @@ def show_fptk_view():
     with st.spinner("Memeriksa dan memperbarui SLA..."):
         updated = update_all_sla_bulk(db)
         if updated > 0:
-            st.success(f"{updated} data FPTK diperbarui SLA-nya secara otomatis!")
+            st.success(f"✅ {updated} data FPTK diperbarui SLA-nya secara otomatis!")
         time.sleep(0.3)
 
     filter_opts = get_filter_options_from_db()
@@ -246,9 +246,9 @@ def show_fptk_view():
     detail_sla_options = get_detail_sla_options()
 
     with st.sidebar:
-        st.markdown("### Filter FPTK")
+        st.markdown("### 🔍 Filter FPTK")
 
-        search = st.text_input("Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...")
+        search = st.text_input("🔎 Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...")
         status_filter = st.selectbox("Status", ["Semua"] + status_options)
         pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + pic_options_all)
         bu_filter = st.selectbox("Business Unit", ["Semua"] + bu_options)
@@ -269,24 +269,24 @@ def show_fptk_view():
 
         st.markdown("---")
 
-        if st.button("Refresh SLA Now", use_container_width=True, type="primary"):
+        if st.button("🔄 Refresh SLA Now", use_container_width=True, type="primary"):
             with st.spinner("Memperbarui SLA..."):
                 updated = update_all_sla_bulk(db)
                 if updated > 0:
-                    st.success(f"{updated} data SLA diperbarui!")
+                    st.success(f"✅ {updated} data SLA diperbarui!")
                 else:
-                    st.info("Semua SLA sudah sesuai.")
+                    st.info("✅ Semua SLA sudah sesuai.")
                 time.sleep(0.5)
                 st.rerun()
 
-        if st.button("Refresh Filter Options", use_container_width=True):
+        if st.button("🔄 Refresh Filter Options", use_container_width=True):
             get_filter_options_from_db.clear()
-            st.success("Filter refreshed!")
+            st.success("✅ Filter refreshed!")
             time.sleep(0.3)
             st.rerun()
 
         st.markdown("---")
-        if st.button("Reset Filter", use_container_width=True):
+        if st.button("🔄 Reset Filter", use_container_width=True):
             st.rerun()
 
     query = db.query(FPTK)
@@ -336,18 +336,18 @@ def show_fptk_view():
 
     col_export1, col_export2 = st.columns(2)
     with col_export1:
-        if st.button("Export CSV (Filtered)", use_container_width=True):
+        if st.button("📥 Export CSV (Filtered)", use_container_width=True):
             df_export = pd.read_sql(query.statement, db.bind)
             csv = df_export.to_csv(index=False)
             st.download_button(
-                "Download CSV",
+                "⬇️ Download CSV",
                 csv,
                 f"fptk_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                 "text/csv",
                 key="dl_fptk_csv"
             )
     with col_export2:
-        if st.button("Export Excel (Filtered)", use_container_width=True):
+        if st.button("📊 Export Excel (Filtered)", use_container_width=True):
             from io import BytesIO
             df_export = pd.read_sql(query.statement, db.bind)
             output = BytesIO()
@@ -355,7 +355,7 @@ def show_fptk_view():
                 df_export.to_excel(writer, sheet_name='FPTK', index=False)
             output.seek(0)
             st.download_button(
-                "Download Excel",
+                "⬇️ Download Excel",
                 output.getvalue(),
                 f"fptk_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -363,7 +363,7 @@ def show_fptk_view():
             )
 
     st.markdown("---")
-    st.markdown("### Daftar FPTK")
+    st.markdown("### 📋 Daftar FPTK")
 
     page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
     page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
@@ -384,7 +384,181 @@ def show_fptk_view():
         st.dataframe(df[available_cols], use_container_width=True, height=400)
 
     st.markdown("---")
-    st.markdown("### Pilih Data FPTK")
+    st.markdown("### ✏️ Bulk Edit FPTK")
+    st.caption("Pilih banyak FPTK sekaligus, lalu update field yang sama untuk semuanya.")
+
+    bulk_query = db.query(FPTK)
+    if status_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.status == status_filter)
+    if pic_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.pic_recruiter == pic_filter)
+    if bu_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.business_unit == bu_filter)
+    if dir_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.direktorat == dir_filter)
+    if divisi_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.divisi == divisi_filter)
+    if dept_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.department == dept_filter)
+    if filter_kat != "Semua":
+        bulk_query = bulk_query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
+    if search:
+        bulk_query = bulk_query.filter(
+            (FPTK.kode_unik.ilike(f"%{search}%")) |
+            (FPTK.posisi.ilike(f"%{search}%"))
+        )
+
+    if not admin:
+        bulk_query = bulk_query.filter(FPTK.pic_recruiter == user.pic_recruiter)
+
+    bulk_fptk = bulk_query.limit(500).all()
+
+    if not bulk_fptk:
+        st.info("Tidak ada FPTK yang bisa di-bulk edit dengan filter ini.")
+    else:
+        bulk_df = pd.DataFrame([{
+            "pilih": False,
+            "id": f.id,
+            "kode_unik": f.kode_unik,
+            "posisi": f.posisi,
+            "pic_recruiter": f.pic_recruiter,
+            "status": f.status,
+            "level_fptk": f.level_fptk,
+            "business_unit": f.business_unit,
+            "divisi": f.divisi or "-",
+            "department": f.department or "-",
+        } for f in bulk_fptk])
+
+        edited_df = st.data_editor(
+            bulk_df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "pilih": st.column_config.CheckboxColumn("Pilih", default=False),
+                "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                "kode_unik": st.column_config.TextColumn("Kode Unik", disabled=True, width="medium"),
+                "posisi": st.column_config.TextColumn("Posisi", disabled=True, width="medium"),
+                "pic_recruiter": st.column_config.TextColumn("PIC", disabled=True, width="small"),
+                "status": st.column_config.TextColumn("Status", disabled=True, width="small"),
+                "level_fptk": st.column_config.TextColumn("Level", disabled=True, width="small"),
+                "business_unit": st.column_config.TextColumn("BU", disabled=True, width="medium"),
+                "divisi": st.column_config.TextColumn("Divisi", disabled=True, width="medium"),
+                "department": st.column_config.TextColumn("Department", disabled=True, width="medium"),
+            },
+            key="bulk_edit_table"
+        )
+
+        selected_ids = edited_df[edited_df["pilih"] == True]["id"].tolist()
+
+        st.markdown(f"**{len(selected_ids)} FPTK dipilih**")
+
+        if selected_ids:
+            st.markdown("#### Field yang Mau Diubah")
+            col_field, col_value = st.columns(2)
+
+            with col_field:
+                field_to_update = st.selectbox(
+                    "Pilih Field",
+                    [
+                        "status",
+                        "offering_date",
+                        "fptk_cancel_date",
+                        "remark",
+                        "filter_kategorisasi_fptk",
+                        "pic_recruiter",
+                        "nama_kandidat",
+                        "lokasi_onboarding",
+                        "user_manager",
+                        "indirect_user",
+                        "status_karyawan",
+                        "kebutuhan_laptop",
+                        "fptk_availability",
+                        "category_fptk",
+                        "alasan_permintaan_fptk",
+                        "divisi",
+                        "department",
+                        "direktorat",
+                        "business_unit",
+                    ],
+                    key="bulk_field_select"
+                )
+
+            with col_value:
+                if field_to_update == "status":
+                    new_value = st.selectbox("Nilai Baru", ["OP", "Closed", "Cancel"], key="bulk_val_status")
+                elif field_to_update in ["offering_date", "fptk_cancel_date"]:
+                    new_value = st.date_input("Tanggal", datetime.now().date(), key="bulk_val_date")
+                elif field_to_update == "filter_kategorisasi_fptk":
+                    new_value = st.selectbox(
+                        "Kategori",
+                        ["CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"],
+                        key="bulk_val_kat"
+                    )
+                elif field_to_update == "pic_recruiter":
+                    new_value = st.selectbox("PIC Recruiter", pic_options_all, key="bulk_val_pic")
+                elif field_to_update == "business_unit":
+                    new_value = st.selectbox("Business Unit", bu_options, key="bulk_val_bu")
+                elif field_to_update == "direktorat":
+                    new_value = st.selectbox("Direktorat", direktorat_options, key="bulk_val_dir")
+                elif field_to_update == "divisi":
+                    new_value = st.selectbox("Divisi", divisi_options if divisi_options else ["-"], key="bulk_val_div")
+                elif field_to_update == "department":
+                    new_value = st.selectbox("Department", dept_options if dept_options else ["-"], key="bulk_val_dept")
+                elif field_to_update == "kebutuhan_laptop":
+                    new_value = st.selectbox("Kebutuhan Laptop", ["Ya", "Tidak"], key="bulk_val_laptop")
+                elif field_to_update == "fptk_availability":
+                    new_value = st.selectbox("FPTK Availability", ["V", "X", "Y", "N"], key="bulk_val_avail")
+                elif field_to_update == "category_fptk":
+                    new_value = st.selectbox("Category FPTK", ["NEW", "REPLACEMENT"], key="bulk_val_cat")
+                elif field_to_update == "nama_kandidat":
+                    new_value = st.text_input("Nama Kandidat", key="bulk_val_nama")
+                elif field_to_update == "lokasi_onboarding":
+                    new_value = st.text_input("Lokasi Onboarding", key="bulk_val_lokasi")
+                elif field_to_update == "user_manager":
+                    new_value = st.text_input("User (Manager)", key="bulk_val_um")
+                elif field_to_update == "indirect_user":
+                    new_value = st.text_input("Indirect User", key="bulk_val_iu")
+                elif field_to_update == "status_karyawan":
+                    new_value = st.text_input("Status Karyawan", key="bulk_val_sk")
+                else:
+                    new_value = st.text_area("Nilai Baru", key="bulk_val_text")
+
+            col_apply, col_cancel = st.columns(2)
+            with col_apply:
+                if st.button("✅ Terapkan ke FPTK Terpilih", type="primary", use_container_width=True):
+                    try:
+                        updated_count = 0
+                        for fptk_id in selected_ids:
+                            fptk_obj = db.query(FPTK).filter(FPTK.id == fptk_id).first()
+                            if fptk_obj:
+                                setattr(fptk_obj, field_to_update, new_value)
+                                fptk_obj.last_updated_at = datetime.now()
+                                fptk_obj.last_compile_action = "BULK_EDIT"
+
+                                if field_to_update == "status":
+                                    fptk_obj.detail_sla = calculate_detail_sla(
+                                        status=new_value,
+                                        deadline_sla=fptk_obj.deadline_sla,
+                                        offering_date=fptk_obj.offering_date
+                                    )
+
+                                updated_count += 1
+
+                        db.commit()
+                        st.cache_data.clear()
+                        st.success(f"✅ Berhasil update {updated_count} FPTK!")
+                        time.sleep(0.5)
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+                        db.rollback()
+
+            with col_cancel:
+                if st.button("❌ Batal", use_container_width=True, key="bulk_cancel"):
+                    st.rerun()
+
+    st.markdown("---")
+    st.markdown("### ✏️ Pilih Data FPTK")
 
     df_all = pd.read_sql(query.statement, db.bind)
 
@@ -412,7 +586,7 @@ def show_fptk_view():
     can_edit = admin or (detail.pic_recruiter == user.pic_recruiter)
 
     st.markdown("---")
-    st.markdown("### Aksi Data")
+    st.markdown("### ⚙️ Aksi Data")
 
     existing_request = db.query(FPTKDeleteRequest).filter(
         FPTKDeleteRequest.fptk_id == detail.id,
@@ -427,20 +601,20 @@ def show_fptk_view():
 
     if admin:
         with col1:
-            if st.button("Hapus Langsung (Admin)", type="secondary", use_container_width=True):
+            if st.button("🗑️ Hapus Langsung (Admin)", type="secondary", use_container_width=True):
                 confirm_delete_fptk(db, detail.id, detail.kode_unik, detail.posisi)
 
         with col2:
             if existing_request:
-                st.warning(f"Pending dari {existing_request.requested_by_name}")
+                st.warning(f"📩 Pending dari {existing_request.requested_by_name}")
             else:
                 st.caption("Tidak ada request pending")
 
         with col3:
             if all_requests:
-                with st.expander(f"History ({len(all_requests)})"):
+                with st.expander(f"📋 History ({len(all_requests)})"):
                     for req in all_requests:
-                        emoji = {"PENDING": "[PENDING]", "APPROVED": "[APPROVED]", "REJECTED": "[REJECTED]"}.get(req.status, "[?]")
+                        emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.status}**")
                         st.caption(f"By: {req.requested_by_name} - {req.requested_at.strftime('%d/%m/%Y %H:%M') if req.requested_at else '-'}")
                         st.caption(f"Alasan: {req.reason}")
@@ -451,25 +625,25 @@ def show_fptk_view():
     else:
         with col1:
             if existing_request:
-                st.info(f"Request Anda PENDING - {existing_request.requested_at.strftime('%d/%m/%Y %H:%M')}")
+                st.info(f"📩 Request Anda PENDING - {existing_request.requested_at.strftime('%d/%m/%Y %H:%M')}")
             else:
                 if detail.pic_recruiter == user.pic_recruiter:
-                    if st.button("Request Hapus ke Admin", type="primary", use_container_width=True):
+                    if st.button("📩 Request Hapus ke Admin", type="primary", use_container_width=True):
                         request_delete_fptk(db, detail.id, detail.kode_unik, detail.posisi, detail.pic_recruiter)
                 else:
-                    st.caption("Hanya PIC pemilik FPTK yang bisa request hapus")
+                    st.caption("ℹ️ Hanya PIC pemilik FPTK yang bisa request hapus")
 
         with col2:
             if all_requests:
-                st.caption(f"Total {len(all_requests)} request")
+                st.caption(f"📋 Total {len(all_requests)} request")
             else:
                 st.caption("Belum ada request")
 
         with col3:
             if all_requests:
-                with st.expander("Lihat History Request"):
+                with st.expander("📋 Lihat History Request"):
                     for req in all_requests:
-                        emoji = {"PENDING": "[PENDING]", "APPROVED": "[APPROVED]", "REJECTED": "[REJECTED]"}.get(req.status, "[?]")
+                        emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.status}** - {req.requested_at.strftime('%d/%m/%Y %H:%M') if req.requested_at else '-'}")
                         st.caption(f"Alasan: {req.reason}")
                         if req.status == "REJECTED" and req.admin_notes:
@@ -477,7 +651,7 @@ def show_fptk_view():
                         st.markdown("---")
 
     st.markdown("---")
-    st.markdown("### Detail FPTK")
+    st.markdown("### 📋 Detail FPTK")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -504,10 +678,10 @@ def show_fptk_view():
         st.markdown(f"**Offering Date:** {detail.offering_date.strftime('%d/%m/%Y') if detail.offering_date else '-'}")
 
     if not can_edit:
-        st.warning("Anda hanya bisa mengedit data FPTK milik PIC Anda sendiri.")
+        st.warning("⚠️ Anda hanya bisa mengedit data FPTK milik PIC Anda sendiri.")
     else:
         st.markdown("---")
-        st.markdown("### Edit Data FPTK")
+        st.markdown("### ✏️ Edit Data FPTK")
 
         with st.form("edit_fptk_form"):
             st.markdown("#### Data Utama")
@@ -571,7 +745,7 @@ def show_fptk_view():
             with col2:
                 new_remark = st.text_area("Remark", value=detail.remark or "")
 
-            submitted = st.form_submit_button("Update FPTK", type="primary")
+            submitted = st.form_submit_button("💾 Update FPTK", type="primary")
 
         if submitted:
             try:
@@ -624,9 +798,9 @@ def show_fptk_view():
                 db.commit()
                 st.cache_data.clear()
 
-                st.success(f"FPTK berhasil diupdate!")
+                st.success(f"✅ FPTK berhasil diupdate!")
                 st.rerun()
 
             except Exception as e:
-                st.error(f"Error: {str(e)}")
+                st.error(f"❌ Error: {str(e)}")
                 db.rollback()
