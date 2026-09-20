@@ -3,10 +3,11 @@ import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from core.database import get_db
-from core.models import DBSourcing, User, FPTK, MasterDropdown
+from core.models import DBSourcing, User, FPTK, MasterDropdown, CVAttachment
 from core.auth import get_current_user, is_admin
 from core.utils import get_filter_options_from_db
 from datetime import datetime
+import base64 as b64
 import time
 
 
@@ -556,6 +557,50 @@ def show_sourcing_view():
                 if detail.is_blacklisted:
                     st.markdown(f"**Tgl Blacklist:** {detail.blacklisted_at.strftime('%d/%m/%Y %H:%M') if detail.blacklisted_at else '-'}")
                     st.markdown(f"**Alasan:** {detail.blacklist_reason or '-'}")
+
+        with st.expander("📎 Lampiran CV"):
+            cv_list = db.query(CVAttachment).filter(
+                CVAttachment.sourcing_id == detail.id
+            ).order_by(CVAttachment.created_at.desc()).all()
+
+            if not cv_list:
+                st.info("Belum ada CV terlampir untuk kandidat ini.")
+                st.caption("Upload CV di halaman **Lampiran CV Kandidat**.")
+            else:
+                st.markdown(f"**{len(cv_list)} CV terlampir:**")
+
+                for cv in cv_list:
+                    col1, col2, col3 = st.columns([3, 1, 1])
+                    with col1:
+                        size_kb = (cv.file_size or 0) / 1024
+                        st.markdown(f"📄 **{cv.file_name}** ({size_kb:.1f} KB)")
+                        st.caption(f"Upload: {cv.created_at.strftime('%d/%m/%Y %H:%M')} oleh {cv.uploaded_by_name or '-'}")
+                    with col2:
+                        try:
+                            file_bytes = b64.b64decode(cv.file_data)
+                            st.download_button(
+                                "⬇️ Download",
+                                file_bytes,
+                                cv.file_name,
+                                mime=cv.file_type or "application/octet-stream",
+                                key=f"dl_cv_src_{cv.id}",
+                                use_container_width=True
+                            )
+                        except Exception:
+                            st.caption("Error")
+                    with col3:
+                        file_lower = cv.file_name.lower()
+                        if file_lower.endswith(('.jpg', '.jpeg', '.png')):
+                            if st.button("👁️ Lihat", key=f"view_cv_src_{cv.id}", use_container_width=True):
+                                st.session_state[f"show_cv_{cv.id}"] = not st.session_state.get(f"show_cv_{cv.id}", False)
+                                st.rerun()
+
+                    if st.session_state.get(f"show_cv_{cv.id}", False):
+                        try:
+                            file_bytes = b64.b64decode(cv.file_data)
+                            st.image(file_bytes, caption=cv.file_name, use_container_width=True)
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
 
         st.markdown("---")
         st.subheader("✏️ Edit Data Kandidat")
