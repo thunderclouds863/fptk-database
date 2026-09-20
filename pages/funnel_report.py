@@ -5,7 +5,10 @@ import plotly.graph_objects as go
 from core.database import get_db
 from core.models import DBSourcing, FPTK
 from core.auth import get_current_user
-from datetime import datetime
+from datetime import datetime, date
+from io import BytesIO
+from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 import time
 
 
@@ -33,8 +36,141 @@ def get_funnel_status_options():
     return ["V", "X"]
 
 
+EXCEL_HEADERS = [
+    "FPTK Date Real",
+    "Posisi",
+    "Business Unit",
+    "Direktorat",
+    "Divisi",
+    "Department",
+    "Level FPTK",
+    "Nama Rekruter",
+    "Sourcing FL",
+    "Lolos Sourcing HR",
+    "Shortlisted User",
+    "Lulus Psikotes",
+    "HR Interview",
+    "Technical Case",
+    "Market Visit",
+    "User Interview",
+    "Panel Interview",
+    "Reference Check",
+    "Proses MCU",
+    "Offering",
+    "Day One",
+]
+
+EXCEL_HEADER_TO_INTERNAL = {
+    "FPTK Date Real": "fptk_date_real",
+    "Posisi": "posisi",
+    "Business Unit": "business_unit",
+    "Direktorat": "direktorat",
+    "Divisi": "divisi",
+    "Department": "department",
+    "Level FPTK": "level_fptk",
+    "Nama Rekruter": "pic_recruiter",
+    "Sourcing FL": "Sourcing FL",
+    "Lolos Sourcing HR": "Lolos Sourcing HR",
+    "Shortlisted User": "Shortlisted User",
+    "Lulus Psikotes": "Lulus Psikotes",
+    "HR Interview": "Lulus HR Interview",
+    "Technical Case": "Lulus Technical Case",
+    "Market Visit": "Lulus Market Visit",
+    "User Interview": "Lulus User Interview",
+    "Panel Interview": "Lulus Panel Interview",
+    "Reference Check": "Reference Check",
+    "Proses MCU": "Lolos MCU",
+    "Offering": "Lolos Offering",
+    "Day One": "Day One",
+}
+
+
+def generate_funnel_excel(df: pd.DataFrame, sheet_name: str = "Sheet4") -> BytesIO:
+    output = BytesIO()
+    wb = Workbook()
+    ws = wb.active
+    ws.title = sheet_name
+
+    for col_idx, header in enumerate(EXCEL_HEADERS, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=header)
+        cell.font = Font(bold=True, color="FFFFFF", size=11)
+        cell.fill = PatternFill(
+            start_color="1F4E78",
+            end_color="1F4E78",
+            fill_type="solid"
+        )
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center",
+            wrap_text=True
+        )
+        cell.border = Border(
+            left=Side(style='thin'),
+            right=Side(style='thin'),
+            top=Side(style='thin'),
+            bottom=Side(style='thin')
+        )
+
+    for row_idx, row in enumerate(df.to_dict('records'), start=2):
+        for col_idx, excel_header in enumerate(EXCEL_HEADERS, start=1):
+            internal_col = EXCEL_HEADER_TO_INTERNAL.get(excel_header, excel_header)
+            value = row.get(internal_col, "")
+
+            if pd.isna(value):
+                value = ""
+
+            cell = ws.cell(row=row_idx, column=col_idx, value=value)
+            cell.alignment = Alignment(vertical="top", wrap_text=False)
+            cell.border = Border(
+                left=Side(style='thin'),
+                right=Side(style='thin'),
+                top=Side(style='thin'),
+                bottom=Side(style='thin')
+            )
+
+            if excel_header == "FPTK Date Real":
+                if isinstance(value, (datetime, date, pd.Timestamp)):
+                    cell.number_format = 'YYYY-MM-DD HH:MM:SS'
+                else:
+                    cell.number_format = '@'
+
+    column_widths = {
+        'A': 20,
+        'B': 40,
+        'C': 32,
+        'D': 22,
+        'E': 22,
+        'F': 22,
+        'G': 10,
+        'H': 14,
+        'I': 12,
+        'J': 18,
+        'K': 18,
+        'L': 16,
+        'M': 16,
+        'N': 16,
+        'O': 14,
+        'P': 16,
+        'Q': 16,
+        'R': 16,
+        'S': 12,
+        'T': 12,
+        'U': 12,
+    }
+    for col_letter, width in column_widths.items():
+        ws.column_dimensions[col_letter].width = width
+
+    ws.row_dimensions[1].height = 30
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:U{len(df) + 1}"
+
+    wb.save(output)
+    output.seek(0)
+    return output
+
+
 def show_funnel_report():
-    st.title("Funnel Report")
+    st.title("🔍 Funnel Report")
     st.markdown("Laporan pipeline sourcing per Kode Unik (agregasi)")
 
     db = next(get_db())
@@ -43,12 +179,12 @@ def show_funnel_report():
         st.warning("Silakan login.")
         return
 
-    with st.spinner("Memuat data..."):
+    with st.spinner("📋 Memuat data..."):
         pipeline_stages = get_funnel_pipeline_stages()
         status_options = get_funnel_status_options()
 
     with st.sidebar:
-        st.markdown("### Filter Funnel")
+        st.markdown("### 🔍 Filter Funnel")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -60,7 +196,7 @@ def show_funnel_report():
         pic_filter = st.selectbox("PIC Recruiter", pic_options)
 
         st.markdown("---")
-        if st.button("Reset Filter", use_container_width=True):
+        if st.button("🔄 Reset Filter", use_container_width=True):
             st.rerun()
 
     query = db.query(DBSourcing)
@@ -135,7 +271,7 @@ def show_funnel_report():
 
     agg_df = pd.DataFrame(aggregated_data)
 
-    st.markdown("### Total Kandidat per Tahap")
+    st.markdown("### 📊 Total Kandidat per Tahap")
 
     funnel_totals = {}
     for stage in pipeline_stages:
@@ -160,7 +296,7 @@ def show_funnel_report():
 
     st.markdown("---")
 
-    st.markdown("### Funnel Chart")
+    st.markdown("### 📈 Funnel Chart")
 
     funnel_data_chart = {k: v for k, v in funnel_totals.items() if v > 0 and k != "Total Kandidat"}
 
@@ -188,7 +324,7 @@ def show_funnel_report():
 
     st.markdown("---")
 
-    st.markdown("### Detail Data per Kode Unik")
+    st.markdown("### 📋 Detail Data per Kode Unik")
     st.caption(f"Total: {len(agg_df)} Kode Unik unik")
 
     desired_order = [
@@ -257,25 +393,55 @@ def show_funnel_report():
     )
 
     st.markdown("---")
-    col1, col2, col3 = st.columns([1, 1, 3])
+    st.markdown("### 📥 Export Data")
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        if st.button("Export CSV", use_container_width=True, type="primary"):
+        if st.button("📥 Export CSV", use_container_width=True, type="primary", key="btn_export_csv_funnel"):
             csv = display_df.to_csv(index=False)
             st.download_button(
-                label="Download CSV",
+                label="⬇️ Download CSV",
                 data=csv,
                 file_name=f"funnel_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                mime="text/csv"
+                mime="text/csv",
+                key="dl_csv_funnel"
             )
 
     with col2:
-        if st.button("Refresh Data", use_container_width=True):
+        if st.button("📊 Export Excel (Format Funnel)", use_container_width=True, key="btn_export_excel_funnel"):
+            try:
+                with st.spinner("Generate Excel..."):
+                    excel_buffer = generate_funnel_excel(agg_df, sheet_name="Sheet4")
+                    st.session_state["funnel_excel_buffer"] = excel_buffer.getvalue()
+                    st.session_state["funnel_excel_filename"] = (
+                        f"funneling_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                    )
+                    st.success("✅ Excel berhasil di-generate! Klik download di bawah.")
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                import traceback
+                with st.expander("Detail error"):
+                    st.code(traceback.format_exc())
+
+    with col3:
+        if st.button("🔄 Refresh Data", use_container_width=True, key="btn_refresh_funnel"):
             st.cache_data.clear()
             st.rerun()
 
+    if "funnel_excel_buffer" in st.session_state:
+        st.download_button(
+            label="⬇️ Download Excel Funnel (Format Persis)",
+            data=st.session_state["funnel_excel_buffer"],
+            file_name=st.session_state["funnel_excel_filename"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            type="primary",
+            use_container_width=True,
+            key="dl_excel_funnel"
+        )
+
     st.markdown("---")
-    st.markdown("### Summary Statistics")
+    st.markdown("### 📊 Summary Statistics")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -296,7 +462,7 @@ def show_funnel_report():
         st.metric("Total Day One", day1_count)
 
     st.markdown("---")
-    st.markdown("### Conversion Rate (per Kode Unik)")
+    st.markdown("### 📈 Conversion Rate (per Kode Unik)")
 
     conversion_data = []
     prev_count = len(agg_df)
