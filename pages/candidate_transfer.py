@@ -42,7 +42,10 @@ def show_transfer_single(db, user, admin):
     st.subheader("Transfer 1 Kandidat")
 
     fptk_list = db.query(FPTK).filter(FPTK.status == "OP").order_by(FPTK.kode_unik).all()
-    fptk_options = {f"{f.kode_unik} | {f.posisi[:50]}" if len(str(f.posisi)) > 50 else f"{f.kode_unik} | {f.posisi}": f.kode_unik for f in fptk_list}
+    fptk_options = {}
+    for f in fptk_list:
+        display = f"{f.kode_unik} | {f.posisi[:50]}" if len(str(f.posisi)) > 50 else f"{f.kode_unik} | {f.posisi}"
+        fptk_options[display] = f.kode_unik
 
     if not fptk_options:
         st.warning("Tidak ada FPTK OP yang tersedia.")
@@ -152,7 +155,10 @@ def show_transfer_bulk(db, user, admin):
     st.subheader("Transfer Banyak Kandidat (Bulk)")
 
     fptk_list = db.query(FPTK).filter(FPTK.status == "OP").order_by(FPTK.kode_unik).all()
-    fptk_options = {f"{f.kode_unik} | {f.posisi[:50]}" if len(str(f.posisi)) > 50 else f"{f.kode_unik} | {f.posisi}": f.kode_unik for f in fptk_list}
+    fptk_options = {}
+    for f in fptk_list:
+        display = f"{f.kode_unik} | {f.posisi[:50]}" if len(str(f.posisi)) > 50 else f"{f.kode_unik} | {f.posisi}"
+        fptk_options[display] = f.kode_unik
 
     if not fptk_options:
         st.warning("Tidak ada FPTK OP yang tersedia.")
