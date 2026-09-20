@@ -485,7 +485,83 @@ def normalize_boolean_to_vx(value):
     return None
 
 
-@st.cache_data(ttl=3600)
+def extract_label_value_pairs(text: str) -> dict:
+    if not text:
+        return {}
+
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    lines = [l.strip() for l in text.split('\n')]
+
+    label_indicators = [
+        "nama jabatan yang dicari", "jabatan yang dicari", "nama jabatan",
+        "posisi", "position",
+        "alasan permintaan fptk", "alasan fptk", "alasan",
+        "pt/business unit", "pt / business unit", "business unit",
+        "divisi", "division",
+        "departemen", "department", "dept",
+        "level posisi", "level fptk", "level",
+        "lokasi kerja", "lokasi hr", "penempatan",
+        "jumlah posisi yang dicari", "jumlah posisi", "vacancy",
+        "status karyawan",
+        "status offering", "status join",
+        "nama kandidat",
+        "tanggal offering", "start date",
+        "nik kandidat", "email kandidat",
+        "email pic rekruter", "pic rekruter", "pic recruiter",
+        "direkrut oleh", "catatan", "remark", "notes",
+        "fptk date", "tanggal fptk",
+        "range gaji", "tanggal dibutuhkan",
+        "pendidikan minimal", "fakultas/jurusan", "jurusan",
+        "total pengalaman", "usia",
+        "job summary", "outcomes", "capability", "character",
+        "status revisi", "log", "struktur organisasi", "sign-off",
+        "attachments", "detail fptk", "approval status",
+    ]
+
+    stop_values = [
+        "enter value here", "-", "add or remove attachments",
+        "read only", "see more"
+    ]
+
+    result = {}
+    i = 0
+
+    while i < len(lines):
+        line = lines[i].strip()
+
+        if not line:
+            i += 1
+            continue
+
+        clean_label = re.sub(r'[\*\:]+$', '', line).strip()
+        clean_label = re.sub(r'\s*\(Read only\)\s*', '', clean_label, flags=re.IGNORECASE).strip()
+
+        is_label = any(ind == clean_label.lower() or ind in clean_label.lower() for ind in label_indicators)
+
+        if is_label and i + 1 < len(lines):
+            j = i + 1
+            while j < len(lines) and not lines[j].strip():
+                j += 1
+
+            if j < len(lines):
+                value = lines[j].strip()
+                value_clean = re.sub(r'[\*\:]+$', '', value).strip().lower()
+
+                if value and value_clean not in stop_values:
+                    next_label_check = value_clean
+                    is_next_label = any(ind == next_label_check or ind in next_label_check for ind in label_indicators)
+
+                    if not is_next_label:
+                        result[clean_label.lower()] = value
+                        i = j + 1
+                        continue
+
+        i += 1
+
+    return result
+
+
+@st.cache_data(ttl=600, show_spinner=False)
 def get_filter_options_from_db():
     from core.database import SessionLocal
     from core.models import User, MasterDropdown, FPTK, DBSourcing, DBKodePosisi
@@ -647,7 +723,7 @@ def get_filter_options_from_db():
         db.close()
 
 
-@st.cache_data(ttl=3600)
+@st.cache_data(ttl=600, show_spinner=False)
 def get_filter_options_from_db_simple():
     opts = get_filter_options_from_db()
     return (
