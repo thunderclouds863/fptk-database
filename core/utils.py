@@ -1,13 +1,10 @@
-import pandas as pd
+# core/utils.py
 import re
 import math
-from datetime import datetime, date, timedelta
+import pandas as pd
 import streamlit as st
+from datetime import datetime, date, timedelta
 
-
-# ============================================================
-# NORMALIZE FUNCTIONS
-# ============================================================
 
 def normalize_key(value) -> str:
     if pd.isna(value) or value is None:
@@ -29,21 +26,29 @@ def parse_date_dmy(value):
     if pd.isna(value) or value is None:
         return None
 
-    if isinstance(value, date):
-        return value
-
     if isinstance(value, datetime):
         return value.date()
 
     if isinstance(value, pd.Timestamp):
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
         return value.date()
+
+    if isinstance(value, date):
+        return value
 
     if isinstance(value, (int, float)):
         try:
             base = datetime(1899, 12, 30).date()
-            return base + timedelta(days=float(value))
-        except:
+            result = base + timedelta(days=float(value))
+            if 1900 <= result.year <= 2100:
+                return result
+        except Exception:
             pass
+        return None
 
     if isinstance(value, str):
         s = str(value).strip()
@@ -80,14 +85,27 @@ def safe_float(value, default=0.0):
 def safe_string(value, default=''):
     if value is None:
         return default
-    if isinstance(value, float) and math.isnan(value):
-        return default
+
+    try:
+        if pd.isna(value):
+            return default
+    except Exception:
+        pass
+
     if isinstance(value, pd.Series):
         value = value.iloc[0] if len(value) > 0 else default
     if isinstance(value, (list, tuple)):
         value = value[0] if len(value) > 0 else default
+
     if value is None:
         return default
+
+    try:
+        if pd.isna(value):
+            return default
+    except Exception:
+        pass
+
     return str(value).strip()
 
 
@@ -96,8 +114,13 @@ def safe_boolean_char(value):
         return None
     if isinstance(value, bool):
         return 'V' if value else 'X'
-    if isinstance(value, float) and math.isnan(value):
-        return None
+
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
+
     if isinstance(value, (int, float)):
         return 'V' if value else 'X'
     if isinstance(value, str):
@@ -112,31 +135,21 @@ def safe_boolean_char(value):
     return None
 
 
-# ============================================================
-# SAFE DATE - DIPERBAIKI UNTUK HANDLE NaT
-# ============================================================
-
 def safe_date(value):
-    """
-    Safely convert various date formats to date object.
-    Returns None for NaT, NaN, None, or invalid values.
-    """
     if value is None:
         return None
 
     try:
         if pd.isna(value):
             return None
-    except:
+    except Exception:
         pass
 
-    if hasattr(value, '__class__') and 'NaT' in str(value.__class__):
+    class_name = str(value.__class__)
+    if 'NaT' in class_name:
         return None
 
     if isinstance(value, str) and value.upper() == 'NAT':
-        return None
-
-    if isinstance(value, float) and math.isnan(value):
         return None
 
     if isinstance(value, datetime):
@@ -149,7 +162,7 @@ def safe_date(value):
         try:
             if pd.isna(value):
                 return None
-        except:
+        except Exception:
             pass
         return value.date()
 
@@ -158,15 +171,7 @@ def safe_date(value):
 
     if isinstance(value, pd.Series):
         if len(value) > 0:
-            val = value.iloc[0]
-            try:
-                if pd.isna(val):
-                    return None
-            except:
-                pass
-            if hasattr(val, '__class__') and 'NaT' in str(val.__class__):
-                return None
-            return safe_date(val)
+            return safe_date(value.iloc[0])
         return None
 
     return None
@@ -176,14 +181,7 @@ def sanitize_date_value(val):
     return safe_date(val)
 
 
-# ============================================================
-# FUNGSI GET_SINGLE_VALUE
-# ============================================================
-
 def get_single_value(value):
-    """
-    Helper untuk mendapatkan nilai tunggal dari berbagai tipe data.
-    """
     if value is None:
         return None
 
@@ -193,7 +191,7 @@ def get_single_value(value):
             try:
                 if pd.isna(val):
                     return None
-            except:
+            except Exception:
                 pass
             return val
         return None
@@ -204,7 +202,7 @@ def get_single_value(value):
             try:
                 if pd.isna(val):
                     return None
-            except:
+            except Exception:
                 pass
             return val
         return None
@@ -215,7 +213,7 @@ def get_single_value(value):
             try:
                 if pd.isna(val):
                     return None
-            except:
+            except Exception:
                 pass
             return val
         return None
@@ -223,34 +221,27 @@ def get_single_value(value):
     try:
         if pd.isna(value):
             return None
-    except:
+    except Exception:
         pass
 
     return value
 
 
-# ============================================================
-# FUNGSI SLA
-# ============================================================
-
 def calculate_sla_days(level_number: int) -> int:
+    if level_number is None:
+        return 30
     if level_number <= 3:
         return 30
     elif level_number == 4:
         return 45
     elif level_number >= 5:
         return 60
-    else:
-        return 30
+    return 30
 
 
 def calculate_deadline_sla(fptk_date_real, sla_days: int):
-    if fptk_date_real and sla_days > 0:
-        if isinstance(fptk_date_real, datetime):
-            fptk_date_real = fptk_date_real.date()
-        elif isinstance(fptk_date_real, pd.Timestamp):
-            fptk_date_real = fptk_date_real.date()
-
+    if fptk_date_real and sla_days and sla_days > 0:
+        fptk_date_real = _ensure_date(fptk_date_real)
         if isinstance(fptk_date_real, date):
             return fptk_date_real + timedelta(days=sla_days)
     return None
@@ -270,9 +261,14 @@ def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
             return "OP Belum Lewat SLA"
 
     elif status_lower in ["closed", "close"]:
-        if deadline_sla and offering_date and deadline_sla < offering_date:
-            return "Closed Tidak Lulus SLA"
+        if deadline_sla and offering_date:
+            if offering_date <= deadline_sla:
+                return "Closed Lulus SLA"
+            else:
+                return "Closed Tidak Lulus SLA"
         else:
+            if deadline_sla and deadline_sla < today:
+                return "Closed Tidak Lulus SLA"
             return "Closed Lulus SLA"
 
     elif status_lower in ["cancel", "cancelled", "cancel fptk"]:
@@ -288,12 +284,11 @@ def calculate_detail_sla(status: str, deadline_sla, offering_date=None) -> str:
 def determine_category_fptk(alasan: str) -> str:
     alasan_lower = alasan.lower() if alasan else ""
 
-    if "keluar" in alasan_lower or "mutasi" in alasan_lower or "promosi" in alasan_lower or "replace" in alasan_lower:
+    if any(k in alasan_lower for k in ["keluar", "mutasi", "promosi", "replace"]):
         return "REPLACEMENT"
-    elif "penambahan" in alasan_lower or "jabatan baru" in alasan_lower or "new" in alasan_lower:
+    elif any(k in alasan_lower for k in ["penambahan", "jabatan baru", "new"]):
         return "NEW"
-    else:
-        return "REPLACEMENT"
+    return "REPLACEMENT"
 
 
 def _ensure_date(value):
@@ -303,17 +298,22 @@ def _ensure_date(value):
     try:
         if pd.isna(value):
             return None
-    except:
+    except Exception:
         pass
-
-    if isinstance(value, date):
-        return value
 
     if isinstance(value, datetime):
         return value.date()
 
     if isinstance(value, pd.Timestamp):
+        try:
+            if pd.isna(value):
+                return None
+        except Exception:
+            pass
         return value.date()
+
+    if isinstance(value, date):
+        return value
 
     if isinstance(value, str):
         return parse_date_dmy(value)
@@ -332,14 +332,7 @@ def get_sla_option_list() -> list:
 
 
 def is_valid_detail_sla(value: str) -> bool:
-    valid_options = [
-        "OP Belum Lewat SLA",
-        "OP Tidak Lulus SLA",
-        "Closed Lulus SLA",
-        "Closed Tidak Lulus SLA",
-        "Cancel FPTK"
-    ]
-    return value in valid_options
+    return value in get_sla_option_list()
 
 
 def calculate_filter_kategorisasi(posisi: str, level_number: int) -> str:
@@ -353,8 +346,7 @@ def calculate_filter_kategorisasi(posisi: str, level_number: int) -> str:
         return 'Level 3'
     elif level_number == 4:
         return 'Level 4'
-    else:
-        return ''
+    return ''
 
 
 def parse_phone(value) -> str:
@@ -371,10 +363,6 @@ def is_valid_email(value) -> bool:
     pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
     return bool(re.match(pattern, str(value).strip()))
 
-
-# ============================================================
-# FUNGSI DB KODE POSISI (AUTO-FILL)
-# ============================================================
 
 def get_position_details(db, posisi: str, direktorat: str = None):
     if not posisi:
@@ -465,11 +453,14 @@ def add_to_db_kode_posisi(db, posisi: str, direktorat: str = None, business_unit
 
 
 def normalize_boolean_to_vx(value):
-    """
-    Normalisasi nilai boolean ke 'V' atau 'X' saja.
-    """
     if value is None:
         return None
+
+    try:
+        if pd.isna(value):
+            return None
+    except Exception:
+        pass
 
     if isinstance(value, bool):
         return 'V' if value else 'X'
@@ -494,49 +485,19 @@ def normalize_boolean_to_vx(value):
     return None
 
 
-# ============================================================
-# ⭐ FILTER OPTIONS FROM DB (DINAMIS) — DIPERBAIKI
-# ============================================================
-# Prioritas ambil dari tabel FPTK (karena berisi data real).
-# Fallback ke master_dropdown / users kalau FPTK kosong.
-# ============================================================
-
 @st.cache_data(ttl=3600)
 def get_filter_options_from_db():
-    """
-    Ambil semua opsi filter dari database (DINAMIS).
-    Cache 1 jam, refresh manual via sidebar.
-
-    Returns:
-        dict: {
-            "pic_options": list,
-            "bu_options": list,
-            "direktorat_options": list,
-            "filter_kategorisasi_options": list,
-            "sumber_options": list,
-            "model_options": list,
-            "divisi_options": list,
-            "dept_options": list,
-            "rekruter_options": list,
-            "level_options": list,
-            "status_options": list,
-        }
-    """
     from core.database import SessionLocal
-    from core.models import User, MasterDropdown, FPTK, DBSourcing
+    from core.models import User, MasterDropdown, FPTK, DBSourcing, DBKodePosisi
 
     db = SessionLocal()
     try:
-        # ============================================================
-        # 1. PIC RECRUITER — ambil dari FPTK dulu
-        # ============================================================
         pic_rows = db.query(FPTK.pic_recruiter).filter(
             FPTK.pic_recruiter.isnot(None),
             FPTK.pic_recruiter != ""
         ).distinct().all()
         pic_options = sorted(set([r[0] for r in pic_rows if r[0]]))
 
-        # Fallback ke tabel users kalau FPTK kosong
         if not pic_options:
             pic_rows = db.query(User.pic_recruiter).filter(
                 User.pic_recruiter.isnot(None),
@@ -544,16 +505,12 @@ def get_filter_options_from_db():
             ).distinct().all()
             pic_options = sorted(set([r[0] for r in pic_rows if r[0]]))
 
-        # ============================================================
-        # 2. BUSINESS UNIT — ambil dari FPTK dulu
-        # ============================================================
         bu_rows = db.query(FPTK.business_unit).filter(
             FPTK.business_unit.isnot(None),
             FPTK.business_unit != ""
         ).distinct().all()
         bu_options = sorted(set([r[0] for r in bu_rows if r[0]]))
 
-        # Fallback ke master_dropdown
         if not bu_options:
             bu_rows = db.query(MasterDropdown.bu).filter(
                 MasterDropdown.is_active == True,
@@ -562,16 +519,12 @@ def get_filter_options_from_db():
             ).distinct().all()
             bu_options = sorted(set([r[0] for r in bu_rows if r[0]]))
 
-        # ============================================================
-        # 3. DIREKTORAT — ambil dari FPTK dulu
-        # ============================================================
         dir_rows = db.query(FPTK.direktorat).filter(
             FPTK.direktorat.isnot(None),
             FPTK.direktorat != ""
         ).distinct().all()
         direktorat_options = sorted(set([r[0] for r in dir_rows if r[0]]))
 
-        # Fallback ke master_dropdown
         if not direktorat_options:
             dir_rows = db.query(MasterDropdown.nama_direktorat).filter(
                 MasterDropdown.is_active == True,
@@ -580,16 +533,12 @@ def get_filter_options_from_db():
             ).distinct().all()
             direktorat_options = sorted(set([r[0] for r in dir_rows if r[0]]))
 
-        # ============================================================
-        # 4. FILTER KATEGORISASI FPTK — ambil dari FPTK dulu
-        # ============================================================
         filter_kat_rows = db.query(FPTK.filter_kategorisasi_fptk).filter(
             FPTK.filter_kategorisasi_fptk.isnot(None),
             FPTK.filter_kategorisasi_fptk != ""
         ).distinct().all()
         filter_kategorisasi_options = sorted(set([r[0] for r in filter_kat_rows if r[0]]))
 
-        # Fallback ke master_dropdown
         if not filter_kategorisasi_options:
             filter_kat_rows = db.query(MasterDropdown.filter_fptk).filter(
                 MasterDropdown.is_active == True,
@@ -598,9 +547,48 @@ def get_filter_options_from_db():
             ).distinct().all()
             filter_kategorisasi_options = sorted(set([r[0] for r in filter_kat_rows if r[0]]))
 
-        # ============================================================
-        # 5. SUMBER SOURCING — dari master_dropdown
-        # ============================================================
+        divisi_rows = db.query(FPTK.divisi).filter(
+            FPTK.divisi.isnot(None),
+            FPTK.divisi != ""
+        ).distinct().all()
+        divisi_options = sorted(set([r[0] for r in divisi_rows if r[0]]))
+
+        if not divisi_options:
+            divisi_rows = db.query(MasterDropdown.divisi).filter(
+                MasterDropdown.is_active == True,
+                MasterDropdown.divisi.isnot(None),
+                MasterDropdown.divisi != ""
+            ).distinct().all()
+            divisi_options = sorted(set([r[0] for r in divisi_rows if r[0]]))
+
+        if not divisi_options:
+            divisi_rows = db.query(DBKodePosisi.division_chris).filter(
+                DBKodePosisi.division_chris.isnot(None),
+                DBKodePosisi.division_chris != ""
+            ).distinct().all()
+            divisi_options = sorted(set([r[0] for r in divisi_rows if r[0]]))
+
+        dept_rows = db.query(FPTK.department).filter(
+            FPTK.department.isnot(None),
+            FPTK.department != ""
+        ).distinct().all()
+        dept_options = sorted(set([r[0] for r in dept_rows if r[0]]))
+
+        if not dept_options:
+            dept_rows = db.query(MasterDropdown.department).filter(
+                MasterDropdown.is_active == True,
+                MasterDropdown.department.isnot(None),
+                MasterDropdown.department != ""
+            ).distinct().all()
+            dept_options = sorted(set([r[0] for r in dept_rows if r[0]]))
+
+        if not dept_options:
+            dept_rows = db.query(DBKodePosisi.department_chris).filter(
+                DBKodePosisi.department_chris.isnot(None),
+                DBKodePosisi.department_chris != ""
+            ).distinct().all()
+            dept_options = sorted(set([r[0] for r in dept_rows if r[0]]))
+
         sumber_rows = db.query(MasterDropdown.sumber_sourcing).filter(
             MasterDropdown.is_active == True,
             MasterDropdown.sumber_sourcing.isnot(None),
@@ -608,9 +596,6 @@ def get_filter_options_from_db():
         ).distinct().all()
         sumber_options = sorted(set([r[0] for r in sumber_rows if r[0]]))
 
-        # ============================================================
-        # 6. MODEL REKRUTMEN — dari master_dropdown
-        # ============================================================
         model_rows = db.query(MasterDropdown.model).filter(
             MasterDropdown.is_active == True,
             MasterDropdown.model.isnot(None),
@@ -618,44 +603,14 @@ def get_filter_options_from_db():
         ).distinct().all()
         model_options = sorted(set([r[0] for r in model_rows if r[0]]))
 
-        # ============================================================
-        # 7. DIVISI — dari master_dropdown
-        # ============================================================
-        divisi_rows = db.query(MasterDropdown.divisi).filter(
-            MasterDropdown.is_active == True,
-            MasterDropdown.divisi.isnot(None),
-            MasterDropdown.divisi != ""
-        ).distinct().all()
-        divisi_options = sorted(set([r[0] for r in divisi_rows if r[0]]))
-
-        # ============================================================
-        # 8. DEPARTMENT — dari master_dropdown
-        # ============================================================
-        dept_rows = db.query(MasterDropdown.department).filter(
-            MasterDropdown.is_active == True,
-            MasterDropdown.department.isnot(None),
-            MasterDropdown.department != ""
-        ).distinct().all()
-        dept_options = sorted(set([r[0] for r in dept_rows if r[0]]))
-
-        # ============================================================
-        # 9. REKRUTER — dari DBSourcing
-        # ============================================================
         rekruter_rows = db.query(DBSourcing.rekruter).filter(
             DBSourcing.rekruter.isnot(None),
             DBSourcing.rekruter != ""
         ).distinct().all()
         rekruter_options = sorted(set([r[0] for r in rekruter_rows if r[0]]))
 
-        # ============================================================
-        # 10. LEVEL FPTK — hardcoded enum
-        # ============================================================
         level_options = ["1A", "1B", "1C", "2A", "2B", "2C",
                          "3A", "3B", "3C", "4A", "4B", "5A", "5B"]
-
-        # ============================================================
-        # 11. STATUS — hardcoded enum
-        # ============================================================
         status_options = ["OP", "Closed", "Cancel"]
 
         return {
@@ -663,15 +618,15 @@ def get_filter_options_from_db():
             "bu_options": bu_options,
             "direktorat_options": direktorat_options,
             "filter_kategorisasi_options": filter_kategorisasi_options,
-            "sumber_options": sumber_options,
-            "model_options": model_options,
             "divisi_options": divisi_options,
             "dept_options": dept_options,
+            "sumber_options": sumber_options,
+            "model_options": model_options,
             "rekruter_options": rekruter_options,
             "level_options": level_options,
             "status_options": status_options,
         }
-    except Exception as e:
+    except Exception:
         import traceback
         traceback.print_exc()
         return {
@@ -679,10 +634,10 @@ def get_filter_options_from_db():
             "bu_options": [],
             "direktorat_options": [],
             "filter_kategorisasi_options": [],
-            "sumber_options": [],
-            "model_options": [],
             "divisi_options": [],
             "dept_options": [],
+            "sumber_options": [],
+            "model_options": [],
             "rekruter_options": [],
             "level_options": ["1A", "1B", "1C", "2A", "2B", "2C",
                               "3A", "3B", "3C", "4A", "4B", "5A", "5B"],
@@ -694,9 +649,6 @@ def get_filter_options_from_db():
 
 @st.cache_data(ttl=3600)
 def get_filter_options_from_db_simple():
-    """
-    Versi simple — hanya PIC, BU, Direktorat (untuk backward compatibility).
-    """
     opts = get_filter_options_from_db()
     return (
         ["Semua"] + opts["pic_options"],
