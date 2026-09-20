@@ -213,7 +213,7 @@ def render_metrics_cards(metrics):
 
 
 # ============================================================
-# CHART: MPP (CUMULATIVE / WEEK / MONTH / QUARTER)
+# CHART: MPP
 # ============================================================
 
 def render_mpp_chart(df, mode="Cumulative"):
@@ -773,7 +773,7 @@ def render_sourcing_funnel(df_sourcing):
         textposition="inside", textinfo="value+percent initial",
         marker=dict(color=px.colors.sequential.Blues_r[: len(df_funnel)]),
     ))
-    fig.update_layout(title="🔍 Funnel Sourcing Pipeline", height=550)
+    fig.update_layout(title="🔍 Funnel Sourcing Pipeline", height=500)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -795,12 +795,11 @@ def render_sourcing_summary(df_sourcing):
 
 
 # ============================================================
-# SOURCING BY SUMBER (DARI DATABASE)
+# SOURCING: SUMBER (DARI DATABASE)
 # ============================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
 def get_sumber_sourcing_options():
-    """Ambil sumber sourcing dari database (DBSourcing → fallback MasterDropdown)."""
     db = next(get_db())
     try:
         sources = set()
@@ -852,7 +851,8 @@ def render_sumber_sourcing_pie(df_sourcing):
         title="🌐 Distribusi Sumber Sourcing",
         hole=0.4,
     )
-    fig.update_layout(height=550)
+    fig.update_traces(textposition="inside", textinfo="percent+label")
+    fig.update_layout(height=500)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -1001,7 +1001,8 @@ def show_dashboard():
     st.subheader("🔍 Sourcing Analytics")
     render_sourcing_summary(df_sourcing)
     st.markdown("")
-    col1, col2 = st.columns([2, 1])
+
+    col1, col2 = st.columns([1, 1])
     with col1:
         render_sourcing_funnel(df_sourcing)
     with col2:
