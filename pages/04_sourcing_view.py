@@ -1,3 +1,4 @@
+# pages/04_sourcing_view.py
 import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
@@ -8,10 +9,6 @@ from core.utils import get_filter_options_from_db
 from datetime import datetime
 import time
 
-
-# ============================================================
-#  CACHE FUNCTIONS
-# ============================================================
 
 @st.cache_data(ttl=3600)
 def get_sourcing_options_view():
@@ -45,12 +42,8 @@ def get_pipeline_stages_view():
     ]
 
 
-# ============================================================
-# FUNGSI UTAMA
-# ============================================================
-
 def show_sourcing_view():
-    st.title("👤 Sourcing Database")
+    st.title("Sourcing Database")
     st.markdown("Lihat dan filter data kandidat sourcing.")
 
     db = next(get_db())
@@ -59,7 +52,7 @@ def show_sourcing_view():
         st.warning("Silakan login terlebih dahulu.")
         return
 
-    with st.spinner("📋 Memuat data..."):
+    with st.spinner("Memuat data..."):
         filter_opts = get_filter_options_from_db()
         sourcing_options = get_sourcing_options_view()
         pipeline_stages = get_pipeline_stages_view()
@@ -87,10 +80,9 @@ def show_sourcing_view():
         except Exception:
             pic_from_users = []
 
-    # Sidebar
     with st.sidebar:
-        st.markdown("### 🔍 Filter Sourcing")
-        search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
+        st.markdown("### Filter Sourcing")
+        search = st.text_input("Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
         pic_options = ["Semua"] + pic_from_users
         pic_filter = st.selectbox("PIC Recruiter / Rekruter", pic_options)
 
@@ -116,16 +108,15 @@ def show_sourcing_view():
         show_mine = st.checkbox("Hanya data saya", value=False)
 
         st.markdown("---")
-        if st.button("🔄 Reset Filter", use_container_width=True):
+        if st.button("Reset Filter", use_container_width=True):
             st.rerun()
-        if st.button("🔄 Refresh Filter Options", use_container_width=True):
+        if st.button("Refresh Filter Options", use_container_width=True):
             get_filter_options_from_db.clear()
-            st.success("✅ Filter refreshed!")
+            st.success("Filter refreshed!")
             time.sleep(0.3)
             st.rerun()
-        st.caption("💡 Filter diambil langsung dari database")
+        st.caption("Filter diambil langsung dari database")
 
-    # Query
     query = db.query(DBSourcing)
 
     if search:
@@ -160,6 +151,36 @@ def show_sourcing_view():
     st.markdown(f"**Total Kandidat: {total}**")
 
     if total > 0:
+        col_export1, col_export2 = st.columns(2)
+        with col_export1:
+            if st.button("Export CSV (Filtered)", use_container_width=True):
+                df_export = pd.read_sql(query.statement, db.bind)
+                csv = df_export.to_csv(index=False)
+                st.download_button(
+                    "Download CSV",
+                    csv,
+                    f"sourcing_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
+                    "text/csv",
+                    key="dl_sourcing_csv"
+                )
+        with col_export2:
+            if st.button("Export Excel (Filtered)", use_container_width=True):
+                from io import BytesIO
+                df_export = pd.read_sql(query.statement, db.bind)
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df_export.to_excel(writer, sheet_name='Sourcing', index=False)
+                output.seek(0)
+                st.download_button(
+                    "Download Excel",
+                    output.getvalue(),
+                    f"sourcing_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="dl_sourcing_xlsx"
+                )
+
+        st.markdown("---")
+
         page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
         page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
         offset = (page - 1) * page_size
@@ -267,8 +288,8 @@ def show_sourcing_view():
         st.dataframe(display_df, use_container_width=True, height=500)
 
         st.markdown("---")
-        st.subheader("✏️ Detail & Edit Kandidat")
-        st.caption("🔍 Cari berdasarkan Kode Unik, Nama, atau Posisi")
+        st.subheader("Detail & Edit Kandidat")
+        st.caption("Cari berdasarkan Kode Unik, Nama, atau Posisi")
 
         df_all = pd.read_sql(query.statement, db.bind)
 
@@ -278,9 +299,9 @@ def show_sourcing_view():
                 kode = row.get('kode_unik', '')
                 nama = row.get('nama', '')
                 posisi = row.get('posisi', '')
-                display = f"{kode} | {nama[:30]}..." if len(nama) > 30 else f"{kode} | {nama}"
+                display = f"{kode} | {nama[:30]}..." if len(str(nama)) > 30 else f"{kode} | {nama}"
                 if posisi:
-                    display += f" | {posisi[:20]}..." if len(posisi) > 20 else f" | {posisi}"
+                    display += f" | {posisi[:20]}..." if len(str(posisi)) > 20 else f" | {posisi}"
                 search_options[display] = row.get('id')
 
             selected_display = st.selectbox(
@@ -303,7 +324,7 @@ def show_sourcing_view():
             st.error("Data tidak ditemukan")
             return
 
-        with st.expander("📋 Data Pribadi & Pendidikan", expanded=True):
+        with st.expander("Data Pribadi & Pendidikan", expanded=True):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown(f"**ID:** {detail.id}")
@@ -323,7 +344,7 @@ def show_sourcing_view():
                 st.markdown(f"**Jurusan Lainnya:** {getattr(detail, 'jurusan_lainnya', None) or '-'}")
                 st.markdown(f"**IPK:** {detail.ipk or '-'}")
 
-        with st.expander("💼 Pengalaman Kerja"):
+        with st.expander("Pengalaman Kerja"):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**Posisi Terakhir:** {detail.last_position or '-'}")
@@ -333,7 +354,7 @@ def show_sourcing_view():
                 st.markdown(f"**Total Masa Kerja:** {detail.total_tenure or '-'}")
                 st.markdown(f"**Pernah di FMCG:** {detail.pernah_di_fmcg or '-'}")
 
-        with st.expander("📊 Pipeline Status"):
+        with st.expander("Pipeline Status"):
             pipeline_data = []
             for stage in pipeline_stages:
                 field = getattr(detail, stage["field"])
@@ -352,7 +373,7 @@ def show_sourcing_view():
             pipeline_df = pd.DataFrame(pipeline_data)
             st.dataframe(pipeline_df, use_container_width=True)
 
-        with st.expander("📝 Catatan & Blacklist"):
+        with st.expander("Catatan & Blacklist"):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**Catatan:** {detail.notes or '-'}")
@@ -363,16 +384,16 @@ def show_sourcing_view():
                     st.markdown(f"**Alasan:** {detail.blacklist_reason or '-'}")
 
         st.markdown("---")
-        st.subheader("✏️ Edit Data Kandidat")
+        st.subheader("Edit Data Kandidat")
 
         is_owner = detail.rekruter == user.pic_recruiter
         can_edit = is_admin(db) or is_owner
 
         if not can_edit:
-            st.warning("⚠️ Anda hanya bisa mengedit data yang Anda input sendiri. Hubungi admin untuk mengedit data ini.")
+            st.warning("Anda hanya bisa mengedit data yang Anda input sendiri. Hubungi admin untuk mengedit data ini.")
         else:
             with st.form("edit_sourcing_full", clear_on_submit=False):
-                st.markdown("### 📋 Data Pribadi & Pendidikan")
+                st.markdown("### Data Pribadi & Pendidikan")
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
@@ -397,7 +418,7 @@ def show_sourcing_view():
                                                  index=([""] + sourcing_options['fmcg_options']).index(detail.pernah_di_fmcg) if detail.pernah_di_fmcg in sourcing_options['fmcg_options'] else 0)
 
                 st.markdown("---")
-                st.markdown("### 🎓 Pendidikan")
+                st.markdown("### Pendidikan")
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
@@ -423,7 +444,7 @@ def show_sourcing_view():
                                            index=([""] + sourcing_options['ipk_tier_options']).index(detail.ipk_tier) if detail.ipk_tier in sourcing_options['ipk_tier_options'] else 0)
 
                 st.markdown("---")
-                st.markdown("### 💼 Pengalaman Kerja")
+                st.markdown("### Pengalaman Kerja")
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -435,7 +456,9 @@ def show_sourcing_view():
                     total_tenure = st.text_input("Total Masa Kerja", value=detail.total_tenure or "")
 
                 st.markdown("---")
-                st.markdown("### 📊 Pipeline Stages (V = Lolos, X = Tidak Lolos)")
+                st.markdown("### Pipeline Stages (V = Lolos, X = Tidak Lolos)")
+
+                pipeline_inputs = {}
 
                 for i, stage in enumerate(pipeline_stages):
                     if i % 3 == 0:
@@ -473,13 +496,13 @@ def show_sourcing_view():
                                 key=f"detail_{detail_field}",
                                 height=50
                             )
-                            setattr(detail, detail_field, new_detail if new_detail else None)
+                            pipeline_inputs[detail_field] = new_detail if new_detail else None
 
-                        setattr(detail, status_field, new_status if new_status else None)
-                        setattr(detail, date_field, new_date)
+                        pipeline_inputs[status_field] = new_status if new_status else None
+                        pipeline_inputs[date_field] = new_date
 
                 st.markdown("---")
-                st.markdown("### 📝 Catatan & Blacklist")
+                st.markdown("### Catatan & Blacklist")
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -490,14 +513,14 @@ def show_sourcing_view():
                     blacklist_reason = st.text_area("Alasan Blacklist", value=detail.blacklist_reason or "", height=100)
 
                 st.markdown("---")
-                st.markdown("### 🔧 Audit Info")
+                st.markdown("### Audit Info")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"**Created At:** {detail.created_at.strftime('%d/%m/%Y %H:%M') if detail.created_at else '-'}")
                 with col2:
                     st.markdown(f"**Last Updated:** {detail.last_updated_at.strftime('%d/%m/%Y %H:%M') if detail.last_updated_at else '-'}")
 
-                submitted = st.form_submit_button("💾 Simpan Perubahan")
+                submitted = st.form_submit_button("Simpan Perubahan")
 
                 if submitted:
                     try:
@@ -547,15 +570,18 @@ def show_sourcing_view():
                         elif not is_blacklisted:
                             detail.blacklisted_at = None
 
+                        for field_name, value in pipeline_inputs.items():
+                            setattr(detail, field_name, value)
+
                         detail.last_updated_at = datetime.now()
                         detail.last_compile_action = "Manual Edit"
 
                         db.commit()
-                        st.success("✅ Data berhasil diupdate!")
+                        st.success("Data berhasil diupdate!")
                         st.rerun()
 
                     except Exception as e:
                         db.rollback()
-                        st.error(f"❌ Gagal mengupdate data: {str(e)}")
+                        st.error(f"Gagal mengupdate data: {str(e)}")
     else:
         st.info("Tidak ada data sourcing dengan filter yang dipilih.")
