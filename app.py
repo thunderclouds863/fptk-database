@@ -6,7 +6,6 @@ import base64
 import os
 import pandas as pd
 from datetime import datetime, timedelta
-from contextlib import contextmanager
 
 from core.session_manager import get_session_manager, check_idle_timeout, touch_session
 from core.database import SessionLocal, init_db
@@ -29,13 +28,8 @@ st.set_page_config(
 )
 
 
-@contextmanager
 def get_cached_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+    return SessionLocal()
 
 
 @st.cache_resource
@@ -456,58 +450,59 @@ if not st.session_state.user_id:
 
             else:
 
-                with get_cached_db() as db:
+                db = get_cached_db()
 
-                    try:
+                try:
 
-                        user = login_user(
-                            db,
-                            username,
-                            password
+                    user = login_user(
+                        db,
+                        username,
+                        password
+                    )
+
+                    if user:
+
+                        session_mgr.login(
+                            user.id,
+                            user.username,
+                            user.role,
+                            user.display_name or user.username
+                        )
+                        st.session_state.user_id = user.id
+                        st.session_state.username = user.username
+                        st.session_state.role = user.role
+                        st.session_state.user_display = (
+                            user.display_name
+                            or user.username
+                        )
+                        st.session_state.last_activity = datetime.now()
+                        st.session_state.page = "dashboard"
+
+                        if "pages_dict" in st.session_state:
+                            del st.session_state.pages_dict
+                        if "user_is_admin" in st.session_state:
+                            del st.session_state.user_is_admin
+                        if "pages_dict_role" in st.session_state:
+                            del st.session_state.pages_dict_role
+
+                        st.success(
+                            f"Selamat datang, "
+                            f"{st.session_state.user_display}!"
                         )
 
-                        if user:
+                        time.sleep(0.3)
 
-                            session_mgr.login(
-                                user.id,
-                                user.username,
-                                user.role,
-                                user.display_name or user.username
-                            )
-                            st.session_state.user_id = user.id
-                            st.session_state.username = user.username
-                            st.session_state.role = user.role
-                            st.session_state.user_display = (
-                                user.display_name
-                                or user.username
-                            )
-                            st.session_state.last_activity = datetime.now()
-                            st.session_state.page = "dashboard"
+                        st.rerun()
 
-                            if "pages_dict" in st.session_state:
-                                del st.session_state.pages_dict
-                            if "user_is_admin" in st.session_state:
-                                del st.session_state.user_is_admin
-                            if "pages_dict_role" in st.session_state:
-                                del st.session_state.pages_dict_role
+                    else:
 
-                            st.success(
-                                f"Selamat datang, "
-                                f"{st.session_state.user_display}!"
-                            )
+                        st.error(
+                            "Username atau password salah!"
+                        )
 
-                            time.sleep(0.3)
+                finally:
 
-                            st.rerun()
-
-                        else:
-
-                            st.error(
-                                "Username atau password salah!"
-                            )
-
-                    except Exception as e:
-                        st.error(f"Error: {str(e)}")
+                    db.close()
 
     st.stop()
 
@@ -555,15 +550,18 @@ with st.sidebar:
             "📩 Transfer FPTK": "transfer_fptk",
         }
 
-        with get_cached_db() as db:
+        db = get_cached_db()
+        try:
             user_is_admin = is_admin(db)
+        finally:
+            db.close()
 
         st.session_state["user_is_admin"] = user_is_admin
 
         if user_is_admin:
             base_pages["🔄 Update Cycle"] = "upload_cycle"
             base_pages["👥 User Management"] = "user_management"
-            base_pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
+            base_pages["📩 Request Hapus"] = "admin_delete_requests"
             base_pages["📩 Request Un-Blacklist"] = "admin_blacklist_requests"
 
         st.session_state.pages_dict = base_pages
@@ -698,7 +696,9 @@ with st.sidebar:
 
         with st.form("change_password"):
 
-            with get_cached_db() as db:
+            db = get_cached_db()
+
+            try:
 
                 user = (
                     db.query(User)
@@ -768,6 +768,10 @@ with st.sidebar:
                             "Password baru minimal 6 "
                             "karakter dan harus sama!"
                         )
+
+            finally:
+
+                db.close()
 
     st.markdown("---")
 
@@ -910,24 +914,24 @@ st.markdown("### 📥 Export Data")
 
 if st.button("📊 Export All Data", use_container_width=True):
     with st.spinner("Mengekspor data..."):
-        with get_cached_db() as db:
-            try:
-                from core.export_excel import export_database_to_excel
-                filepath = export_database_to_excel(db)
+        db = get_cached_db()
+        try:
+            from core.export_excel import export_database_to_excel
+            filepath = export_database_to_excel(db)
 
-                with open(filepath, "rb") as f:
-                    file_data = f.read()
+            with open(filepath, "rb") as f:
+                file_data = f.read()
 
-                st.download_button(
-                    label="📥 Download Excel",
-                    data=file_data,
-                    file_name=os.path.basename(filepath),
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
-                )
-                st.success(f"Export berhasil! File: {os.path.basename(filepath)}")
-            except Exception as e:
-                st.error(f"Export gagal: {str(e)}")
+            st.download_button(
+                label="📥 Download Excel",
+                data=file_data,
+                file_name=os.path.basename(filepath),
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True
+            )
+            st.success(f"Export berhasil! File: {os.path.basename(filepath)}")
+        finally:
+            db.close()
 
 with st.expander("📋 Export Sheet Spesifik"):
     sheet_options = [
@@ -944,24 +948,24 @@ with st.expander("📋 Export Sheet Spesifik"):
 
     if st.button(f"Export {selected_sheet}"):
         with st.spinner(f"Mengekspor {selected_sheet}..."):
-            with get_cached_db() as db:
-                try:
-                    from core.export_excel import export_single_sheet
-                    df = export_single_sheet(db, selected_sheet)
+            db = get_cached_db()
+            try:
+                from core.export_excel import export_single_sheet
+                df = export_single_sheet(db, selected_sheet)
 
-                    from io import BytesIO
-                    output = BytesIO()
-                    with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                        df.to_excel(writer, sheet_name=selected_sheet, index=False)
-                    output.seek(0)
+                from io import BytesIO
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name=selected_sheet, index=False)
+                output.seek(0)
 
-                    st.download_button(
-                        label=f"📥 Download {selected_sheet}.xlsx",
-                        data=output.getvalue(),
-                        file_name=f"{selected_sheet}.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
-                    st.success(f"Export {selected_sheet} berhasil!")
-                except Exception as e:
-                    st.error(f"Export gagal: {str(e)}")
+                st.download_button(
+                    label=f"📥 Download {selected_sheet}.xlsx",
+                    data=output.getvalue(),
+                    file_name=f"{selected_sheet}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    use_container_width=True
+                )
+                st.success(f"Export {selected_sheet} berhasil!")
+            finally:
+                db.close()
