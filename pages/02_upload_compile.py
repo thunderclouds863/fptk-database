@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import func
 
 from core.database import get_db
-from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate, DBKodePosisi
+from core.models import FPTK, MasterDropdown, User, UploadStatus, UploadLog, UploadTemplate, DBKodePosisi, DBSourcing
 from core.auth import get_current_user, is_admin, is_editor, hash_file, sanitize_filename
 from core.compiler import compile_fptk, translate_error_to_friendly
 from core.upload_cycle import get_current_cycle, mark_user_uploading, mark_user_done
@@ -146,6 +146,34 @@ def add_position_to_master(db, posisi, direktorat=None, business_unit=None, loca
     return result
 
 
+def get_kandidat_options_for_fptk(db, kode_unik):
+    """
+    Ambil list kandidat dari DB Sourcing yang punya kode_unik tertentu.
+    Return list of dict {id, nama, email, hp, posisi, last_stage}
+    """
+    if not kode_unik:
+        return []
+
+    from core.utils import get_last_pipeline_stage
+
+    kandidat_list = db.query(DBSourcing).filter(
+        DBSourcing.kode_unik == kode_unik
+    ).all()
+
+    result = []
+    for k in kandidat_list:
+        last = get_last_pipeline_stage(k)
+        result.append({
+            "id": k.id,
+            "nama": k.nama,
+            "email": k.email,
+            "hp": k.nomor_hp,
+            "posisi": k.posisi,
+            "last_stage": last["stage_label"] if last else "Belum ada stage",
+        })
+    return result
+
+
 def sanitize_value(value):
     if value == "" or value == " ":
         return None
@@ -214,6 +242,65 @@ def get_bu_mapping():
 @st.cache_data(ttl=3600)
 def get_level_options():
     return LEVEL_OPTIONS.copy()
+
+
+def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value=""):
+    """
+    Render dropdown kandidat dari DB Sourcing + opsi manual.
+    Return nama_kandidat (str)
+    """
+    kandidat_list = get_kandidat_options_for_fptk(db, kode_unik_input)
+
+    mode_key = f"{key_prefix}_mode"
+    select_key = f"{key_prefix}_select"
+    manual_key = f"{key_prefix}_manual"
+
+    if mode_key not in st.session_state:
+        st.session_state[mode_key] = "dropdown" if kandidat_list else "manual"
+
+    if kandidat_list:
+        mode = st.radio(
+            "Pilih Mode Input Nama Kandidat",
+            ["dropdown", "manual"],
+            format_func=lambda x: "Pilih dari DB Sourcing" if x == "dropdown" else "Ketik Manual",
+            index=0 if st.session_state[mode_key] == "dropdown" else 1,
+            horizontal=True,
+            key=f"{key_prefix}_radio"
+        )
+        st.session_state[mode_key] = mode
+    else:
+        st.caption("ℹ️ Belum ada kandidat di DB Sourcing untuk kode unik ini. Silakan ketik manual.")
+        st.session_state[mode_key] = "manual"
+        mode = "manual"
+
+    if mode == "dropdown" and kandidat_list:
+        options = {}
+        for k in kandidat_list:
+            display = f"{k['nama']} | {k['email'] or '-'} | {k['last_stage']}"
+            options[display] = k['nama']
+
+        default_idx = 0
+        if default_value:
+            for i, (disp, nama) in enumerate(options.items()):
+                if nama == default_value:
+                    default_idx = i
+                    break
+
+        selected = st.selectbox(
+            "Nama Kandidat (dari DB Sourcing)",
+            list(options.keys()),
+            index=default_idx,
+            key=select_key
+        )
+        return options.get(selected, "")
+
+    else:
+        return st.text_input(
+            "Nama Kandidat (Manual)",
+            value=default_value,
+            placeholder="Ketik nama kandidat manual",
+            key=manual_key
+        )
 
 
 def show_upload_compile():
@@ -783,7 +870,12 @@ def show_upload_compile():
 
             col1, col2 = st.columns(2)
             with col1:
-                nama_kandidat = st.text_input("Nama Kandidat")
+                st.markdown("**Nama Kandidat**")
+                st.caption("ℹ️ Kalau kandidat sudah ada di DB Sourcing, pilih dari dropdown. Kalau belum, ketik manual.")
+
+                kandidat_kode_unik_preview = kode_unik_manual if kode_unik_manual else generate_kode_unik(user_pic_code, 1, fptk_date) if fptk_date else ""
+                nama_kandidat = render_kandidat_picker(db, kandidat_kode_unik_preview, "manual_kandidat", "")
+
                 lokasi_kerja = st.text_input("Lokasi Kerja", value=default_lokasi_kerja)
                 lokasi_hr = st.text_input("Lokasi HR")
                 user_manager = st.text_input("User (Manager)", value=default_user_manager)
@@ -1213,7 +1305,12 @@ def show_upload_compile():
 
             col1, col2 = st.columns(2)
             with col1:
-                nama_kandidat = st.text_input("Nama Kandidat", value=parsed_data.get("nama_kandidat", ""))
+                st.markdown("**Nama Kandidat**")
+                st.caption("ℹ️ Kalau kandidat sudah ada di DB Sourcing, pilih dari dropdown. Kalau belum, ketik manual.")
+
+                kandidat_kode_unik_preview = kode_unik_email_manual if kode_unik_email_manual else parsed_data.get("kode_unik", "")
+                nama_kandidat = render_kandidat_picker(db, kandidat_kode_unik_preview, "email_kandidat", parsed_data.get("nama_kandidat", ""))
+
                 lokasi_kerja = st.text_input("Lokasi Kerja", value=parsed_data.get("lokasi_kerja", default_lokasi_kerja_email))
                 lokasi_hr = st.text_input("Lokasi HR", value=parsed_data.get("lokasi_hr", ""))
                 user_manager = st.text_input("User (Manager)", value=parsed_data.get("user_manager", default_user_manager_email))
