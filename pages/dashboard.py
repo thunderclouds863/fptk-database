@@ -1,27 +1,93 @@
 # pages/dashboard.py
 import streamlit as st
 import pandas as pd
-import plotly.graph_objects as go
 import plotly.express as px
+import plotly.graph_objects as go
 from core.database import get_db
-from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle
+from core.models import (
+    FPTK, DBSourcing, User, UploadStatus, UploadCycle, UploadLog
+)
 from core.auth import get_current_user, is_admin
 from core.utils import get_filter_options_from_db
 from datetime import datetime, timedelta
 import time
 
 
-if "cache_cleared_v2" not in st.session_state:
+# ============================================================
+# CACHE FIX
+# ============================================================
+
+if "cache_cleared_v3" not in st.session_state:
     st.cache_data.clear()
     st.cache_resource.clear()
-    st.session_state["cache_cleared_v2"] = True
+    st.session_state["cache_cleared_v3"] = True
 
+
+# ============================================================
+# CONSTANTS
+# ============================================================
+
+LEVEL_ORDER = ["1A", "1B", "1C", "2A", "2B", "2C",
+               "3A", "3B", "3C", "4A", "4B", "4C", "5A", "5B", "5C"]
+
+WEEK_NUMBERS = list(range(1, 54))
+
+# Kategori FPTK yang dipakai di sheet Grafik MPP
+FPTK_KATEGORI = ["CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"]
+
+# Direktorat yang dipakai di sheet Grafik MPP
+DIREKTORAT_KATEGORI = [
+    "Commercial CMD", "Commercial JES", "Commercial MP",
+    "Manufacture CMD", "Manufacture JES", "Manufacture MP",
+    "Sales General Trade CMD", "Sales General Trade JES", "Sales General Trade MP",
+    "Sales Modern Trade", "Sales International Market",
+    "Finance & Business Support", "Logistic & Distribution",
+    "Procurement CMD & Corporate", "Procurement MP & JES",
+    "CEO Office", "CEO, Corsec, & Investor Relation",
+]
+
+
+# ============================================================
+# HELPER: GET WEEK NUMBER (ISO)
+# ============================================================
+
+def get_current_week():
+    today = datetime.now().date()
+    iso = today.isocalendar()
+    return iso[1], iso[0]
+
+
+def get_week_label(week_num, year):
+    return f"Week {week_num}, {year}"
+
+
+def get_week_range(week_num, year):
+    try:
+        jan4 = datetime(year, 1, 4).date()
+        start_of_year_week = jan4 - timedelta(days=jan4.isoweekday() - 1)
+        week_start = start_of_year_week + timedelta(weeks=week_num - 1)
+        week_end = week_start + timedelta(days=6)
+        return week_start, week_end
+    except Exception:
+        return None, None
+
+
+# ============================================================
+# CACHE: LOAD FPTK DATA
+# ============================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
 def load_fptk_data(
-    pic_filter=None, status_filter=None, bu_filter=None,
-    dir_filter=None, divisi_filter=None, dept_filter=None,
-    filter_kat=None, date_from=None, date_to=None
+    pic_filter=None,
+    status_filter=None,
+    bu_filter=None,
+    dir_filter=None,
+    divisi_filter=None,
+    dept_filter=None,
+    filter_kat=None,
+    posisi_filter=None,
+    date_from=None,
+    date_to=None
 ):
     try:
         db = next(get_db())
@@ -41,13 +107,17 @@ def load_fptk_data(
             query = query.filter(FPTK.department == dept_filter)
         if filter_kat and filter_kat != "Semua":
             query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
+        if posisi_filter and posisi_filter != "Semua":
+            query = query.filter(FPTK.posisi == posisi_filter)
         if date_from:
             query = query.filter(FPTK.fptk_date_real >= date_from)
         if date_to:
             query = query.filter(FPTK.fptk_date_real <= date_to)
 
         df = pd.read_sql(query.statement, db.bind)
+
         st.session_state['last_fptk_load'] = datetime.now()
+
         return df
     except Exception as e:
         st.error(f"Gagal membaca data FPTK: {str(e)}")
@@ -68,25 +138,50 @@ def load_sourcing_data(pic_filter=None, date_from=None, date_to=None):
             query = query.filter(DBSourcing.sourcing_date <= date_to)
 
         df = pd.read_sql(query.statement, db.bind)
+
         st.session_state['last_sourcing_load'] = datetime.now()
+
         return df
     except Exception:
         return pd.DataFrame()
 
+
+# ============================================================
+# CACHE: FILTER OPTIONS
+# ============================================================
+
+@st.cache_data(ttl=300)
+def get_posisi_options():
+    try:
+        db = next(get_db())
+        posisi = sorted(set([
+            r[0] for r in db.query(FPTK.posisi)
+            .filter(FPTK.posisi.isnot(None), FPTK.posisi != "")
+            .distinct().all() if r[0]
+        ]))
+        return posisi
+    except Exception:
+        return []
+
+
+# ============================================================
+# CACHE: METRICS
+# ============================================================
 
 @st.cache_data(ttl=300)
 def calculate_metrics(df):
     if df.empty or 'status' not in df:
         return {
             'total': 0, 'op': 0, 'closed': 0, 'cancel': 0,
-            'diproses': 0, 'fulfillment_rate': 0, 'closed_sla_rate': 0
+            'diproses': 0, 'fulfillment_rate': 0, 'closed_sla_rate': 0,
+            'total_pic': 0
         }
 
     total = len(df)
     op = len(df[df['status'] == 'OP'])
     closed = len(df[df['status'] == 'Closed'])
     cancel = len(df[df['status'] == 'Cancel'])
-    diproses = total - closed
+    diproses = total - cancel
 
     denominator = total - cancel
     fulfillment_rate = (closed / denominator * 100) if denominator > 0 else 0
@@ -100,189 +195,275 @@ def calculate_metrics(df):
     else:
         closed_sla_rate = 0
 
+    total_pic = len(df['pic_recruiter'].unique()) if 'pic_recruiter' in df else 0
+
     return {
         'total': total, 'op': op, 'closed': closed, 'cancel': cancel,
         'diproses': diproses,
         'fulfillment_rate': fulfillment_rate,
-        'closed_sla_rate': closed_sla_rate
+        'closed_sla_rate': closed_sla_rate,
+        'total_pic': total_pic
     }
 
 
-def get_week_number(dt):
-    if pd.isna(dt):
-        return None
-    try:
-        if isinstance(dt, str):
-            dt = pd.to_datetime(dt)
-        if isinstance(dt, (datetime, pd.Timestamp)):
-            return dt.isocalendar()[1]
-    except Exception:
-        pass
-    return None
+# ============================================================
+# HELPER: HITUNG WoW & MoM
+# ============================================================
 
+def calculate_wow(df):
+    """Hitung Week over Week untuk total FPTK"""
+    if df.empty or 'fptk_date_real' not in df:
+        return 0, 0
 
-def build_weekly_metrics(df):
-    """
-    Hitung semua metric per week (W1-W53) dari data FPTK.
-    Return: DataFrame dengan index week_num, kolom metric.
-    """
-    weeks = list(range(1, 54))
-    metrics = pd.DataFrame(index=weeks)
-    metrics.index.name = 'week'
+    df = df.copy()
+    df['fptk_date_real'] = pd.to_datetime(df['fptk_date_real'], errors='coerce')
+    df = df.dropna(subset=['fptk_date_real'])
 
     if df.empty:
-        for col in [
-            'diterima', 'diterima_akum', 'diproses_akum',
-            'pemenuhan', 'pemenuhan_akum', 'sisa', 'cancel',
-            'cancel_akum', 'op_belum_sla', 'op_lulus_lewat_sla',
-            'closed_lulus_sla', 'closed_tidak_lulus_sla',
-            'pct_pemenuhan', 'pct_proses', 'pct_closed_lulus'
-        ]:
-            metrics[col] = 0
-        return metrics
+        return 0, 0
+
+    df['week'] = df['fptk_date_real'].dt.isocalendar().week
+    df['year'] = df['fptk_date_real'].dt.isocalendar().year
+
+    today = datetime.now().date()
+    current_week = today.isocalendar()[1]
+    current_year = today.isocalendar()[0]
+
+    this_week = len(df[(df['week'] == current_week) & (df['year'] == current_year)])
+
+    prev_week = current_week - 1
+    prev_year = current_year
+    if prev_week < 1:
+        prev_week = 52
+        prev_year = current_year - 1
+
+    last_week = len(df[(df['week'] == prev_week) & (df['year'] == prev_year)])
+
+    if last_week == 0:
+        wow_pct = 100 if this_week > 0 else 0
+    else:
+        wow_pct = ((this_week - last_week) / last_week) * 100
+
+    return this_week, wow_pct
+
+
+def calculate_mom(df):
+    """Hitung Month over Month untuk total FPTK"""
+    if df.empty or 'fptk_date_real' not in df:
+        return 0, 0
 
     df = df.copy()
-    if 'fptk_date_real' in df.columns:
-        df['fptk_date_real'] = pd.to_datetime(df['fptk_date_real'], errors='coerce')
-        df['week'] = df['fptk_date_real'].apply(get_week_number)
+    df['fptk_date_real'] = pd.to_datetime(df['fptk_date_real'], errors='coerce')
+    df = df.dropna(subset=['fptk_date_real'])
 
-    for w in weeks:
-        df_w = df[df['week'] == w] if 'week' in df.columns else pd.DataFrame()
+    if df.empty:
+        return 0, 0
 
-        diterima = len(df_w)
-        closed = len(df_w[df_w['status'] == 'Closed']) if 'status' in df_w.columns else 0
-        cancel = len(df_w[df_w['status'] == 'Cancel']) if 'status' in df_w.columns else 0
+    df['month'] = df['fptk_date_real'].dt.month
+    df['year'] = df['fptk_date_real'].dt.year
 
-        metrics.loc[w, 'diterima'] = diterima
-        metrics.loc[w, 'pemenuhan'] = closed
-        metrics.loc[w, 'cancel'] = cancel
+    today = datetime.now().date()
+    current_month = today.month
+    current_year = today.year
 
-    metrics['diterima_akum'] = metrics['diterima'].cumsum()
-    metrics['pemenuhan_akum'] = metrics['pemenuhan'].cumsum()
-    metrics['cancel_akum'] = metrics['cancel'].cumsum()
-    metrics['diproses_akum'] = metrics['diterima_akum'] - metrics['pemenuhan_akum']
-    metrics['sisa'] = metrics['diterima_akum'] - metrics['pemenuhan_akum']
+    this_month = len(df[(df['month'] == current_month) & (df['year'] == current_year)])
 
-    metrics['pct_pemenuhan'] = (metrics['pemenuhan_akum'] / metrics['diterima_akum'].replace(0, pd.NA) * 100).fillna(0)
-    metrics['pct_proses'] = (metrics['diproses_akum'] / metrics['diterima_akum'].replace(0, pd.NA) * 100).fillna(0)
+    prev_month = current_month - 1
+    prev_year = current_year
+    if prev_month < 1:
+        prev_month = 12
+        prev_year = current_year - 1
 
-    return metrics
+    last_month = len(df[(df['month'] == prev_month) & (df['year'] == prev_year)])
+
+    if last_month == 0:
+        mom_pct = 100 if this_month > 0 else 0
+    else:
+        mom_pct = ((this_month - last_month) / last_month) * 100
+
+    return this_month, mom_pct
 
 
-def build_sla_weekly(df):
+# ============================================================
+# HELPER: HITUNG PER WEEK
+# ============================================================
+
+def build_week_matrix(df):
     """
-    Hitung SLA per week: OP belum lewat, OP tidak lulus, Closed lulus, Closed tidak lulus.
+    Build matrix mingguan W1-W53 untuk:
+    - Jumlah FPTK Diterima (count per week based on fptk_date_real)
+    - Pemenuhan (Closed) (count per week based on offering_date)
+    - Cancel (count per week based on fptk_cancel_date)
     """
-    weeks = list(range(1, 54))
-    sla_df = pd.DataFrame(index=weeks)
-    sla_df.index.name = 'week'
+    matrix = {
+        'diterima': {w: 0 for w in WEEK_NUMBERS},
+        'closed': {w: 0 for w in WEEK_NUMBERS},
+        'cancel': {w: 0 for w in WEEK_NUMBERS},
+    }
 
-    for col in ['op_belum_sla', 'op_tidak_lulus', 'closed_lulus', 'closed_tidak_lulus', 'pct_closed_lulus']:
-        sla_df[col] = 0
-
-    if df.empty or 'detail_sla' not in df.columns:
-        return sla_df
+    if df.empty:
+        return matrix
 
     df = df.copy()
+
+    # Diterima per week — pakai fptk_date_real
     if 'fptk_date_real' in df.columns:
         df['fptk_date_real'] = pd.to_datetime(df['fptk_date_real'], errors='coerce')
-        df['week'] = df['fptk_date_real'].apply(get_week_number)
+        valid = df.dropna(subset=['fptk_date_real'])
+        for _, row in valid.iterrows():
+            w = row['fptk_date_real'].isocalendar()[1]
+            if 1 <= w <= 53:
+                matrix['diterima'][w] += 1
 
-    for w in weeks:
-        df_w = df[df['week'] == w] if 'week' in df.columns else pd.DataFrame()
-        if df_w.empty:
-            continue
+    # Closed per week — pakai offering_date
+    if 'offering_date' in df.columns and 'status' in df.columns:
+        closed_df = df[df['status'] == 'Closed'].copy()
+        closed_df['offering_date'] = pd.to_datetime(closed_df['offering_date'], errors='coerce')
+        valid = closed_df.dropna(subset=['offering_date'])
+        for _, row in valid.iterrows():
+            w = row['offering_date'].isocalendar()[1]
+            if 1 <= w <= 53:
+                matrix['closed'][w] += 1
 
-        sla_df.loc[w, 'op_belum_sla'] = len(df_w[df_w['detail_sla'] == 'OP Belum Lewat SLA'])
-        sla_df.loc[w, 'op_tidak_lulus'] = len(df_w[df_w['detail_sla'] == 'OP Tidak Lulus SLA'])
-        sla_df.loc[w, 'closed_lulus'] = len(df_w[df_w['detail_sla'] == 'Closed Lulus SLA'])
-        sla_df.loc[w, 'closed_tidak_lulus'] = len(df_w[df_w['detail_sla'] == 'Closed Tidak Lulus SLA'])
+    # Cancel per week — pakai fptk_cancel_date
+    if 'fptk_cancel_date' in df.columns and 'status' in df.columns:
+        cancel_df = df[df['status'] == 'Cancel'].copy()
+        cancel_df['fptk_cancel_date'] = pd.to_datetime(cancel_df['fptk_cancel_date'], errors='coerce')
+        valid = cancel_df.dropna(subset=['fptk_cancel_date'])
+        for _, row in valid.iterrows():
+            w = row['fptk_cancel_date'].isocalendar()[1]
+            if 1 <= w <= 53:
+                matrix['cancel'][w] += 1
 
-    sla_df['op_belum_sla'] = sla_df['op_belum_sla'].cumsum()
-    sla_df['op_tidak_lulus'] = sla_df['op_tidak_lulus'].cumsum()
-    sla_df['closed_lulus'] = sla_df['closed_lulus'].cumsum()
-    sla_df['closed_tidak_lulus'] = sla_df['closed_tidak_lulus'].cumsum()
-
-    total_sla = sla_df['closed_lulus'] + sla_df['closed_tidak_lulus']
-    sla_df['pct_closed_lulus'] = (sla_df['closed_lulus'] / total_sla.replace(0, pd.NA) * 100).fillna(0)
-
-    return sla_df
+    return matrix
 
 
-def show_dashboard():
-    st.title("📊 Recruitment Analytic Dashboard")
-    st.markdown("---")
-
-    try:
-        filter_opts = get_filter_options_from_db()
-    except Exception:
-        filter_opts = {
-            "pic_options": [], "bu_options": [], "direktorat_options": [],
-            "filter_kategorisasi_options": [], "divisi_options": [],
-            "dept_options": [], "status_options": ["OP", "Closed", "Cancel"],
+def build_category_week_matrix(df, category_field, category_value):
+    """
+    Build week matrix untuk kategori spesifik (FPTK atau Direktorat).
+    """
+    if df.empty or category_field not in df.columns:
+        return {
+            'diterima': {w: 0 for w in WEEK_NUMBERS},
+            'closed': {w: 0 for w in WEEK_NUMBERS},
+            'cancel': {w: 0 for w in WEEK_NUMBERS},
         }
 
-    with st.sidebar:
-        st.markdown("### 🔍 Filters")
+    filtered = df[df[category_field] == category_value].copy()
+    return build_week_matrix(filtered)
 
-        col1, col2 = st.columns(2)
+
+# ============================================================
+# HELPER: BUILD DATAFRAME GRAFIK MPP
+# ============================================================
+
+def build_grafik_mpp_row(matrix, category_label=""):
+    """
+    Build 1 set baris grafik MPP (diterima, diproses, closed, sisa, cancel,
+    OP Belum Lewat SLA, OP Tidak Lulus SLA, Closed Lulus SLA, Closed Tidak Lulus SLA)
+    """
+    diterima = matrix['diterima']
+    closed = matrix['closed']
+    cancel = matrix['cancel']
+
+    rows = []
+    rows.append(['Jumlah FPTK Diterima'] + [diterima[w] for w in WEEK_NUMBERS])
+    rows.append(['Jumlah FPTK Diproses'] + [diterima[w] - cancel[w] for w in WEEK_NUMBERS])
+    rows.append(['Pemenuhan (terima offer)'] + [closed[w] for w in WEEK_NUMBERS])
+    rows.append(['Sisa FPTK'] + [diterima[w] - closed[w] for w in WEEK_NUMBERS])
+    rows.append(['Cancel'] + [cancel[w] for w in WEEK_NUMBERS])
+
+    return rows
+
+
+# ============================================================
+# HELPER: UPLOAD CYCLE INFO
+# ============================================================
+
+@st.cache_data(ttl=60)
+def get_upload_cycle_info():
+    try:
+        db = next(get_db())
+        cycle = db.query(UploadCycle).filter(
+            UploadCycle.ended_at.is_(None)
+        ).order_by(UploadCycle.created_at.desc()).first()
+
+        if not cycle:
+            return None
+
+        statuses = db.query(UploadStatus).filter(
+            UploadStatus.cycle_id == cycle.id
+        ).all()
+
+        total = len(statuses)
+        done = len([s for s in statuses if s.status == "Done"])
+        uploading = len([s for s in statuses if s.status == "Sedang Upload"])
+        belum = len([s for s in statuses if s.status == "Belum Mulai"])
+
+        last_log = db.query(UploadLog).filter(
+            UploadLog.cycle_id == cycle.id
+        ).order_by(UploadLog.uploaded_at.desc()).first()
+
+        last_file = last_log.file_name if last_log else "-"
+        started_at = cycle.started_at.strftime("%Y-%m-%d %H:%M:%S") if cycle.started_at else "-"
+        last_updated = last_log.uploaded_at.strftime("%Y-%m-%d %H:%M:%S") if last_log and last_log.uploaded_at else "-"
+
+        lead_time = "-"
+        if cycle.started_at and last_log and last_log.uploaded_at:
+            delta = last_log.uploaded_at - cycle.started_at
+            total_seconds = int(delta.total_seconds())
+            hours = total_seconds // 3600
+            minutes = (total_seconds % 3600) // 60
+            seconds = total_seconds % 60
+            lead_time = f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+        return {
+            "cycle_name": cycle.cycle_name,
+            "status": "RUNNING" if not cycle.ended_at else "SELESAI",
+            "total": total,
+            "done": done,
+            "uploading": uploading,
+            "belum": belum,
+            "progress_pct": (done / total * 100) if total > 0 else 0,
+            "current_file": last_file,
+            "started_at": started_at,
+            "last_updated": last_updated,
+            "lead_time": lead_time,
+        }
+    except Exception:
+        return None
+
+
+# ============================================================
+# TAB 1: OVERVIEW
+# ============================================================
+
+def render_overview_tab(df, df_sourcing, metrics):
+    st.markdown("## 📊 Overview")
+
+    # Upload cycle info
+    cycle_info = get_upload_cycle_info()
+    if cycle_info:
+        st.markdown("### 📋 Status Compile Database FPTK")
+        col1, col2 = st.columns([1, 3])
         with col1:
-            date_from = st.date_input("Dari", datetime.now() - timedelta(days=90))
+            st.markdown(f"**Status:**")
+            st.markdown(f"**Progress:**")
+            st.markdown(f"**Current File:**")
+            st.markdown(f"**Started At:**")
+            st.markdown(f"**Last Updated:**")
+            st.markdown(f"**Lead Time:**")
         with col2:
-            date_to = st.date_input("Sampai", datetime.now())
+            st.markdown(f"{cycle_info['status']}")
+            st.markdown(f"{cycle_info['progress_pct']:.0f}% ({cycle_info['done']}/{cycle_info['total']})")
+            st.markdown(f"{cycle_info['current_file']}")
+            st.markdown(f"{cycle_info['started_at']}")
+            st.markdown(f"{cycle_info['last_updated']}")
+            st.markdown(f"{cycle_info['lead_time']}")
 
-        pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + filter_opts.get("pic_options", []))
-        status_filter = st.selectbox("Status", ["Semua"] + filter_opts.get("status_options", ["OP", "Closed", "Cancel"]))
-        bu_filter = st.selectbox("Business Unit", ["Semua"] + filter_opts.get("bu_options", []))
-        dir_filter = st.selectbox("Direktorat", ["Semua"] + filter_opts.get("direktorat_options", []))
+    st.markdown("---")
 
-        divisi_options = filter_opts.get("divisi_options", [])
-        divisi_filter = st.selectbox("Divisi", ["Semua"] + divisi_options) if divisi_options else "Semua"
-
-        dept_options = filter_opts.get("dept_options", [])
-        dept_filter = st.selectbox("Department", ["Semua"] + dept_options) if dept_options else "Semua"
-
-        filter_kat = st.selectbox("Filter Kategorisasi", ["Semua"] + filter_opts.get("filter_kategorisasi_options", []))
-
-        st.markdown("---")
-
-        if st.button("📥 Export CSV", use_container_width=True):
-            st.session_state.export_data = True
-
-        if st.button("🔄 Refresh Filter Options", use_container_width=True):
-            get_filter_options_from_db.clear()
-            st.session_state.pop("cache_cleared_v2", None)
-            st.success("✅ Filter refreshed!")
-            time.sleep(0.3)
-            st.rerun()
-
-    with st.spinner("📊 Memuat data..."):
-        df = load_fptk_data(
-            pic_filter=pic_filter,
-            status_filter=status_filter,
-            bu_filter=bu_filter,
-            dir_filter=dir_filter,
-            divisi_filter=divisi_filter,
-            dept_filter=dept_filter,
-            filter_kat=filter_kat,
-            date_from=date_from,
-            date_to=date_to
-        )
-
-        df_sourcing = load_sourcing_data(
-            pic_filter=pic_filter,
-            date_from=date_from,
-            date_to=date_to
-        )
-
-    admin = is_admin(next(get_db()))
-    metrics = calculate_metrics(df)
-
-    # ============================================================
-    # SECTION 1: KPI CARDS (Persis Excel Dashboard Sheet)
-    # ============================================================
-    st.markdown("### 📌 KPI FPTK")
-
+    # Metric cards
     c1, c2, c3, c4, c5, c6, c7 = st.columns(7)
     c1.metric("Total FPTK", f"{metrics['total']:,}")
     c2.metric("FPTK Diproses", f"{metrics['diproses']:,}")
@@ -294,396 +475,534 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # ============================================================
-    # SECTION 2: MPP TREND PER WEEK (Chart 1 di Grafik MPP)
-    # ============================================================
-    st.markdown("### 📈 MPP Trend Per Week (Akumulatif)")
+    # MoM / WoW
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("### 📈 MoM% (Month over Month)")
+        this_month, mom_pct = calculate_mom(df)
+        st.metric("FPTK Bulan Ini", f"{this_month:,}",
+                  delta=f"{mom_pct:+.1f}%")
+    with col2:
+        st.markdown("### 📈 WoW% (Week over Week)")
+        this_week, wow_pct = calculate_wow(df)
+        st.metric("FPTK Minggu Ini", f"{this_week:,}",
+                  delta=f"{wow_pct:+.1f}%")
 
-    weekly = build_weekly_metrics(df)
-    sla_weekly = build_sla_weekly(df)
+    st.markdown("---")
 
-    weeks = list(range(1, 54))
+    # Trend FPTK
+    if not df.empty and 'fptk_date_real' in df.columns:
+        df_trend = df.copy()
+        df_trend['fptk_date_real'] = pd.to_datetime(df_trend['fptk_date_real'], errors='coerce')
+        df_trend = df_trend.dropna(subset=['fptk_date_real'])
+        if not df_trend.empty:
+            df_trend['week'] = df_trend['fptk_date_real'].dt.strftime('%Y-W%V')
+            trend = df_trend.groupby('week').size().reset_index(name='Jumlah')
+            fig = px.line(trend, x='week', y='Jumlah',
+                          title='📈 Trend FPTK per Minggu',
+                          markers=True)
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+    # Distribusi Status
+    if metrics['total'] > 0:
+        col1, col2 = st.columns(2)
+        with col1:
+            status_counts = df['status'].value_counts().reset_index()
+            status_counts.columns = ['Status', 'Count']
+            fig = px.pie(status_counts, values='Count', names='Status',
+                         title='📊 Distribusi Status',
+                         color='Status',
+                         color_discrete_map={
+                             'OP': '#2ecc71',
+                             'Closed': '#3498db',
+                             'Cancel': '#e74c3c'
+                         })
+            fig.update_layout(height=400)
+            st.plotly_chart(fig, use_container_width=True)
+
+        with col2:
+            if 'detail_sla' in df.columns and df['detail_sla'].notna().any():
+                detail_counts = df['detail_sla'].value_counts().reset_index()
+                detail_counts.columns = ['Detail SLA', 'Count']
+                fig = px.bar(detail_counts, x='Detail SLA', y='Count',
+                             title='📊 Detail SLA Distribution',
+                             text='Count')
+                fig.update_layout(height=400, xaxis_tickangle=-45)
+                st.plotly_chart(fig, use_container_width=True)
+
+
+# ============================================================
+# TAB 2: GRAFIK MPP
+# ============================================================
+
+def render_grafik_mpp_tab(df):
+    st.markdown("## 📈 Grafik MPP (W1 - W53)")
+
+    st.markdown("""
+    **Grafik mingguan akumulatif per kategori.** Kolom = Week 1 s/d Week 53.
+    Baris = Jumlah FPTK Diterima, Diproses, Pemenuhan, Sisa, Cancel.
+    """)
+
+    st.markdown("---")
+
+    # Section 1: Total keseluruhan
+    st.markdown("### 📊 Total Keseluruhan")
+    matrix = build_week_matrix(df)
+    rows = build_grafik_mpp_row(matrix)
+
+    df_total = pd.DataFrame(rows, columns=['Kategori'] + [f"W{w}" for w in WEEK_NUMBERS])
+    st.dataframe(df_total, use_container_width=True, height=250)
+
+    # Grafik line untuk total
+    diterima_series = [matrix['diterima'][w] for w in WEEK_NUMBERS]
+    closed_series = [matrix['closed'][w] for w in WEEK_NUMBERS]
+    cancel_series = [matrix['cancel'][w] for w in WEEK_NUMBERS]
 
     fig = go.Figure()
-
-    fig.add_trace(go.Scatter(
-        x=weeks, y=weekly['diterima_akum'].values,
-        name='Jumlah FPTK Diterima (Akumulatif)',
-        mode='lines+markers', line=dict(color='#3498db', width=2)
-    ))
-    fig.add_trace(go.Scatter(
-        x=weeks, y=weekly['diproses_akum'].values,
-        name='Jumlah FPTK Diproses',
-        mode='lines+markers', line=dict(color='#f39c12', width=2)
-    ))
-    fig.add_trace(go.Scatter(
-        x=weeks, y=weekly['pemenuhan_akum'].values,
-        name='Pemenuhan (terima offer)',
-        mode='lines+markers', line=dict(color='#2ecc71', width=2)
-    ))
-    fig.add_trace(go.Scatter(
-        x=weeks, y=weekly['sisa'].values,
-        name='Sisa FPTK',
-        mode='lines+markers', line=dict(color='#e74c3c', width=2)
-    ))
-    fig.add_trace(go.Scatter(
-        x=weeks, y=weekly['cancel_akum'].values,
-        name='Cancel',
-        mode='lines+markers', line=dict(color='#95a5a6', width=2)
-    ))
-    fig.add_trace(go.Scatter(
-        x=weeks, y=weekly['pct_pemenuhan'].values,
-        name='% Pemenuhan',
-        mode='lines+markers', line=dict(color='#9b59b6', width=2, dash='dot'),
-        yaxis='y2'
-    ))
-    fig.add_trace(go.Scatter(
-        x=weeks, y=weekly['pct_proses'].values,
-        name='% Proses',
-        mode='lines+markers', line=dict(color='#1abc9c', width=2, dash='dot'),
-        yaxis='y2'
-    ))
-
+    fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=diterima_series,
+                              mode='lines+markers', name='Diterima',
+                              line=dict(color='#3498db', width=3)))
+    fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=closed_series,
+                              mode='lines+markers', name='Closed',
+                              line=dict(color='#2ecc71', width=3)))
+    fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=cancel_series,
+                              mode='lines+markers', name='Cancel',
+                              line=dict(color='#e74c3c', width=3)))
     fig.update_layout(
-        height=500,
-        title="MPP Trend Per Week (Akumulatif)",
-        xaxis=dict(title="Week (W1-W53)", tickmode='linear', tick0=1, dtick=1),
-        yaxis=dict(title="Jumlah FPTK"),
-        yaxis2=dict(title="%", overlaying='y', side='right', range=[0, 110]),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
+        title='📈 Trend Mingguan Total FPTK',
+        height=400,
+        xaxis_title='Week',
+        yaxis_title='Jumlah FPTK',
         hovermode='x unified'
     )
-
     st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
 
-    # ============================================================
-    # SECTION 3: SLA TREND (Chart 2 di Grafik MPP)
-    # ============================================================
-    st.markdown("### ✅ SLA Trend Per Week (Akumulatif)")
+    # Section 2: Per Kategori FPTK
+    st.markdown("### 📊 Per Kategori FPTK")
+    for kategori in FPTK_KATEGORI:
+        with st.expander(f"📁 {kategori}", expanded=False):
+            matrix_kat = build_category_week_matrix(df, 'filter_kategorisasi_fptk', kategori)
+            rows_kat = build_grafik_mpp_row(matrix_kat)
+            df_kat = pd.DataFrame(rows_kat, columns=['Kategori'] + [f"W{w}" for w in WEEK_NUMBERS])
+            st.dataframe(df_kat, use_container_width=True, height=220)
 
-    fig2 = go.Figure()
+            diterima_series = [matrix_kat['diterima'][w] for w in WEEK_NUMBERS]
+            closed_series = [matrix_kat['closed'][w] for w in WEEK_NUMBERS]
+            cancel_series = [matrix_kat['cancel'][w] for w in WEEK_NUMBERS]
 
-    fig2.add_trace(go.Bar(
-        x=weeks, y=sla_weekly['op_belum_sla'].values,
-        name='OP Belum Lewat SLA',
-        marker_color='#2ecc71'
-    ))
-    fig2.add_trace(go.Bar(
-        x=weeks, y=sla_weekly['op_tidak_lulus'].values,
-        name='OP Tidak Lulus SLA',
-        marker_color='#e74c3c'
-    ))
-    fig2.add_trace(go.Bar(
-        x=weeks, y=sla_weekly['closed_lulus'].values,
-        name='Closed Lulus SLA',
-        marker_color='#3498db'
-    ))
-    fig2.add_trace(go.Bar(
-        x=weeks, y=sla_weekly['closed_tidak_lulus'].values,
-        name='Closed Tidak Lulus SLA',
-        marker_color='#e67e22'
-    ))
-    fig2.add_trace(go.Scatter(
-        x=weeks, y=sla_weekly['pct_closed_lulus'].values,
-        name='% Closed Lulus SLA',
-        mode='lines+markers',
-        line=dict(color='#9b59b6', width=3),
-        yaxis='y2'
-    ))
-
-    fig2.update_layout(
-        barmode='stack',
-        height=500,
-        title="SLA Trend Per Week (Akumulatif)",
-        xaxis=dict(title="Week (W1-W53)", tickmode='linear', tick0=1, dtick=1),
-        yaxis=dict(title="Jumlah FPTK"),
-        yaxis2=dict(title="% Closed Lulus SLA", overlaying='y', side='right', range=[0, 110]),
-        legend=dict(orientation='h', yanchor='bottom', y=1.02, xanchor='right', x=1),
-        hovermode='x unified'
-    )
-
-    st.plotly_chart(fig2, use_container_width=True)
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=diterima_series,
+                                      mode='lines+markers', name='Diterima',
+                                      line=dict(color='#3498db', width=2)))
+            fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=closed_series,
+                                      mode='lines+markers', name='Closed',
+                                      line=dict(color='#2ecc71', width=2)))
+            fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=cancel_series,
+                                      mode='lines+markers', name='Cancel',
+                                      line=dict(color='#e74c3c', width=2)))
+            fig.update_layout(
+                title=f'📈 Trend Mingguan — {kategori}',
+                height=350,
+                xaxis_title='Week',
+                yaxis_title='Jumlah FPTK',
+                hovermode='x unified'
+            )
+            st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
 
-    # ============================================================
-    # SECTION 4: AVERAGE PER KUARTAL
-    # ============================================================
-    st.markdown("### 📊 Average FPTK per Week (Per Kuartal)")
+    # Section 3: Per Direktorat
+    st.markdown("### 📊 Per Direktorat")
+    for direktorat in DIREKTORAT_KATEGORI:
+        with st.expander(f"📁 {direktorat}", expanded=False):
+            matrix_dir = build_category_week_matrix(df, 'direktorat', direktorat)
+            rows_dir = build_grafik_mpp_row(matrix_dir)
+            df_dir = pd.DataFrame(rows_dir, columns=['Kategori'] + [f"W{w}" for w in WEEK_NUMBERS])
+            st.dataframe(df_dir, use_container_width=True, height=220)
 
-    quarters = {
-        "Q1 (W1-W13)": (1, 13),
-        "Q2 (W14-W26)": (14, 26),
-        "Q3 (W27-W39)": (27, 39),
-        "Q4 (W40-W53)": (40, 53),
-    }
+            diterima_series = [matrix_dir['diterima'][w] for w in WEEK_NUMBERS]
+            closed_series = [matrix_dir['closed'][w] for w in WEEK_NUMBERS]
+            cancel_series = [matrix_dir['cancel'][w] for w in WEEK_NUMBERS]
 
-    avg_data = []
-    for q_label, (w_start, w_end) in quarters.items():
-        diterima = weekly.loc[w_start:w_end, 'diterima']
-        closed = weekly.loc[w_start:w_end, 'pemenuhan']
-        avg_data.append({
-            "Kuartal": q_label,
-            "Avg Diterima/Week": round(diterima.mean(), 2) if len(diterima) > 0 else 0,
-            "Avg Closed/Week": round(closed.mean(), 2) if len(closed) > 0 else 0,
-            "Total Diterima": int(diterima.sum()),
-            "Total Closed": int(closed.sum()),
+            fig = go.Figure()
+            fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=diterima_series,
+                                      mode='lines+markers', name='Diterima',
+                                      line=dict(color='#3498db', width=2)))
+            fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=closed_series,
+                                      mode='lines+markers', name='Closed',
+                                      line=dict(color='#2ecc71', width=2)))
+            fig.add_trace(go.Scatter(x=[f"W{w}" for w in WEEK_NUMBERS], y=cancel_series,
+                                      mode='lines+markers', name='Cancel',
+                                      line=dict(color='#e74c3c', width=2)))
+            fig.update_layout(
+                title=f'📈 Trend Mingguan — {direktorat}',
+                height=350,
+                xaxis_title='Week',
+                yaxis_title='Jumlah FPTK',
+                hovermode='x unified'
+            )
+            st.plotly_chart(fig, use_container_width=True)
+
+
+# ============================================================
+# TAB 3: RECRUITER PERFORMANCE
+# ============================================================
+
+def render_recruiter_performance_tab(df):
+    st.markdown("## 👥 Recruiter Performance")
+
+    if df.empty or 'pic_recruiter' not in df.columns:
+        st.info("Tidak ada data FPTK.")
+        return
+
+    recruiters = sorted(set([
+        r for r in df['pic_recruiter'].dropna().unique() if r
+    ]))
+
+    # 1. Pemenuhan SDM by Numbers
+    st.markdown("### 1️⃣ Pemenuhan SDM by Numbers")
+    data = []
+    for r in recruiters:
+        sub = df[df['pic_recruiter'] == r]
+        op = len(sub[sub['status'] == 'OP'])
+        closed = len(sub[sub['status'] == 'Closed'])
+        cancel = len(sub[sub['status'] == 'Cancel'])
+        data.append({
+            'Nama Recruiter': r,
+            'Open': op,
+            'Closed': closed,
+            'Cancel': cancel,
+            'Total': op + closed + cancel
         })
-
-    st.dataframe(pd.DataFrame(avg_data), use_container_width=True, hide_index=True)
-
-    st.markdown("---")
-
-    # ============================================================
-    # SECTION 5: TOP 10 PIC PERFORMANCE (Bar Chart)
-    # ============================================================
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if metrics['total'] > 0 and 'pic_recruiter' in df.columns:
-            pic_counts = df['pic_recruiter'].value_counts().reset_index().head(10)
-            pic_counts.columns = ['PIC', 'Jumlah FPTK']
-            fig = px.bar(
-                pic_counts, x='PIC', y='Jumlah FPTK',
-                title='🏆 Top 10 PIC Performance',
-                color='Jumlah FPTK',
-                color_continuous_scale='Blues'
-            )
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Tidak ada data PIC")
-
-    with col2:
-        if metrics['total'] > 0 and 'filter_kategorisasi_fptk' in df.columns:
-            kat_counts = df['filter_kategorisasi_fptk'].value_counts().reset_index()
-            kat_counts.columns = ['Kategori', 'Count']
-            fig = px.pie(
-                kat_counts, values='Count', names='Kategori',
-                title='📊 Distribusi Filter Kategorisasi FPTK'
-            )
-            fig.update_layout(height=400)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Tidak ada data kategori")
+    df_num = pd.DataFrame(data)
+    st.dataframe(df_num, use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
-    # ============================================================
-    # SECTION 6: DISTRIBUSI STATUS & DIRECTORAT
-    # ============================================================
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        if metrics['total'] > 0:
-            status_counts = df['status'].value_counts().reset_index()
-            status_counts.columns = ['Status', 'Count']
-            fig = px.pie(
-                status_counts, values='Count', names='Status',
-                title='📊 Distribusi Status',
-                color='Status',
-                color_discrete_map={'OP': '#2ecc71', 'Closed': '#3498db', 'Cancel': '#e74c3c'}
-            )
-            fig.update_layout(height=350)
-            st.plotly_chart(fig, use_container_width=True)
-
-    with col2:
-        if metrics['total'] > 0 and 'business_unit' in df.columns and df['business_unit'].notna().any():
-            bu_counts = df['business_unit'].value_counts().reset_index()
-            bu_counts.columns = ['Business Unit', 'Count']
-            fig = px.pie(bu_counts, values='Count', names='Business Unit', title='🏢 Business Unit')
-            fig.update_layout(height=350)
-            st.plotly_chart(fig, use_container_width=True)
-
-    with col3:
-        if metrics['total'] > 0 and 'direktorat' in df.columns and df['direktorat'].notna().any():
-            dir_counts = df['direktorat'].value_counts().reset_index().head(10)
-            dir_counts.columns = ['Direktorat', 'Count']
-            fig = px.bar(
-                dir_counts, x='Count', y='Direktorat',
-                title='🏢 Top 10 Direktorat',
-                orientation='h',
-                color='Count',
-                color_continuous_scale='Viridis'
-            )
-            fig.update_layout(height=350)
-            st.plotly_chart(fig, use_container_width=True)
+    # 2. Pemenuhan SDM by Percentage
+    st.markdown("### 2️⃣ Pemenuhan SDM by Percentage")
+    st.caption("Persentase berdasarkan FPTK yang diproses (OP & Closed)")
+    data_pct = []
+    for r in recruiters:
+        sub = df[df['pic_recruiter'] == r]
+        op = len(sub[sub['status'] == 'OP'])
+        closed = len(sub[sub['status'] == 'Closed'])
+        total = op + closed
+        data_pct.append({
+            'Nama Recruiter': r,
+            'Open %': f"{(op/total*100):.1f}%" if total > 0 else "0%",
+            'Closed %': f"{(closed/total*100):.1f}%" if total > 0 else "0%",
+            'Total': total
+        })
+    st.dataframe(pd.DataFrame(data_pct), use_container_width=True, hide_index=True)
 
     st.markdown("---")
 
-    # ============================================================
-    # SECTION 7: RECRUITER PERFORMANCE TABLE (Persis Sheet 3)
-    # ============================================================
-    st.markdown("### 👥 Recruiter Performance")
+    # 3. Position Closed per Recruiter per Level Jabatan
+    st.markdown("### 3️⃣ Position Closed per Recruiter per Level Jabatan")
+    level_options = ["1A", "1B", "1C", "2A", "2B", "2C", "3A", "3B", "3C", "4A", "4B"]
+    rows_level = []
+    for r in recruiters:
+        sub = df[(df['pic_recruiter'] == r) & (df['status'] == 'Closed')]
+        row = {'Nama Recruiter': r}
+        total = 0
+        for lvl in level_options:
+            cnt = len(sub[sub['level_fptk'] == lvl])
+            row[lvl] = cnt
+            total += cnt
+        row['Total'] = total
+        rows_level.append(row)
+    st.dataframe(pd.DataFrame(rows_level), use_container_width=True, hide_index=True)
 
-    if metrics['total'] > 0 and 'pic_recruiter' in df.columns:
-        recruiters = sorted(df['pic_recruiter'].dropna().unique())
-        perf_rows = []
+    st.markdown("---")
 
-        for r in recruiters:
-            df_r = df[df['pic_recruiter'] == r]
-            open_c = len(df_r[df_r['status'] == 'OP'])
-            closed_c = len(df_r[df_r['status'] == 'Closed'])
-            cancel_c = len(df_r[df_r['status'] == 'Cancel'])
-            total_c = len(df_r)
+    # 4. Complexity Closed Position
+    st.markdown("### 4️⃣ Complexity Closed Position (Distribution per Recruiter)")
+    st.caption("Easy (1A–2A) · Moderate (2B–3A) · Hard (3B–4B)")
+    rows_complex = []
+    for r in recruiters:
+        sub = df[(df['pic_recruiter'] == r) & (df['status'] == 'Closed')]
+        easy = len(sub[sub['level_fptk'].isin(['1A', '1B', '1C', '2A'])])
+        moderate = len(sub[sub['level_fptk'].isin(['2B', '2C', '3A'])])
+        hard = len(sub[sub['level_fptk'].isin(['3B', '3C', '4A', '4B'])])
+        total = easy + moderate + hard
+        rows_complex.append({
+            'Recruiter': r,
+            'Total': total,
+            'Easy': easy,
+            '% Easy': f"{(easy/total*100):.1f}%" if total > 0 else "0%",
+            'Moderate': moderate,
+            '% Moderate': f"{(moderate/total*100):.1f}%" if total > 0 else "0%",
+            'Hard': hard,
+            '% Hard': f"{(hard/total*100):.1f}%" if total > 0 else "0%",
+        })
+    st.dataframe(pd.DataFrame(rows_complex), use_container_width=True, hide_index=True)
 
-            closed_lulus = len(df_r[(df_r['status'] == 'Closed') & (df_r['detail_sla'] == 'Closed Lulus SLA')])
-            closed_tidak = len(df_r[(df_r['status'] == 'Closed') & (df_r['detail_sla'] == 'Closed Tidak Lulus SLA')])
-            op_lewat = len(df_r[(df_r['status'] == 'OP') & (df_r['detail_sla'] == 'OP Tidak Lulus SLA')])
+    st.markdown("---")
 
-            rate = (closed_lulus / (closed_c + op_lewat) * 100) if (closed_c + op_lewat) > 0 else 0
+    # 5. Pemenuhan SDM by SLA
+    st.markdown("### 5️⃣ Pemenuhan SDM by SLA (Total Closed)")
+    rows_sla = []
+    for r in recruiters:
+        sub = df[df['pic_recruiter'] == r]
+        closed = sub[sub['status'] == 'Closed']
+        total_closed = len(closed)
+        sesuai = len(closed[closed['detail_sla'] == 'Closed Lulus SLA'])
+        tidak_sesuai = len(closed[closed['detail_sla'] == 'Closed Tidak Lulus SLA'])
+        op_lewat = len(sub[(sub['status'] == 'OP') & (sub['detail_sla'] == 'OP Tidak Lulus SLA')])
+        rate = (sesuai / (total_closed + op_lewat) * 100) if (total_closed + op_lewat) > 0 else 0
+        rows_sla.append({
+            'Recruiter': r,
+            'Total Closed': total_closed,
+            'Sesuai SLA': sesuai,
+            'Tidak Sesuai SLA': tidak_sesuai,
+            'OP Lewat SLA': op_lewat,
+            'Rate (%)': f"{rate:.1f}%"
+        })
+    st.dataframe(pd.DataFrame(rows_sla), use_container_width=True, hide_index=True)
 
-            perf_rows.append({
-                "Nama Recruiter": r,
-                "Open": open_c,
-                "Closed": closed_c,
-                "Cancel": cancel_c,
-                "Total": total_c,
-                "Closed Sesuai SLA": closed_lulus,
-                "Closed Tidak Sesuai SLA": closed_tidak,
-                "OP Lewat SLA": op_lewat,
-                "Rate (%)": round(rate, 1)
+    st.markdown("---")
+
+    # 6. Overview Status FPTK per Direktorat
+    st.markdown("### 6️⃣ Overview Status FPTK per Direktorat")
+    if 'direktorat' in df.columns:
+        direktorat_list = sorted(set([
+            d for d in df['direktorat'].dropna().unique() if d
+        ]))
+        rows_dir = []
+        total_all = len(df)
+        for d in direktorat_list:
+            sub = df[df['direktorat'] == d]
+            op = len(sub[sub['status'] == 'OP'])
+            closed = len(sub[sub['status'] == 'Closed'])
+            cancel = len(sub[sub['status'] == 'Cancel'])
+            total = op + closed + cancel
+            rows_dir.append({
+                'Direktorat': d,
+                'Open': op,
+                '% Open': f"{(op/total*100):.1f}%" if total > 0 else "0%",
+                'Closed': closed,
+                '% Closed': f"{(closed/total*100):.1f}%" if total > 0 else "0%",
+                'Cancel': cancel,
+                '% Cancel': f"{(cancel/total*100):.1f}%" if total > 0 else "0%",
+                'Total': total
             })
+        st.dataframe(pd.DataFrame(rows_dir), use_container_width=True, hide_index=True)
 
-        df_perf = pd.DataFrame(perf_rows)
-        df_perf = df_perf.sort_values('Total', ascending=False)
+    st.markdown("---")
 
-        st.dataframe(df_perf, use_container_width=True, hide_index=True)
+    # 7. Penyebaran FPTK per Recruiter per Direktorat
+    st.markdown("### 7️⃣ Penyebaran FPTK per Recruiter per Direktorat")
+    if 'direktorat' in df.columns:
+        direktorat_list = sorted(set([
+            d for d in df['direktorat'].dropna().unique() if d
+        ]))
+        rows_sebar = []
+        for r in recruiters:
+            sub = df[df['pic_recruiter'] == r]
+            row = {'Nama Recruiter': r}
+            total = 0
+            for d in direktorat_list:
+                cnt = len(sub[sub['direktorat'] == d])
+                row[d] = cnt
+                total += cnt
+            row['Total'] = total
+            rows_sebar.append(row)
+        st.dataframe(pd.DataFrame(rows_sebar), use_container_width=True, hide_index=True)
 
-        total_row = {
-            "Nama Recruiter": "TOTAL",
-            "Open": df_perf['Open'].sum(),
-            "Closed": df_perf['Closed'].sum(),
-            "Cancel": df_perf['Cancel'].sum(),
-            "Total": df_perf['Total'].sum(),
-            "Closed Sesuai SLA": df_perf['Closed Sesuai SLA'].sum(),
-            "Closed Tidak Sesuai SLA": df_perf['Closed Tidak Sesuai SLA'].sum(),
-            "OP Lewat SLA": df_perf['OP Lewat SLA'].sum(),
-            "Rate (%)": round(
-                df_perf['Closed Sesuai SLA'].sum() /
-                (df_perf['Closed'].sum() + df_perf['OP Lewat SLA'].sum()) * 100, 1
-            ) if (df_perf['Closed'].sum() + df_perf['OP Lewat SLA'].sum()) > 0 else 0
+    st.markdown("---")
+
+    # 8. Position Open per Recruiter per Level Jabatan
+    st.markdown("### 8️⃣ Position Open per Recruiter per Level Jabatan")
+    level_options = ["1A", "1B", "1C", "2A", "2B", "2C", "3A", "3B", "3C", "4A", "4B"]
+    rows_open = []
+    for r in recruiters:
+        sub = df[(df['pic_recruiter'] == r) & (df['status'] == 'OP')]
+        row = {'Nama Recruiter': r}
+        total = 0
+        for lvl in level_options:
+            cnt = len(sub[sub['level_fptk'] == lvl])
+            row[lvl] = cnt
+            total += cnt
+        row['Total'] = total
+        rows_open.append(row)
+    st.dataframe(pd.DataFrame(rows_open), use_container_width=True, hide_index=True)
+
+
+# ============================================================
+# TAB 4: FUNNEL SOURCING
+# ============================================================
+
+def render_funnel_sourcing_tab(df_sourcing):
+    st.markdown("## 🔍 Funnel Sourcing")
+
+    if df_sourcing.empty:
+        st.info("Tidak ada data sourcing.")
+        return
+
+    funnel_data = []
+    stages = [
+        ("Sourcing HR", 'sourcing_hr'),
+        ("Shortlist CV", 'shortlist_cv'),
+        ("Psikotes", 'psikotes'),
+        ("HR Interview", 'hr_interview'),
+        ("Technical Test", 'technical_test_case_study'),
+        ("Market Visit", 'market_visit'),
+        ("User Interview", 'user_interview'),
+        ("Panel Interview", 'panel_interview'),
+        ("Reference Check", 'reference_check'),
+        ("MCU", 'mcu'),
+        ("Offering", 'offering'),
+        ("Day 1", 'day1')
+    ]
+
+    for label, col in stages:
+        if col in df_sourcing.columns:
+            count = df_sourcing[col].notna().sum()
+        else:
+            count = 0
+        funnel_data.append({"Stage": label, "Count": count})
+
+    df_funnel = pd.DataFrame(funnel_data)
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Total Kandidat", len(df_sourcing))
+    col2.metric("Lolos Offering", len(df_sourcing[df_sourcing['offering'] == 'V']) if 'offering' in df_sourcing else 0)
+    col3.metric("Day 1", len(df_sourcing[df_sourcing['day1'] == 'V']) if 'day1' in df_sourcing else 0)
+
+    if df_funnel['Count'].sum() > 0:
+        fig = go.Figure(go.Funnel(
+            y=df_funnel['Stage'],
+            x=df_funnel['Count'],
+            textposition="inside",
+            textinfo="value+percent initial"
+        ))
+        fig.update_layout(title="Funnel Sourcing", height=500)
+        st.plotly_chart(fig, use_container_width=True)
+
+
+# ============================================================
+# MAIN
+# ============================================================
+
+def show_dashboard():
+    st.title("📊 Recruitment Analytic Dashboard")
+    st.markdown("---")
+
+    # Load filter options
+    try:
+        filter_opts = get_filter_options_from_db()
+    except Exception:
+        filter_opts = {
+            "pic_options": [], "bu_options": [], "direktorat_options": [],
+            "filter_kategorisasi_options": [], "divisi_options": [],
+            "dept_options": [], "status_options": ["OP", "Closed", "Cancel"],
         }
 
-        st.markdown("**TOTAL:**")
-        st.dataframe(pd.DataFrame([total_row]), use_container_width=True, hide_index=True)
-    else:
-        st.info("Tidak ada data recruiter.")
+    if not filter_opts.get("pic_options"):
+        get_filter_options_from_db.clear()
+        try:
+            filter_opts = get_filter_options_from_db()
+        except Exception:
+            pass
 
-    st.markdown("---")
+    posisi_options = get_posisi_options()
 
-    # ============================================================
-    # SECTION 8: POSITION CLOSED PER RECRUITER PER LEVEL
-    # ============================================================
-    st.markdown("### 🎯 Position Closed per Recruiter per Level Jabatan")
+    # Sidebar filters
+    with st.sidebar:
+        st.markdown("### 🔍 Filters")
 
-    if metrics['total'] > 0 and 'level_fptk' in df.columns:
-        levels = ["1A", "1B", "1C", "2A", "2B", "2C", "3A", "3B", "3C", "4A", "4B"]
-
-        pivot_rows = []
-        for r in sorted(df['pic_recruiter'].dropna().unique()):
-            df_r = df[(df['pic_recruiter'] == r) & (df['status'] == 'Closed')]
-            row = {"Nama Recruiter": r}
-            total_r = 0
-            for lvl in levels:
-                count = len(df_r[df_r['level_fptk'] == lvl])
-                row[lvl] = count
-                total_r += count
-            row["Total"] = total_r
-            pivot_rows.append(row)
-
-        if pivot_rows:
-            pivot_df = pd.DataFrame(pivot_rows)
-            st.dataframe(pivot_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("Tidak ada data Closed per level.")
-    else:
-        st.info("Tidak ada data level FPTK.")
-
-    st.markdown("---")
-
-    # ============================================================
-    # SECTION 9: COMPLEXITY CLOSED (Easy/Moderate/Hard)
-    # ============================================================
-    st.markdown("### 🧩 Complexity Closed Position per Recruiter")
-
-    if metrics['total'] > 0 and 'level_fptk' in df.columns:
-        easy_levels = {"1A", "1B", "1C", "2A"}
-        moderate_levels = {"2B", "2C", "3A"}
-        hard_levels = {"3B", "3C", "4A", "4B"}
-
-        complexity_rows = []
-        for r in sorted(df['pic_recruiter'].dropna().unique()):
-            df_r = df[(df['pic_recruiter'] == r) & (df['status'] == 'Closed')]
-            easy = sum(len(df_r[df_r['level_fptk'] == lvl]) for lvl in easy_levels)
-            moderate = sum(len(df_r[df_r['level_fptk'] == lvl]) for lvl in moderate_levels)
-            hard = sum(len(df_r[df_r['level_fptk'] == lvl]) for lvl in hard_levels)
-            total_c = easy + moderate + hard
-
-            if total_c == 0:
-                continue
-
-            complexity_rows.append({
-                "Recruiter": r,
-                "Total": total_c,
-                "Easy": easy,
-                "% Easy": round(easy / total_c * 100, 1),
-                "Moderate": moderate,
-                "% Moderate": round(moderate / total_c * 100, 1),
-                "Hard": hard,
-                "% Hard": round(hard / total_c * 100, 1),
-                "Profile": "Easy" if easy >= moderate and easy >= hard
-                          else ("Moderate" if moderate >= hard else "Hard")
-            })
-
-        if complexity_rows:
-            st.dataframe(pd.DataFrame(complexity_rows), use_container_width=True, hide_index=True)
-        else:
-            st.info("Tidak ada data kompleksitas.")
-    else:
-        st.info("Tidak ada data level FPTK.")
-
-    st.markdown("---")
-
-    # ============================================================
-    # SECTION 10: POSITION OPEN PER RECRUITER PER LEVEL
-    # ============================================================
-    st.markdown("### 📂 Position Open per Recruiter per Level Jabatan")
-
-    if metrics['total'] > 0 and 'level_fptk' in df.columns:
-        levels = ["1A", "1B", "1C", "2A", "2B", "2C", "3A", "3B", "3C", "4A", "4B"]
-
-        open_rows = []
-        for r in sorted(df['pic_recruiter'].dropna().unique()):
-            df_r = df[(df['pic_recruiter'] == r) & (df['status'] == 'OP')]
-            row = {"Nama Recruiter": r}
-            total_r = 0
-            for lvl in levels:
-                count = len(df_r[df_r['level_fptk'] == lvl])
-                row[lvl] = count
-                total_r += count
-            row["Total"] = total_r
-            open_rows.append(row)
-
-        if open_rows:
-            st.dataframe(pd.DataFrame(open_rows), use_container_width=True, hide_index=True)
-    else:
-        st.info("Tidak ada data level FPTK.")
-
-    st.markdown("---")
-
-    # ============================================================
-    # SECTION 11: EXPORT
-    # ============================================================
-    if st.session_state.get('export_data', False):
-        st.session_state.export_data = False
-        if not df.empty:
-            csv = df.to_csv(index=False)
-            st.download_button(
-                "📥 Download Data FPTK (CSV)",
-                csv,
-                f"fptk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                "text/csv"
+        with st.expander("🐛 Debug Filter", expanded=False):
+            st.caption(
+                f"PIC: {len(filter_opts.get('pic_options', []))} | "
+                f"BU: {len(filter_opts.get('bu_options', []))} | "
+                f"Dir: {len(filter_opts.get('direktorat_options', []))} | "
+                f"Kat: {len(filter_opts.get('filter_kategorisasi_options', []))} | "
+                f"Posisi: {len(posisi_options)}"
             )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            date_from = st.date_input("Dari", datetime.now() - timedelta(days=90))
+        with col2:
+            date_to = st.date_input("Sampai", datetime.now())
+
+        posisi_filter = st.selectbox("Posisi",
+                                     ["Semua"] + posisi_options,
+                                     key="dash_posisi_filter")
+
+        pic_options = ["Semua"] + filter_opts.get("pic_options", [])
+        pic_filter = st.selectbox("PIC Recruiter", pic_options, key="dash_pic")
+
+        status_options = ["Semua"] + filter_opts.get("status_options", ["OP", "Closed", "Cancel"])
+        status_filter = st.selectbox("Status", status_options, key="dash_status")
+
+        bu_options = ["Semua"] + filter_opts.get("bu_options", [])
+        bu_filter = st.selectbox("Business Unit", bu_options, key="dash_bu")
+
+        dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
+        dir_filter = st.selectbox("Direktorat", dir_options, key="dash_dir")
+
+        divisi_options = ["Semua"] + filter_opts.get("divisi_options", [])
+        divisi_filter = st.selectbox("Divisi", divisi_options, key="dash_div")
+
+        dept_options = ["Semua"] + filter_opts.get("dept_options", [])
+        dept_filter = st.selectbox("Department", dept_options, key="dash_dept")
+
+        filter_kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
+        filter_kat = st.selectbox("Filter Kategorisasi", filter_kat_options, key="dash_kat")
+
+        st.markdown("---")
+
+        if st.button("🔄 Refresh Filter Options", use_container_width=True):
+            get_filter_options_from_db.clear()
+            get_posisi_options.clear()
+            st.success("✅ Filter refreshed!")
+            time.sleep(0.3)
+            st.rerun()
+
+    # Load data
+    with st.spinner("📊 Memuat data..."):
+        df = load_fptk_data(
+            pic_filter=pic_filter,
+            status_filter=status_filter,
+            bu_filter=bu_filter,
+            dir_filter=dir_filter,
+            divisi_filter=divisi_filter,
+            dept_filter=dept_filter,
+            filter_kat=filter_kat,
+            posisi_filter=posisi_filter,
+            date_from=date_from,
+            date_to=date_to
+        )
+
+        df_sourcing = load_sourcing_data(
+            pic_filter=pic_filter,
+            date_from=date_from,
+            date_to=date_to
+        )
+
+    metrics = calculate_metrics(df)
+
+    # Tabs
+    tab1, tab2, tab3, tab4 = st.tabs([
+        "📊 Overview",
+        "📈 Grafik MPP",
+        "👥 Recruiter Performance",
+        "🔍 Funnel Sourcing",
+    ])
+
+    with tab1:
+        render_overview_tab(df, df_sourcing, metrics)
+
+    with tab2:
+        render_grafik_mpp_tab(df)
+
+    with tab3:
+        render_recruiter_performance_tab(df)
+
+    with tab4:
+        render_funnel_sourcing_tab(df_sourcing)
