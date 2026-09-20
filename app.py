@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 import importlib
 import time
@@ -6,7 +7,7 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 
-from core.session_manager import get_session_manager, check_idle_timeout
+from core.session_manager import get_session_manager, check_idle_timeout, touch_session
 from core.database import SessionLocal, init_db
 from core.auth import (
     login_user,
@@ -19,10 +20,6 @@ from core.auth import (
 from core.models import User
 
 
-# ============================================================
-# PAGE CONFIG - HARUS PALING ATAS
-# ============================================================
-
 st.set_page_config(
     page_title="FPTK & Sourcing System",
     page_icon="📊",
@@ -31,55 +28,12 @@ st.set_page_config(
 )
 
 
-# ============================================================
-# AUTO-REFRESH VIA JAVASCRIPT (CLIENT-SIDE)
-# ============================================================
-# Reload halaman HANYA kalau user idle > 15 menit
-# (sebelum auto-logout di 30 menit)
-# Ini TIDAK reset session state Streamlit karena pakai location.reload()
-# ============================================================
-
-if st.session_state.get("user_id"):
-    st.markdown(
-        """
-        <script>
-        (function() {
-            let lastInteraction = Date.now();
-
-            const updateActivity = () => { lastInteraction = Date.now(); };
-
-            ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart', 'click']
-                .forEach(evt => document.addEventListener(evt, updateActivity, {passive: true}));
-
-            setInterval(function() {
-                const idle = Date.now() - lastInteraction;
-                // 15 menit = 900000 ms
-                if (idle > 15 * 60 * 1000) {
-                    window.parent.location.reload();
-                }
-            }, 60 * 1000);
-        })();
-        </script>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-# ============================================================
-# DATABASE SESSION
-# ============================================================
-# ⚠️ JANGAN pakai @st.cache_resource untuk Session!
-# Setiap user harus punya session sendiri.
-# ============================================================
-
 def get_cached_db():
-    """Buat session database baru."""
     return SessionLocal()
 
 
 @st.cache_resource
 def initialize_system():
-    """Inisialisasi sistem sekali saja"""
     init_db()
     db = SessionLocal()
     try:
@@ -90,22 +44,13 @@ def initialize_system():
     return True
 
 
-# Initialize system
 if 'system_initialized' not in st.session_state:
     initialize_system()
     st.session_state.system_initialized = True
 
 
-# ============================================================
-# SESSION MANAGER
-# ============================================================
-
 session_mgr = get_session_manager()
 
-
-# ============================================================
-# SESSION STATE - FULL INISIALISASI
-# ============================================================
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = session_mgr.user_id
@@ -162,10 +107,6 @@ if "last_activity" not in st.session_state:
     st.session_state.last_activity = None
 
 
-# ============================================================
-# SESSION PERSISTENCE
-# ============================================================
-
 if st.session_state.user_id and not session_mgr.is_logged_in:
     session_mgr.login(
         st.session_state.user_id,
@@ -181,26 +122,19 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.user_display = session_mgr.user_display
 
 
-# ============================================================
-# IDLE TIMEOUT CHECK
-# ============================================================
-
 if st.session_state.user_id:
+    touch_session()
     expired = check_idle_timeout()
     if expired:
         st.rerun()
 
-# Tampilkan pesan session expired
+
 if "session_expired_message" in st.session_state and not st.session_state.user_id:
     st.warning(st.session_state.session_expired_message)
     del st.session_state.session_expired_message
     if "session_expired_username" in st.session_state:
         del st.session_state.session_expired_username
 
-
-# ============================================================
-# LOGIN PAGE
-# ============================================================
 
 if not st.session_state.user_id:
 
@@ -542,17 +476,17 @@ if not st.session_state.user_id:
                             or user.username
                         )
                         st.session_state.last_activity = datetime.now()
-                        # Reset halaman ke dashboard saat login baru
                         st.session_state.page = "dashboard"
 
-                        # Clear pages_dict biar di-rebuild dengan user baru
                         if "pages_dict" in st.session_state:
                             del st.session_state.pages_dict
                         if "user_is_admin" in st.session_state:
                             del st.session_state.user_is_admin
+                        if "pages_dict_role" in st.session_state:
+                            del st.session_state.pages_dict_role
 
                         st.success(
-                            f"✅ Selamat datang, "
+                            f"Selamat datang, "
                             f"{st.session_state.user_display}!"
                         )
 
@@ -563,7 +497,7 @@ if not st.session_state.user_id:
                     else:
 
                         st.error(
-                            "❌ Username atau password salah!"
+                            "Username atau password salah!"
                         )
 
                 finally:
@@ -573,15 +507,7 @@ if not st.session_state.user_id:
     st.stop()
 
 
-# ============================================================
-# SIDEBAR
-# ============================================================
-
 with st.sidebar:
-
-    # ========================================================
-    # USER INFO
-    # ========================================================
 
     st.markdown(
         f"### 👤 {st.session_state.user_display}"
@@ -591,7 +517,6 @@ with st.sidebar:
         f"Role: {st.session_state.role}"
     )
 
-    # Countdown idle timer
     if session_mgr.is_logged_in:
         remaining = session_mgr.get_idle_remaining_seconds()
         if remaining > 0:
@@ -604,14 +529,9 @@ with st.sidebar:
 
     st.markdown("---")
 
-    # ========================================================
-    # BUILD PAGES DICT — SEKALI SAJA (STABLE)
-    # ========================================================
-    # PENTING: pages_dict disimpan di session_state biar
-    # gak berubah-ubah tiap rerun (yang bikin navigasi reset).
-    # ========================================================
+    current_role = st.session_state.get("role", "user")
 
-    if "pages_dict" not in st.session_state:
+    if "pages_dict" not in st.session_state or st.session_state.get("pages_dict_role") != current_role:
 
         base_pages = {
             "📊 Dashboard": "dashboard",
@@ -627,7 +547,6 @@ with st.sidebar:
             "📩 Transfer FPTK": "transfer_fptk",
         }
 
-        # Cek admin SEKALI saja (tanpa cache_data)
         db = get_cached_db()
         try:
             user_is_admin = is_admin(db)
@@ -642,27 +561,17 @@ with st.sidebar:
             base_pages["📩 Request Hapus FPTK"] = "admin_delete_requests"
 
         st.session_state.pages_dict = base_pages
+        st.session_state.pages_dict_role = current_role
 
     pages = st.session_state.pages_dict
-
-    # ========================================================
-    # NAVIGATION — PAKAI BUTTONS (BUKAN RADIO)
-    # ========================================================
-    # Buttons lebih STABIL dari radio karena:
-    #   1. Gak ada widget state yang bisa reset
-    #   2. Cuma trigger saat user klik
-    #   3. Gak dipengaruhi perubahan options/urutan
-    # ========================================================
 
     st.markdown("### 📋 Navigasi")
 
     current_page = st.session_state.get("page", "dashboard")
 
-    # Tampilkan buttons untuk setiap halaman
     for label, page_key in pages.items():
         is_active = (page_key == current_page)
 
-        # Style: tombol aktif pakai type="primary"
         if is_active:
             btn_type = "primary"
             btn_label = f"▶ {label}"
@@ -680,10 +589,6 @@ with st.sidebar:
             st.rerun()
 
     st.markdown("---")
-
-    # ========================================================
-    # CACHE CONTROL
-    # ========================================================
 
     st.markdown("### ⚡ Cache Control")
 
@@ -704,7 +609,7 @@ with st.sidebar:
                 'get_filter_options_from_db': get_filter_options_from_db,
             }
         except ImportError as e:
-            st.caption(f"⚠️ Cache functions not available: {str(e)}")
+            st.caption(f"Cache functions not available: {str(e)}")
             return None
 
     cache_funcs = get_cache_functions()
@@ -735,10 +640,9 @@ with st.sidebar:
         with col1:
             if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
                 st.cache_data.clear()
-                st.cache_resource.clear()
                 st.session_state.last_fptk_load = datetime.now()
                 st.session_state.last_sourcing_load = datetime.now()
-                st.success("✅ All cache cleared! Reloading...")
+                st.success("All cache cleared! Reloading...")
                 time.sleep(0.5)
                 st.rerun()
 
@@ -748,7 +652,7 @@ with st.sidebar:
                 load_sourcing_data.clear()
                 calculate_metrics.clear()
                 get_upload_cycle_progress.clear()
-                st.success("✅ Data cache cleared! Reloading...")
+                st.success("Data cache cleared! Reloading...")
                 time.sleep(0.5)
                 st.rerun()
 
@@ -757,37 +661,32 @@ with st.sidebar:
                 load_fptk_data.clear()
                 calculate_metrics.clear()
                 st.session_state.last_fptk_load = datetime.now()
-                st.success("✅ FPTK cache cleared!")
+                st.success("FPTK cache cleared!")
                 st.rerun()
 
             if st.button("🧹 Clear Sourcing Cache", use_container_width=True):
                 load_sourcing_data.clear()
                 st.session_state.last_sourcing_load = datetime.now()
-                st.success("✅ Sourcing cache cleared!")
+                st.success("Sourcing cache cleared!")
                 st.rerun()
 
             if st.button("🧹 Clear Filter Options", use_container_width=True):
                 get_filter_options_from_db.clear()
-                st.success("✅ Filter options cache cleared!")
+                st.success("Filter options cache cleared!")
                 time.sleep(0.5)
                 st.rerun()
 
             if st.button("🧹 Clear All Cache", use_container_width=True):
                 st.cache_data.clear()
-                st.cache_resource.clear()
                 st.session_state.last_fptk_load = datetime.now()
                 st.session_state.last_sourcing_load = datetime.now()
-                st.success("✅ All cache cleared!")
+                st.success("All cache cleared!")
                 st.rerun()
 
         st.markdown("---")
     else:
-        st.caption("⚠️ Cache functions not available")
+        st.caption("Cache functions not available")
         st.markdown("---")
-
-    # ========================================================
-    # CHANGE PASSWORD
-    # ========================================================
 
     with st.expander("🔑 Ganti Password"):
 
@@ -850,13 +749,13 @@ with st.sidebar:
                             db.commit()
 
                             st.success(
-                                "✅ Password berhasil diubah!"
+                                "Password berhasil diubah!"
                             )
 
                         else:
 
                             st.error(
-                                "❌ Password lama salah!"
+                                "Password lama salah!"
                             )
 
                     else:
@@ -869,10 +768,6 @@ with st.sidebar:
             finally:
 
                 db.close()
-
-    # ========================================================
-    # LOGOUT
-    # ========================================================
 
     st.markdown("---")
 
@@ -887,10 +782,6 @@ with st.sidebar:
         st.rerun()
 
 
-# ============================================================
-# SYNC SESSION STATE DENGAN SESSION MANAGER
-# ============================================================
-
 if st.session_state.user_id and not session_mgr.is_logged_in:
     session_mgr.login(
         st.session_state.user_id,
@@ -904,10 +795,6 @@ elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.role = session_mgr.role
     st.session_state.user_display = session_mgr.user_display
 
-
-# ============================================================
-# PAGE RENDERING
-# ============================================================
 
 page = st.session_state.page
 
@@ -929,7 +816,7 @@ elif page == "update_progres":
         update_progres = importlib.import_module("pages.11_update_progres")
         update_progres.show_update_progres()
     except ModuleNotFoundError:
-        st.error("❌ File pages/11_update_progres.py tidak ditemukan!")
+        st.error("File pages/11_update_progres.py tidak ditemukan!")
 
 elif page == "sourcing_view":
     sourcing_view = importlib.import_module("pages.04_sourcing_view")
@@ -952,47 +839,43 @@ elif page == "admin_delete_requests":
         admin_delete_requests = importlib.import_module("pages.10_admin_delete_requests")
         admin_delete_requests.show_admin_delete_requests()
     except ModuleNotFoundError:
-        st.error("❌ File pages/10_admin_delete_requests.py tidak ditemukan!")
+        st.error("File pages/10_admin_delete_requests.py tidak ditemukan!")
 
 elif page == "sourcing_input":
     try:
         sourcing_input = importlib.import_module("pages.09_sourcing_input")
         sourcing_input.show_sourcing_input()
     except ModuleNotFoundError:
-        st.error("❌ File pages/09_sourcing_input.py tidak ditemukan!")
+        st.error("File pages/09_sourcing_input.py tidak ditemukan!")
 
 elif page == "funnel_report":
     try:
         funnel_report = importlib.import_module("pages.funnel_report")
         funnel_report.show_funnel_report()
     except ModuleNotFoundError:
-        st.error("❌ File pages/funnel_report.py tidak ditemukan!")
+        st.error("File pages/funnel_report.py tidak ditemukan!")
 
 elif page == "monitoring_sourcing":
     try:
         monitoring_sourcing = importlib.import_module("pages.monitoring_sourcing")
         monitoring_sourcing.show_monitoring_sourcing()
     except ModuleNotFoundError:
-        st.error("❌ File pages/monitoring_sourcing.py tidak ditemukan!")
+        st.error("File pages/monitoring_sourcing.py tidak ditemukan!")
 
 elif page == "upload_evidence":
     try:
         upload_evidence = importlib.import_module("pages.upload_evidence")
         upload_evidence.show_upload_evidence()
     except ModuleNotFoundError:
-        st.error("❌ File pages/upload_evidence.py tidak ditemukan!")
+        st.error("File pages/upload_evidence.py tidak ditemukan!")
 
 elif page == "transfer_fptk":
     try:
         transfer_fptk = importlib.import_module("pages.transfer_fptk")
         transfer_fptk.show_transfer_fptk()
     except ModuleNotFoundError:
-        st.error("❌ File pages/transfer_fptk.py tidak ditemukan!")
+        st.error("File pages/transfer_fptk.py tidak ditemukan!")
 
-
-# ============================================================
-# EXPORT MENU
-# ============================================================
 
 st.markdown("---")
 st.markdown("### 📥 Export Data")
@@ -1014,7 +897,7 @@ if st.button("📊 Export All Data", use_container_width=True):
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
             )
-            st.success(f"✅ Export berhasil! File: {os.path.basename(filepath)}")
+            st.success(f"Export berhasil! File: {os.path.basename(filepath)}")
         finally:
             db.close()
 
@@ -1024,6 +907,8 @@ with st.expander("📋 Export Sheet Spesifik"):
         "DB Kode Posisi",
         "FPTK",
         "DB Sourcing",
+        "Grafik MPP",
+        "Recruiter Performance",
         "Master Dropdown",
         "Evidence"
     ]
@@ -1049,6 +934,6 @@ with st.expander("📋 Export Sheet Spesifik"):
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     use_container_width=True
                 )
-                st.success(f"✅ Export {selected_sheet} berhasil!")
+                st.success(f"Export {selected_sheet} berhasil!")
             finally:
                 db.close()
