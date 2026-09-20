@@ -3,6 +3,7 @@ import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import NullPool
 from pathlib import Path
 
 env_path = Path(__file__).parent.parent / ".env"
@@ -13,8 +14,23 @@ DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:
     raise ValueError("DATABASE_URL tidak ditemukan! Buat file .env di root folder.")
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
-SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    poolclass=NullPool,
+    connect_args={
+        "connect_timeout": 10,
+        "options": "-c statement_timeout=30000"
+    }
+)
+
+SessionLocal = sessionmaker(
+    bind=engine,
+    autocommit=False,
+    autoflush=False,
+    expire_on_commit=False
+)
+
 Base = declarative_base()
 
 
