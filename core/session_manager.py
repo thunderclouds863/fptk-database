@@ -1,23 +1,14 @@
+# core/session_manager.py
 import streamlit as st
 from datetime import datetime, timedelta
 from core.database import SessionLocal
 from core.models import User
 
-
-# ============================================================
-# CONFIG
-# ============================================================
-
 IDLE_TIMEOUT_MINUTES = 30
 IDLE_TIMEOUT_SECONDS = IDLE_TIMEOUT_MINUTES * 60
 
 
-# ============================================================
-# SESSION MANAGER
-# ============================================================
-
 def get_session_manager():
-    """Session manager per browser/user."""
     if "session_manager" not in st.session_state:
         st.session_state.session_manager = SessionManager()
     return st.session_state.session_manager
@@ -29,7 +20,6 @@ class SessionManager:
         self._init_state()
 
     def _init_state(self):
-        """Inisialisasi session state."""
         defaults = {
             "user_id": None,
             "username": None,
@@ -107,10 +97,6 @@ class SessionManager:
         return st.session_state.get("user_display")
 
 
-# ============================================================
-# HELPERS
-# ============================================================
-
 def login_user(user_id, username, role, display_name):
     get_session_manager().login(user_id, username, role, display_name)
 
@@ -146,7 +132,7 @@ def check_idle_timeout():
         st.session_state.session_expired_username = st.session_state.get("username", "")
         session.logout()
         st.session_state.session_expired_message = (
-            f"⏰ Session expired karena tidak ada aktivitas selama "
+            f"Session expired karena tidak ada aktivitas selama "
             f"{IDLE_TIMEOUT_MINUTES} menit. Silakan login lagi."
         )
         return True
