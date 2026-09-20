@@ -1,3 +1,4 @@
+# pages/09_sourcing_input.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -424,19 +425,19 @@ def parse_cv_text(raw_text: str) -> dict:
 
 
 def show_sourcing_input():
-    st.title("👤 Input Sourcing / CV")
+    st.title("Input Sourcing / CV")
     st.markdown("Input kandidat baru ke DB Sourcing")
 
     db = next(get_db())
     if not is_editor(db):
-        st.error("❌ Anda tidak memiliki akses untuk input sourcing. Hubungi Admin.")
+        st.error("Anda tidak memiliki akses untuk input sourcing. Hubungi Admin.")
         return
     user = get_current_user(db)
     if not user:
         st.warning("Silakan login.")
         return
 
-    with st.spinner("📋 Memuat data..."):
+    with st.spinner("Memuat data..."):
         master_options = get_master_options_sourcing(db)
         sourcing_options = get_sourcing_options()
         pipeline_stages = get_pipeline_stages()
@@ -455,16 +456,16 @@ def show_sourcing_input():
     st.markdown("---")
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        st.markdown("### 🤖 Copilot Agent")
+        st.markdown("### Copilot Agent")
         st.caption("Parsing CV gambar/PDF scan menggunakan Copilot Agent")
     with col2:
-        st.link_button("🚀 Buka Copilot Agent", COPILOT_AGENT_URL, use_container_width=True, type="primary")
+        st.link_button("Buka Copilot Agent", COPILOT_AGENT_URL, use_container_width=True, type="primary")
     with col3:
-        st.caption("Upload CV → Copy hasil → Paste di sini")
+        st.caption("Upload CV -> Copy hasil -> Paste di sini")
 
     st.markdown("---")
 
-    tab1, tab2, tab3 = st.tabs(["📝 Manual Input", "📋 Paste Text", "📦 Batch CV"])
+    tab1, tab2, tab3 = st.tabs(["Manual Input", "Paste Text", "Batch CV"])
 
     with tab1:
         st.subheader("Manual Input Kandidat")
@@ -478,14 +479,14 @@ def show_sourcing_input():
 
         col1, col2 = st.columns([1, 4])
         with col1:
-            parse_btn = st.button("🔍 Parse & Tampilkan di Form", use_container_width=True, type="primary")
+            parse_btn = st.button("Parse & Tampilkan di Form", use_container_width=True, type="primary")
 
         if parse_btn and raw_text:
             with st.spinner("Memproses..."):
                 parsed = parse_cv_text(raw_text)
                 if parsed.get('nama'):
-                    st.success(f"✅ Data ditemukan: {parsed.get('nama')}")
-                    with st.expander("🐛 Debug Parsed Data"):
+                    st.success(f"Data ditemukan: {parsed.get('nama')}")
+                    with st.expander("Debug Parsed Data"):
                         st.json({k: v for k, v in parsed.items() if v})
                     st.session_state.parsed_cv_data = parsed
                     st.session_state.show_parsed_form = True
@@ -494,7 +495,7 @@ def show_sourcing_input():
 
         if st.session_state.show_parsed_form and st.session_state.parsed_cv_data:
             st.markdown("---")
-            st.markdown("### ✏️ Review & Edit Data Sebelum Simpan")
+            st.markdown("### Review & Edit Data Sebelum Simpan")
             st.caption("Data dari hasil parse sudah diisi otomatis. Silakan edit jika diperlukan.")
 
             show_sourcing_form(
@@ -515,9 +516,9 @@ def show_sourcing_input():
         separator = st.text_input("Separator kandidat", value="=== CV ===")
         batch_text = st.text_area("Paste batch CV di sini", height=300)
 
-        if batch_text and st.button("🚀 Proses Batch", type="primary"):
+        if batch_text and st.button("Proses Batch", type="primary"):
             candidates = [c.strip() for c in batch_text.split(separator) if c.strip()]
-            st.info(f"📋 Ditemukan {len(candidates)} kandidat")
+            st.info(f"Ditemukan {len(candidates)} kandidat")
             st.session_state.batch_candidates = candidates
             st.session_state.batch_index = 0
             st.rerun()
@@ -528,7 +529,7 @@ def show_sourcing_input():
 
             if idx < len(candidates):
                 st.markdown("---")
-                st.subheader(f"📄 Kandidat {idx+1} dari {len(candidates)}")
+                st.subheader(f"Kandidat {idx+1} dari {len(candidates)}")
 
                 raw_text = candidates[idx]
                 parsed = parse_cv_text(raw_text)
@@ -546,12 +547,12 @@ def show_sourcing_input():
                         batch_mode=True
                     )
                 else:
-                    st.warning(f"⚠️ Kandidat {idx+1} tidak terdeteksi datanya")
-                    if st.button("⏭️ Lewati", key=f"skip_{idx}"):
+                    st.warning(f"Kandidat {idx+1} tidak terdeteksi datanya")
+                    if st.button("Lewati", key=f"skip_{idx}"):
                         st.session_state.batch_index = idx + 1
                         st.rerun()
             else:
-                st.success("✅ Semua kandidat selesai diproses!")
+                st.success("Semua kandidat selesai diproses!")
                 st.session_state.batch_candidates = []
                 st.session_state.batch_index = 0
 
@@ -638,9 +639,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 break
 
     if is_parse_mode and initial_data:
-        st.info(f"📋 Data dari parse: **{nama}**")
+        st.info(f"Data dari parse: **{nama}**")
 
     with st.form(form_key):
+        st.markdown("### Data Pribadi")
         col1, col2 = st.columns(2)
         with col1:
             nama_input = st.text_input("Nama *", value=nama)
@@ -656,7 +658,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 st.text_input("Kode Unik (auto)", value=kode_unik_input, disabled=True)
                 st.text_input("Posisi (auto)", value=posisi_input, disabled=True)
             else:
-                st.warning("⚠️ Tidak ada FPTK OP yang tersedia. Buat FPTK dulu.")
+                st.warning("Tidak ada FPTK OP yang tersedia. Buat FPTK dulu.")
                 kode_unik_input = ''
                 posisi_input = ''
                 selected_fptk = None
@@ -719,7 +721,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
             try:
                 default_tahun = int(tahun_lulus) if tahun_lulus and str(tahun_lulus).isdigit() else None
-            except:
+            except Exception:
                 default_tahun = None
 
             if default_tahun is not None and (default_tahun < 1990 or default_tahun > 2030):
@@ -742,34 +744,216 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
         st.markdown("---")
         st.markdown("### Pipeline (Status awal)")
-        st.markdown("#### Sourcing Freelance (Pipeline Awal)")
-        col1, col2 = st.columns(2)
-        with col1:
-            sourcing_freelance_input = st.selectbox("Sourcing Freelance", [""] + pipeline_opts)
-        with col2:
-            if sourcing_freelance_input:
-                tanggal_sourcing_freelance_input = st.date_input("Tanggal Sourcing Freelance", datetime.now())
-            else:
-                tanggal_sourcing_freelance_input = None
-                st.date_input("Tanggal Sourcing Freelance", datetime.now(), disabled=True)
 
-        st.markdown("#### Sourcing HR")
-        col1, col2 = st.columns(2)
-        with col1:
-            sourcing_hr_input = st.selectbox("Sourcing HR", [""] + pipeline_opts)
-        with col2:
-            if sourcing_hr_input:
-                tanggal_sourcing_input = st.date_input("Tanggal Sourcing HR", datetime.now())
-            else:
-                tanggal_sourcing_input = None
-                st.date_input("Tanggal Sourcing HR", datetime.now(), disabled=True)
+        pipeline_inputs = {}
+
+        with st.expander("Sourcing Freelance", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                sf_input = st.selectbox("Sourcing Freelance", [""] + pipeline_opts, key=f"{form_key}_sf")
+            with col2:
+                if sf_input:
+                    tsf_input = st.date_input("Tanggal Sourcing Freelance", datetime.now(), key=f"{form_key}_tsf")
+                else:
+                    tsf_input = None
+                    st.date_input("Tanggal Sourcing Freelance", datetime.now(), disabled=True, key=f"{form_key}_tsf_dis")
+            pipeline_inputs['sourcing_freelance'] = sf_input if sf_input else None
+            pipeline_inputs['tanggal_sourcing_freelance'] = tsf_input if sf_input else None
+
+        with st.expander("Sourcing HR", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                shr_input = st.selectbox("Sourcing HR", [""] + pipeline_opts, key=f"{form_key}_shr")
+            with col2:
+                if shr_input:
+                    tshr_input = st.date_input("Tanggal Sourcing HR", datetime.now(), key=f"{form_key}_tshr")
+                else:
+                    tshr_input = None
+                    st.date_input("Tanggal Sourcing HR", datetime.now(), disabled=True, key=f"{form_key}_tshr_dis")
+            pipeline_inputs['sourcing_hr'] = shr_input if shr_input else None
+            pipeline_inputs['tanggal_sourcing'] = tshr_input if shr_input else None
+            pipeline_inputs['detail_keterangan_sourcing_hr'] = st.text_area("Detail Keterangan Sourcing HR", key=f"{form_key}_dkshr") or None
+
+        with st.expander("Shortlist CV", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                scv_input = st.selectbox("Shortlist CV", [""] + pipeline_opts, key=f"{form_key}_scv")
+            with col2:
+                if scv_input:
+                    tscv_input = st.date_input("Tanggal Shortlist CV", datetime.now(), key=f"{form_key}_tscv")
+                else:
+                    tscv_input = None
+                    st.date_input("Tanggal Shortlist CV", datetime.now(), disabled=True, key=f"{form_key}_tscv_dis")
+            pipeline_inputs['shortlist_cv'] = scv_input if scv_input else None
+            pipeline_inputs['tanggal_shortlist_cv'] = tscv_input if scv_input else None
+            pipeline_inputs['detail_keterangan_shortlist_cv'] = st.text_area("Detail Keterangan Shortlist CV", key=f"{form_key}_dkscv") or None
+
+        with st.expander("Psikotes", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                psikotes_input = st.selectbox("Psikotes", [""] + pipeline_opts, key=f"{form_key}_psikotes")
+                kode_psikotes_input = st.text_input("Kode Psikotes", key=f"{form_key}_kpsikotes")
+            with col2:
+                if psikotes_input:
+                    tpsikotes_input = st.date_input("Tanggal Psikotes", datetime.now(), key=f"{form_key}_tpsikotes")
+                else:
+                    tpsikotes_input = None
+                    st.date_input("Tanggal Psikotes", datetime.now(), disabled=True, key=f"{form_key}_tpsikotes_dis")
+                nilai_logika_input = st.text_input("Nilai Logika", key=f"{form_key}_nlogika")
+                nilai_iq_input = st.text_input("Nilai IQ", key=f"{form_key}_niq")
+            col3, col4 = st.columns(2)
+            with col3:
+                nilai_daya_tangkap_input = st.text_input("Nilai Daya Tangkap", key=f"{form_key}_ndaya")
+                nilai_ra_input = st.text_input("Nilai RA", key=f"{form_key}_nra")
+            with col4:
+                disc_input = st.text_input("DISC", key=f"{form_key}_disc")
+
+            pipeline_inputs['psikotes'] = psikotes_input if psikotes_input else None
+            pipeline_inputs['kode_psikotes'] = kode_psikotes_input or None
+            pipeline_inputs['nilai_logika'] = nilai_logika_input or None
+            pipeline_inputs['nilai_iq'] = nilai_iq_input or None
+            pipeline_inputs['nilai_daya_tangkap'] = nilai_daya_tangkap_input or None
+            pipeline_inputs['nilai_ra'] = nilai_ra_input or None
+            pipeline_inputs['disc'] = disc_input or None
+            pipeline_inputs['tanggal_psikotes'] = tpsikotes_input if psikotes_input else None
+            pipeline_inputs['detail_keterangan_psikotes'] = st.text_area("Detail Keterangan Psikotes", key=f"{form_key}_dkpsikotes") or None
+
+        with st.expander("HR Interview", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                hri_input = st.selectbox("HR Interview", [""] + pipeline_opts, key=f"{form_key}_hri")
+            with col2:
+                if hri_input:
+                    thri_input = st.date_input("Tanggal HR Interview", datetime.now(), key=f"{form_key}_thri")
+                else:
+                    thri_input = None
+                    st.date_input("Tanggal HR Interview", datetime.now(), disabled=True, key=f"{form_key}_thri_dis")
+            pipeline_inputs['hr_interview'] = hri_input if hri_input else None
+            pipeline_inputs['tanggal_hr_interview'] = thri_input if hri_input else None
+            pipeline_inputs['detail_keterangan_hr_interview'] = st.text_area("Detail Keterangan HR Interview", key=f"{form_key}_dkhri") or None
+
+        with st.expander("Technical Test / Case Study", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                tt_input = st.selectbox("Technical Test", [""] + pipeline_opts, key=f"{form_key}_tt")
+            with col2:
+                if tt_input:
+                    ttt_input = st.date_input("Tanggal Technical Test", datetime.now(), key=f"{form_key}_ttt")
+                else:
+                    ttt_input = None
+                    st.date_input("Tanggal Technical Test", datetime.now(), disabled=True, key=f"{form_key}_ttt_dis")
+            pipeline_inputs['technical_test_case_study'] = tt_input if tt_input else None
+            pipeline_inputs['tanggal_technical_test'] = ttt_input if tt_input else None
+            pipeline_inputs['detail_keterangan_technical_test'] = st.text_area("Detail Keterangan Technical Test", key=f"{form_key}_dktt") or None
+
+        with st.expander("Market Visit", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                mv_input = st.selectbox("Market Visit", [""] + pipeline_opts, key=f"{form_key}_mv")
+            with col2:
+                if mv_input:
+                    tmv_input = st.date_input("Tanggal Market Visit", datetime.now(), key=f"{form_key}_tmv")
+                else:
+                    tmv_input = None
+                    st.date_input("Tanggal Market Visit", datetime.now(), disabled=True, key=f"{form_key}_tmv_dis")
+            pipeline_inputs['market_visit'] = mv_input if mv_input else None
+            pipeline_inputs['tanggal_market_visit'] = tmv_input if mv_input else None
+            pipeline_inputs['detail_market_visit'] = st.text_area("Detail Market Visit", key=f"{form_key}_dkmv") or None
+
+        with st.expander("User Interview", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                ui_input = st.selectbox("User Interview", [""] + pipeline_opts, key=f"{form_key}_ui")
+            with col2:
+                if ui_input:
+                    tui_input = st.date_input("Tanggal User Interview", datetime.now(), key=f"{form_key}_tui")
+                else:
+                    tui_input = None
+                    st.date_input("Tanggal User Interview", datetime.now(), disabled=True, key=f"{form_key}_tui_dis")
+            pipeline_inputs['user_interview'] = ui_input if ui_input else None
+            pipeline_inputs['tanggal_user_interview'] = tui_input if ui_input else None
+            pipeline_inputs['detail_keterangan_user_interview'] = st.text_area("Detail Keterangan User Interview", key=f"{form_key}_dkui") or None
+
+        with st.expander("Panel Interview", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                pi_input = st.selectbox("Panel Interview", [""] + pipeline_opts, key=f"{form_key}_pi")
+            with col2:
+                if pi_input:
+                    tpi_input = st.date_input("Tanggal Panel Interview", datetime.now(), key=f"{form_key}_tpi")
+                else:
+                    tpi_input = None
+                    st.date_input("Tanggal Panel Interview", datetime.now(), disabled=True, key=f"{form_key}_tpi_dis")
+            pipeline_inputs['panel_interview'] = pi_input if pi_input else None
+            pipeline_inputs['tanggal_panel_interview'] = tpi_input if pi_input else None
+            pipeline_inputs['detail_keterangan_panel_interview'] = st.text_area("Detail Keterangan Panel Interview", key=f"{form_key}_dkpi") or None
+
+        with st.expander("Reference Check", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                rc_input = st.selectbox("Reference Check", [""] + pipeline_opts, key=f"{form_key}_rc")
+            with col2:
+                if rc_input:
+                    trc_input = st.date_input("Tanggal Reference Check", datetime.now(), key=f"{form_key}_trc")
+                else:
+                    trc_input = None
+                    st.date_input("Tanggal Reference Check", datetime.now(), disabled=True, key=f"{form_key}_trc_dis")
+            pipeline_inputs['reference_check'] = rc_input if rc_input else None
+            pipeline_inputs['tanggal_reference_check'] = trc_input if rc_input else None
+            pipeline_inputs['detail_keterangan_reference_check'] = st.text_area("Detail Keterangan Reference Check", key=f"{form_key}_dkrc") or None
+
+        with st.expander("MCU", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                mcu_input = st.selectbox("MCU", [""] + pipeline_opts, key=f"{form_key}_mcu")
+            with col2:
+                if mcu_input:
+                    tmcu_input = st.date_input("Tanggal MCU", datetime.now(), key=f"{form_key}_tmcu")
+                else:
+                    tmcu_input = None
+                    st.date_input("Tanggal MCU", datetime.now(), disabled=True, key=f"{form_key}_tmcu_dis")
+            pipeline_inputs['mcu'] = mcu_input if mcu_input else None
+            pipeline_inputs['tanggal_mcu'] = tmcu_input if mcu_input else None
+            pipeline_inputs['detail_keterangan_mcu'] = st.text_area("Detail Keterangan MCU", key=f"{form_key}_dkmcu") or None
+
+        with st.expander("Offering", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                off_input = st.selectbox("Offering", [""] + pipeline_opts, key=f"{form_key}_off")
+            with col2:
+                if off_input:
+                    toff_input = st.date_input("Tanggal Offering", datetime.now(), key=f"{form_key}_toff")
+                else:
+                    toff_input = None
+                    st.date_input("Tanggal Offering", datetime.now(), disabled=True, key=f"{form_key}_toff_dis")
+            pipeline_inputs['offering'] = off_input if off_input else None
+            pipeline_inputs['tanggal_offering'] = toff_input if off_input else None
+            pipeline_inputs['detail_keterangan_offering'] = st.text_area("Detail Keterangan Offering", key=f"{form_key}_dkoff") or None
+
+        with st.expander("Day 1", expanded=False):
+            col1, col2 = st.columns(2)
+            with col1:
+                d1_input = st.selectbox("Day 1", [""] + pipeline_opts, key=f"{form_key}_d1")
+            with col2:
+                if d1_input:
+                    td1_input = st.date_input("Tanggal Day 1", datetime.now(), key=f"{form_key}_td1")
+                else:
+                    td1_input = None
+                    st.date_input("Tanggal Day 1", datetime.now(), disabled=True, key=f"{form_key}_td1_dis")
+            pipeline_inputs['day1'] = d1_input if d1_input else None
+            pipeline_inputs['tanggal_day1'] = td1_input if d1_input else None
+            pipeline_inputs['detail_keterangan_day1'] = st.text_area("Detail Keterangan Day 1", key=f"{form_key}_dkd1") or None
+
+        st.markdown("---")
+        st.markdown("### Catatan")
+        notes_input = st.text_area("Notes / Catatan", key=f"{form_key}_notes") or None
 
         col1, col2 = st.columns([1, 4])
         with col1:
-            submitted = st.form_submit_button("💾 Simpan", type="primary")
+            submitted = st.form_submit_button("Simpan", type="primary")
         if is_parse_mode:
             with col2:
-                if st.form_submit_button("🔄 Reset / Parse Ulang", type="secondary"):
+                if st.form_submit_button("Reset / Parse Ulang", type="secondary"):
                     st.session_state.parsed_cv_data = {}
                     st.session_state.show_parsed_form = False
                     for k in list(st.session_state.keys()):
@@ -796,12 +980,12 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
         if errors:
             for err in errors:
-                st.error(f"❌ {err}")
+                st.error(f"{err}")
         else:
             try:
                 existing = db.query(DBSourcing).filter(DBSourcing.nama == nama_input).first()
                 if existing:
-                    st.warning(f"⚠️ Nama '{nama_input}' sudah ada!")
+                    st.warning(f"Nama '{nama_input}' sudah ada!")
 
                 last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
                 next_no = (last_no.no + 1) if last_no and last_no.no else 1
@@ -831,18 +1015,20 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                     last_tenure=last_tenure_input,
                     total_tenure=total_tenure_input,
                     pernah_di_fmcg=fmcg_input,
-                    sourcing_freelance=sourcing_freelance_input if sourcing_freelance_input else None,
-                    tanggal_sourcing_freelance=tanggal_sourcing_freelance_input if sourcing_freelance_input else None,
-                    sourcing_hr=sourcing_hr_input if sourcing_hr_input else None,
-                    tanggal_sourcing=tanggal_sourcing_input if sourcing_hr_input else None,
                     sourcing_date=datetime.now().date(),
+                    notes=notes_input,
                     source_user_id=user.id,
                     created_at=datetime.now(),
                     last_compile_action="MANUAL_INPUT"
                 )
+
+                for field_name, value in pipeline_inputs.items():
+                    if hasattr(new, field_name):
+                        setattr(new, field_name, value)
+
                 db.add(new)
                 db.commit()
-                st.success(f"✅ '{nama_input}' berhasil disimpan! Tier: {tier_final}")
+                st.success(f"'{nama_input}' berhasil disimpan! Tier: {tier_final}")
                 st.balloons()
 
                 if is_parse_mode:
@@ -861,7 +1047,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 st.rerun()
 
             except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
+                st.error(f"Error: {str(e)}")
                 db.rollback()
 
 
