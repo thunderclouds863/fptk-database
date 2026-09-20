@@ -1,3 +1,4 @@
+# core/auth.py
 import bcrypt
 import streamlit as st
 from sqlalchemy.orm import Session
@@ -7,9 +8,6 @@ import hashlib
 import re
 
 
-# ============================================================
-# BU CODE MAPPING
-# ============================================================
 BU_CODE_MAPPING = {
     "CMD": {"nama": "PT Cisarua Mountain Dairy, Tbk", "kode": "CMD"},
     "JESS": {"nama": "PT Java Egg Specialities", "kode": "JESS"},
@@ -19,15 +17,7 @@ BU_CODE_MAPPING = {
 }
 
 
-# ============================================================
-# HELPER: INVALIDATE FILTER CACHE
-# ============================================================
-
 def invalidate_filter_cache():
-    """
-    Helper untuk invalidate cache filter options.
-    Dipanggil setiap ada perubahan user / master dropdown.
-    """
     try:
         from core.utils import get_filter_options_from_db
         get_filter_options_from_db.clear()
@@ -35,22 +25,19 @@ def invalidate_filter_cache():
         pass
 
 
-# ============================================================
-# PASSWORD FUNCTIONS
-# ============================================================
-
 def hash_password(password: str) -> str:
     salt = bcrypt.gensalt()
     return bcrypt.hashpw(password.encode('utf-8'), salt).decode('utf-8')
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
+    if not password_hash or password_hash == "DISABLED":
+        return False
+    try:
+        return bcrypt.checkpw(password.encode('utf-8'), password_hash.encode('utf-8'))
+    except Exception:
+        return False
 
-
-# ============================================================
-# AUTHENTICATION
-# ============================================================
 
 def authenticate_user(db: Session, username: str, password: str):
     user = db.query(User).filter(User.username == username).first()
@@ -78,33 +65,12 @@ def login_user(db: Session, username: str, password: str):
     return None
 
 
-@st.cache_data(ttl=60)
-def login_user_cached(db, username, password):
-    """Cached version of login_user"""
-    from core.auth import login_user
-    return login_user(db, username, password)
-
-
-# ============================================================
-# KODE PIC GENERATOR
-# ============================================================
-
 def generate_kode_pic(business_unit: str, pic_name: str) -> str:
-    """
-    Generate Kode PIC dari BU dan Nama PIC
-    Format: {BU}{3 huruf pertama nama}
-    Contoh: CMD + Elsi → CMDEls
-    """
     if not business_unit or not pic_name:
         return ""
-    # Ambil 3 huruf pertama dari nama (hanya huruf)
     name_code = re.sub(r'[^A-Za-z]', '', pic_name)[:3].capitalize()
     return f"{business_unit}{name_code}"
 
-
-# ============================================================
-# USER CRUD
-# ============================================================
 
 def create_user(db: Session, username: str, password: str, role: str = "user",
                 pic_recruiter: str = None, display_name: str = None,
@@ -125,12 +91,7 @@ def create_user(db: Session, username: str, password: str, role: str = "user",
     db.add(user)
     db.commit()
     db.refresh(user)
-
-    # ============================================================
-    # INVALIDATE FILTER CACHE (PIC baru harus muncul di filter)
-    # ============================================================
     invalidate_filter_cache()
-
     return user
 
 
@@ -145,15 +106,8 @@ def reset_password(db: Session, user_id: int, new_password: str):
     return True
 
 
-# ============================================================
-# INIT DEFAULT USERS
-# ============================================================
-
 def init_default_users(db: Session):
-    """Create 25+ PIC users + 1 Admin + 1 IT if not exist"""
-    # Format: (username, display_name, pic_recruiter, business_unit, kode_pic)
     pic_users = [
-        # ===== CORPORATE (CORP) =====
         ("adista", "Adista", "Adista", "CORP", "CORPAdi"),
         ("brittney", "Brittney", "Brittney", "CORP", "CORPBrit"),
         ("eli", "Eli", "Eli", "CORP", "CORPEli"),
@@ -169,24 +123,16 @@ def init_default_users(db: Session):
         ("yeremia", "Yeremia", "Yeremia", "CORP", "CORPYer"),
         ("zwei", "Zwei", "Zwei", "CORP", "CORPZwei"),
         ("desi", "Desi", "Desi", "CORP", "CORPDesi"),
-
-        # ===== MP (Macroprima Panganutama) =====
         ("pauline", "Pauline", "Pauline", "MP", "MPPau"),
         ("ratih", "Ratih", "Ratih", "MP", "MPRat"),
         ("achmad", "Achmad", "Achmad", "MP", "MPAch"),
         ("kasanah", "Kasanah", "Kasanah", "MP", "MPKas"),
         ("alma", "Alma", "Alma", "MP", "MPAlm"),
-
-        # ===== CMD (Cisarua Mountain Dairy) =====
         ("salwa", "Salwa", "Salwa", "CMD", "CMDSal"),
         ("elsi", "Elsi", "Elsi", "CMD", "CMDEls"),
         ("wahyu", "Wahyu", "Wahyu", "CMD", "CMDWah"),
-
-        # ===== JESS (Java Egg Specialities) =====
         ("riska", "Riska", "Riska", "JESS", "JESSRis"),
         ("fiscall", "Fiscall", "Fiscall", "JESS", "JESSFis"),
-
-        # ===== MS (Macrosentra Niagaboga) =====
         ("leo", "Leo", "Leo", "MS", "MSLeo"),
     ]
 
@@ -194,7 +140,6 @@ def init_default_users(db: Session):
         if not db.query(User).filter(User.username == username).first():
             create_user(db, username, "password123", "user", pic_name, display_name, bu, kode)
 
-    # ===== ADMIN =====
     if not db.query(User).filter(User.username == "admin").first():
         admin = User(
             username="admin",
@@ -208,7 +153,6 @@ def init_default_users(db: Session):
         db.add(admin)
         db.commit()
 
-    # ===== IT (View-Only) =====
     if not db.query(User).filter(User.username == "it").first():
         it_user = User(
             username="it",
@@ -222,18 +166,12 @@ def init_default_users(db: Session):
         db.add(it_user)
         db.commit()
 
-    # Invalidate cache setelah seed
     invalidate_filter_cache()
 
 
-# ============================================================
-# INIT MASTER DROPDOWN
-# ============================================================
-
 def init_master_dropdown(db: Session):
-    """Seed default master data jika kosong"""
     if db.query(MasterDropdown).count() > 0:
-        return  # sudah ada data
+        return
 
     default_data = [
         {"kode_pic": "CORPPau", "bu": "PT CISARUA MOUNTAIN DAIRY, TBK", "alasan": "Karyawan Lama Keluar", "category_fptk": "NEW", "pic_recruiter": "Pauline", "filter_fptk": "CLAP FGDP", "status": "OP", "lokasi_onboarding": "HO Meruya", "detail_sla": "OP belum lewat SLA", "keterangan_0": "Area minim sumber daya", "keterangan_1": "Kandidat hasil referensi User", "keterangan_cancel": "Keterangan FPTK tidak sesuai kebutuhan", "nama_direktorat": "CEO Office", "model": "Model 1", "sumber_sourcing": "Jobstreet", "jenjang_pendidikan": "SMA/SMK", "nama_universitas_top10": "Universitas Indonesia", "jurusan": "IPA", "university_tier": "Top 3 PTN", "ipk_tier": "Lebih dari 3,5"},
@@ -262,36 +200,26 @@ def init_master_dropdown(db: Session):
         db.add(master)
 
     db.commit()
-
-    # Invalidate cache setelah seed master dropdown
     invalidate_filter_cache()
 
 
-# ============================================================
-# CURRENT USER & ROLE HELPERS
-# ============================================================
-
 def get_current_user(db: Session):
-    """Ambil user yang sedang login dari session state"""
     if "user_id" not in st.session_state:
         return None
     return db.query(User).filter(User.id == st.session_state.user_id).first()
 
 
 def is_admin(db: Session):
-    """Cek apakah user yang login adalah admin"""
     user = get_current_user(db)
     return user and user.role == "admin"
 
 
 def is_it(db: Session) -> bool:
-    """Cek apakah user adalah IT (view-only)"""
     user = get_current_user(db)
     return user and user.role == "it"
 
 
 def is_editor(db: Session) -> bool:
-    """Cek apakah user adalah editor (bisa transfer FPTK)"""
     user = get_current_user(db)
     if not user:
         return False
@@ -299,20 +227,15 @@ def is_editor(db: Session) -> bool:
 
 
 def can_edit_data(db: Session) -> bool:
-    """Cek apakah user bisa edit data (hanya admin)"""
     user = get_current_user(db)
     return user and user.role == "admin"
 
 
 def login_required():
     if "user_id" not in st.session_state or st.session_state.user_id is None:
-        st.warning("⚠️ Silakan login terlebih dahulu.")
+        st.warning("Silakan login terlebih dahulu.")
         st.stop()
 
-
-# ============================================================
-# UTILITY FUNCTIONS
-# ============================================================
 
 def hash_file(file_data: bytes) -> str:
     return hashlib.sha256(file_data).hexdigest()
