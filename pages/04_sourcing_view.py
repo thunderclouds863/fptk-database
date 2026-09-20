@@ -14,7 +14,7 @@ import time
 def get_sourcing_options_view():
     return {
         'sumber_options': ["Jobstreet", "LinkedIn", "Google Form", "Referensi User", "Referensi Karyawan", "Campus Hiring", "Walk-in Interview", "Database Internal", "Freelance", "Lainnya"],
-        'model_options': ["Freelance", "Internal", "Outsource", "Lainnya"],
+        'model_options': ["Model 1", "Model 2", "Model 3", "Model 4"],
         'pipeline_status_options': ["V", "X"],
         'fmcg_options': ["Ya", "Tidak"],
         'jenjang_options': ["SMA/SMK", "D3", "D4", "S1", "S2"],
@@ -43,7 +43,7 @@ def get_pipeline_stages_view():
 
 
 def show_sourcing_view():
-    st.title("Sourcing Database")
+    st.title("👤 Sourcing Database")
     st.markdown("Lihat dan filter data kandidat sourcing.")
 
     db = next(get_db())
@@ -52,7 +52,7 @@ def show_sourcing_view():
         st.warning("Silakan login terlebih dahulu.")
         return
 
-    with st.spinner("Memuat data..."):
+    with st.spinner("📋 Memuat data..."):
         filter_opts = get_filter_options_from_db()
         sourcing_options = get_sourcing_options_view()
         pipeline_stages = get_pipeline_stages_view()
@@ -81,8 +81,8 @@ def show_sourcing_view():
             pic_from_users = []
 
     with st.sidebar:
-        st.markdown("### Filter Sourcing")
-        search = st.text_input("Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
+        st.markdown("### 🔍 Filter Sourcing")
+        search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
         pic_options = ["Semua"] + pic_from_users
         pic_filter = st.selectbox("PIC Recruiter / Rekruter", pic_options)
 
@@ -91,9 +91,7 @@ def show_sourcing_view():
             sumber_options = ["Semua"] + sourcing_options['sumber_options']
         sumber_filter = st.selectbox("Sumber Sourcing", sumber_options)
 
-        model_options = ["Semua"] + filter_opts.get("model_options", [])
-        if len(model_options) == 1:
-            model_options = ["Semua"] + sourcing_options['model_options']
+        model_options = ["Semua"] + sourcing_options['model_options']
         model_filter = st.selectbox("Model Rekrutmen", model_options)
 
         stage_labels = ["Semua"] + [s["label"] for s in pipeline_stages]
@@ -108,14 +106,14 @@ def show_sourcing_view():
         show_mine = st.checkbox("Hanya data saya", value=False)
 
         st.markdown("---")
-        if st.button("Reset Filter", use_container_width=True):
+        if st.button("🔄 Reset Filter", use_container_width=True):
             st.rerun()
-        if st.button("Refresh Filter Options", use_container_width=True):
+        if st.button("🔄 Refresh Filter Options", use_container_width=True):
             get_filter_options_from_db.clear()
-            st.success("Filter refreshed!")
+            st.success("✅ Filter refreshed!")
             time.sleep(0.3)
             st.rerun()
-        st.caption("Filter diambil langsung dari database")
+        st.caption("💡 Filter diambil langsung dari database")
 
     query = db.query(DBSourcing)
 
@@ -153,18 +151,18 @@ def show_sourcing_view():
     if total > 0:
         col_export1, col_export2 = st.columns(2)
         with col_export1:
-            if st.button("Export CSV (Filtered)", use_container_width=True):
+            if st.button("📥 Export CSV (Filtered)", use_container_width=True):
                 df_export = pd.read_sql(query.statement, db.bind)
                 csv = df_export.to_csv(index=False)
                 st.download_button(
-                    "Download CSV",
+                    "⬇️ Download CSV",
                     csv,
                     f"sourcing_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     "text/csv",
                     key="dl_sourcing_csv"
                 )
         with col_export2:
-            if st.button("Export Excel (Filtered)", use_container_width=True):
+            if st.button("📊 Export Excel (Filtered)", use_container_width=True):
                 from io import BytesIO
                 df_export = pd.read_sql(query.statement, db.bind)
                 output = BytesIO()
@@ -172,7 +170,7 @@ def show_sourcing_view():
                     df_export.to_excel(writer, sheet_name='Sourcing', index=False)
                 output.seek(0)
                 st.download_button(
-                    "Download Excel",
+                    "⬇️ Download Excel",
                     output.getvalue(),
                     f"sourcing_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -288,8 +286,184 @@ def show_sourcing_view():
         st.dataframe(display_df, use_container_width=True, height=500)
 
         st.markdown("---")
-        st.subheader("Detail & Edit Kandidat")
-        st.caption("Cari berdasarkan Kode Unik, Nama, atau Posisi")
+        st.markdown("### ✏️ Bulk Edit Sourcing")
+        st.caption("Pilih banyak kandidat sekaligus, lalu update field yang sama untuk semuanya.")
+
+        bulk_query = db.query(DBSourcing)
+        if search:
+            search_term = search.strip()
+            bulk_query = bulk_query.filter(
+                (DBSourcing.nama.ilike(f"%{search_term}%")) |
+                (DBSourcing.posisi.ilike(f"%{search_term}%")) |
+                (DBSourcing.kode_unik.ilike(f"%{search_term}%"))
+            )
+        if pic_filter != "Semua":
+            bulk_query = bulk_query.filter(DBSourcing.rekruter == pic_filter)
+        if sumber_filter != "Semua":
+            bulk_query = bulk_query.filter(DBSourcing.sumber_sourcing == sumber_filter)
+        if model_filter != "Semua":
+            bulk_query = bulk_query.filter(DBSourcing.model_rekrutmen == model_filter)
+        if date_from:
+            bulk_query = bulk_query.filter(DBSourcing.sourcing_date >= date_from)
+        if date_to:
+            bulk_query = bulk_query.filter(DBSourcing.sourcing_date <= date_to)
+
+        bulk_sourcing = bulk_query.limit(500).all()
+
+        if not bulk_sourcing:
+            st.info("Tidak ada kandidat yang bisa di-bulk edit dengan filter ini.")
+        else:
+            bulk_src_df = pd.DataFrame([{
+                "pilih": False,
+                "id": s.id,
+                "kode_unik": s.kode_unik,
+                "nama": s.nama,
+                "posisi": s.posisi,
+                "rekruter": s.rekruter,
+                "sumber_sourcing": s.sumber_sourcing,
+                "model_rekrutmen": s.model_rekrutmen,
+                "is_blacklisted": s.is_blacklisted or False,
+            } for s in bulk_sourcing])
+
+            edited_src_df = st.data_editor(
+                bulk_src_df,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "pilih": st.column_config.CheckboxColumn("Pilih", default=False),
+                    "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                    "kode_unik": st.column_config.TextColumn("Kode Unik", disabled=True, width="medium"),
+                    "nama": st.column_config.TextColumn("Nama", disabled=True, width="medium"),
+                    "posisi": st.column_config.TextColumn("Posisi", disabled=True, width="medium"),
+                    "rekruter": st.column_config.TextColumn("PIC", disabled=True, width="small"),
+                    "sumber_sourcing": st.column_config.TextColumn("Sumber", disabled=True, width="small"),
+                    "model_rekrutmen": st.column_config.TextColumn("Model", disabled=True, width="small"),
+                    "is_blacklisted": st.column_config.CheckboxColumn("Blacklist", disabled=True, width="small"),
+                },
+                key="bulk_sourcing_table"
+            )
+
+            selected_src_ids = edited_src_df[edited_src_df["pilih"] == True]["id"].tolist()
+
+            st.markdown(f"**{len(selected_src_ids)} kandidat dipilih**")
+
+            if selected_src_ids:
+                st.markdown("#### Field yang Mau Diubah")
+
+                pipeline_fields = [
+                    "sourcing_freelance", "sourcing_hr", "shortlist_cv", "psikotes",
+                    "hr_interview", "technical_test_case_study", "market_visit",
+                    "user_interview", "panel_interview", "reference_check",
+                    "mcu", "offering", "day1"
+                ]
+
+                all_src_fields = {
+                    "posisi": "Posisi",
+                    "model_rekrutmen": "Model Rekrutmen",
+                    "rekruter": "Rekruter",
+                    "sumber_sourcing": "Sumber Sourcing",
+                    "jenjang_pendidikan": "Jenjang Pendidikan",
+                    "jurusan": "Jurusan",
+                    "tahun_lulus": "Tahun Lulus",
+                    "ipk": "IPK",
+                    "nama_universitas_top10": "Universitas Top 10",
+                    "university_tier": "University Tier",
+                    "ipk_tier": "IPK Tier",
+                    "domisili": "Domisili",
+                    "last_position": "Last Position",
+                    "last_company": "Last Company",
+                    "last_tenure": "Last Tenure",
+                    "total_tenure": "Total Tenure",
+                    "pernah_di_fmcg": "Pernah di FMCG",
+                    "notes": "Notes",
+                    "is_blacklisted": "Blacklist Status",
+                }
+
+                for pf in pipeline_fields:
+                    all_src_fields[pf] = f"Pipeline: {pf.replace('_', ' ').title()}"
+
+                field_src = st.selectbox(
+                    "Pilih Field",
+                    list(all_src_fields.keys()),
+                    format_func=lambda x: all_src_fields[x],
+                    key="bulk_src_field"
+                )
+
+                new_src_value = None
+                custom_date = None
+
+                if field_src in pipeline_fields:
+                    new_src_value = st.selectbox("Status Pipeline", ["", "V", "X"], key=f"bulk_src_v_{field_src}")
+                    auto_date = st.checkbox("Auto-isi tanggal hari ini", value=True, key=f"bulk_src_autodate_{field_src}")
+                    if not auto_date:
+                        custom_date = st.date_input("Tanggal", datetime.now().date(), key=f"bulk_src_date_{field_src}")
+                    else:
+                        custom_date = datetime.now().date()
+                elif field_src == "model_rekrutmen":
+                    new_src_value = st.selectbox("Model Rekrutmen", ["Model 1", "Model 2", "Model 3", "Model 4"], key="bulk_src_model")
+                elif field_src == "pernah_di_fmcg":
+                    new_src_value = st.selectbox("Pernah di FMCG", ["Ya", "Tidak"], key="bulk_src_fmcg")
+                elif field_src == "jenjang_pendidikan":
+                    new_src_value = st.selectbox("Jenjang", ["SMA/SMK", "D3", "D4", "S1", "S2"], key="bulk_src_jenjang")
+                elif field_src == "university_tier":
+                    new_src_value = st.selectbox("University Tier", ["Top 3 PTN", "Top 10 PTN", "Top 20 PTN", "Top 10 PTS", "Lainnya"], key="bulk_src_unitier")
+                elif field_src == "ipk_tier":
+                    new_src_value = st.selectbox("IPK Tier", ["> 3.5", "3.0 - 3.5", "2.5 - 3.0", "< 2.5"], key="bulk_src_ipktier")
+                elif field_src == "is_blacklisted":
+                    new_src_value = st.selectbox("Blacklist", [True, False], format_func=lambda x: "Ya" if x else "Tidak", key="bulk_src_blacklist")
+                elif field_src == "tahun_lulus":
+                    new_src_value = st.number_input("Tahun Lulus", min_value=1900, max_value=2100, value=2020, key="bulk_src_tahun")
+                elif field_src == "ipk":
+                    new_src_value = st.number_input("IPK", min_value=0.0, max_value=4.0, value=3.0, step=0.01, key="bulk_src_ipk")
+                else:
+                    new_src_value = st.text_input("Nilai Baru", key="bulk_src_text")
+
+                col_a, col_b = st.columns(2)
+                with col_a:
+                    if st.button("✅ Terapkan ke Kandidat", type="primary", use_container_width=True, key="bulk_src_apply"):
+                        try:
+                            updated_count = 0
+                            for sid in selected_src_ids:
+                                src_obj = db.query(DBSourcing).filter(DBSourcing.id == sid).first()
+                                if not src_obj:
+                                    continue
+
+                                setattr(src_obj, field_src, new_src_value)
+
+                                if field_src in pipeline_fields and new_src_value and custom_date:
+                                    date_field = f"tanggal_{field_src}"
+                                    if hasattr(src_obj, date_field):
+                                        setattr(src_obj, date_field, custom_date)
+
+                                if field_src == "is_blacklisted" and new_src_value:
+                                    src_obj.blacklisted_at = datetime.now()
+                                    src_obj.blacklisted_by = user.id
+                                    src_obj.blacklist_reason = "Bulk edit"
+                                elif field_src == "is_blacklisted" and not new_src_value:
+                                    src_obj.blacklisted_at = None
+                                    src_obj.blacklisted_by = None
+                                    src_obj.blacklist_reason = None
+
+                                src_obj.last_updated_at = datetime.now()
+                                src_obj.last_compile_action = "BULK_EDIT"
+                                updated_count += 1
+
+                            db.commit()
+                            st.cache_data.clear()
+                            st.success(f"✅ Berhasil update {updated_count} kandidat!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"❌ Error: {str(e)}")
+                            db.rollback()
+
+                with col_b:
+                    if st.button("❌ Batal", use_container_width=True, key="bulk_src_cancel"):
+                        st.rerun()
+
+        st.markdown("---")
+        st.subheader("✏️ Detail & Edit Kandidat")
+        st.caption("🔍 Cari berdasarkan Kode Unik, Nama, atau Posisi")
 
         df_all = pd.read_sql(query.statement, db.bind)
 
@@ -324,7 +498,7 @@ def show_sourcing_view():
             st.error("Data tidak ditemukan")
             return
 
-        with st.expander("Data Pribadi & Pendidikan", expanded=True):
+        with st.expander("📋 Data Pribadi & Pendidikan", expanded=True):
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.markdown(f"**ID:** {detail.id}")
@@ -344,7 +518,7 @@ def show_sourcing_view():
                 st.markdown(f"**Jurusan Lainnya:** {getattr(detail, 'jurusan_lainnya', None) or '-'}")
                 st.markdown(f"**IPK:** {detail.ipk or '-'}")
 
-        with st.expander("Pengalaman Kerja"):
+        with st.expander("💼 Pengalaman Kerja"):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**Posisi Terakhir:** {detail.last_position or '-'}")
@@ -354,7 +528,7 @@ def show_sourcing_view():
                 st.markdown(f"**Total Masa Kerja:** {detail.total_tenure or '-'}")
                 st.markdown(f"**Pernah di FMCG:** {detail.pernah_di_fmcg or '-'}")
 
-        with st.expander("Pipeline Status"):
+        with st.expander("📊 Pipeline Status"):
             pipeline_data = []
             for stage in pipeline_stages:
                 field = getattr(detail, stage["field"])
@@ -373,7 +547,7 @@ def show_sourcing_view():
             pipeline_df = pd.DataFrame(pipeline_data)
             st.dataframe(pipeline_df, use_container_width=True)
 
-        with st.expander("Catatan & Blacklist"):
+        with st.expander("📝 Catatan & Blacklist"):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**Catatan:** {detail.notes or '-'}")
@@ -384,16 +558,16 @@ def show_sourcing_view():
                     st.markdown(f"**Alasan:** {detail.blacklist_reason or '-'}")
 
         st.markdown("---")
-        st.subheader("Edit Data Kandidat")
+        st.subheader("✏️ Edit Data Kandidat")
 
         is_owner = detail.rekruter == user.pic_recruiter
         can_edit = is_admin(db) or is_owner
 
         if not can_edit:
-            st.warning("Anda hanya bisa mengedit data yang Anda input sendiri. Hubungi admin untuk mengedit data ini.")
+            st.warning("⚠️ Anda hanya bisa mengedit data yang Anda input sendiri. Hubungi admin untuk mengedit data ini.")
         else:
             with st.form("edit_sourcing_full", clear_on_submit=False):
-                st.markdown("### Data Pribadi & Pendidikan")
+                st.markdown("### 📋 Data Pribadi & Pendidikan")
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
@@ -418,7 +592,7 @@ def show_sourcing_view():
                                                  index=([""] + sourcing_options['fmcg_options']).index(detail.pernah_di_fmcg) if detail.pernah_di_fmcg in sourcing_options['fmcg_options'] else 0)
 
                 st.markdown("---")
-                st.markdown("### Pendidikan")
+                st.markdown("### 🎓 Pendidikan")
                 col1, col2, col3 = st.columns(3)
 
                 with col1:
@@ -444,7 +618,7 @@ def show_sourcing_view():
                                            index=([""] + sourcing_options['ipk_tier_options']).index(detail.ipk_tier) if detail.ipk_tier in sourcing_options['ipk_tier_options'] else 0)
 
                 st.markdown("---")
-                st.markdown("### Pengalaman Kerja")
+                st.markdown("### 💼 Pengalaman Kerja")
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -456,7 +630,7 @@ def show_sourcing_view():
                     total_tenure = st.text_input("Total Masa Kerja", value=detail.total_tenure or "")
 
                 st.markdown("---")
-                st.markdown("### Pipeline Stages (V = Lolos, X = Tidak Lolos)")
+                st.markdown("### 📊 Pipeline Stages (V = Lolos, X = Tidak Lolos)")
 
                 pipeline_inputs = {}
 
@@ -502,7 +676,7 @@ def show_sourcing_view():
                         pipeline_inputs[date_field] = new_date
 
                 st.markdown("---")
-                st.markdown("### Catatan & Blacklist")
+                st.markdown("### 📝 Catatan & Blacklist")
                 col1, col2 = st.columns(2)
 
                 with col1:
@@ -513,14 +687,14 @@ def show_sourcing_view():
                     blacklist_reason = st.text_area("Alasan Blacklist", value=detail.blacklist_reason or "", height=100)
 
                 st.markdown("---")
-                st.markdown("### Audit Info")
+                st.markdown("### 🔧 Audit Info")
                 col1, col2 = st.columns(2)
                 with col1:
                     st.markdown(f"**Created At:** {detail.created_at.strftime('%d/%m/%Y %H:%M') if detail.created_at else '-'}")
                 with col2:
                     st.markdown(f"**Last Updated:** {detail.last_updated_at.strftime('%d/%m/%Y %H:%M') if detail.last_updated_at else '-'}")
 
-                submitted = st.form_submit_button("Simpan Perubahan")
+                submitted = st.form_submit_button("💾 Simpan Perubahan")
 
                 if submitted:
                     try:
@@ -577,11 +751,11 @@ def show_sourcing_view():
                         detail.last_compile_action = "Manual Edit"
 
                         db.commit()
-                        st.success("Data berhasil diupdate!")
+                        st.success("✅ Data berhasil diupdate!")
                         st.rerun()
 
                     except Exception as e:
                         db.rollback()
-                        st.error(f"Gagal mengupdate data: {str(e)}")
+                        st.error(f"❌ Gagal mengupdate data: {str(e)}")
     else:
         st.info("Tidak ada data sourcing dengan filter yang dipilih.")
