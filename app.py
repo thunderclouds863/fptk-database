@@ -542,7 +542,6 @@ with st.sidebar:
             "👩🏻‍💻 Sourcing View": "sourcing_view",
             "📎 Lampiran CV": "cv_attachments",
             "🔄 Transfer Kandidat": "candidate_transfer",
-            "🚫 Blacklist Kandidat": "blacklist_list",
             "🏢 DB Kode Posisi": "db_kode_posisi",
             "🔍 Funnel Report": "funnel_report",
             "📊 Monitoring Sourcing": "monitoring_sourcing",
@@ -561,8 +560,7 @@ with st.sidebar:
         if user_is_admin:
             base_pages["🔄 Update Cycle"] = "upload_cycle"
             base_pages["👥 User Management"] = "user_management"
-            base_pages["📩 Request Hapus"] = "admin_delete_requests"
-            base_pages["📩 Request Un-Blacklist"] = "admin_blacklist_requests"
+            base_pages["📩 Request"] = "admin_delete_requests"
 
         st.session_state.pages_dict = base_pages
         st.session_state.pages_dict_role = current_role
@@ -840,20 +838,6 @@ elif page == "candidate_transfer":
     except ModuleNotFoundError:
         st.error("File pages/candidate_transfer.py tidak ditemukan!")
 
-elif page == "blacklist_list":
-    try:
-        blacklist_list = importlib.import_module("pages.blacklist_list")
-        blacklist_list.show_blacklist_list()
-    except ModuleNotFoundError:
-        st.error("File pages/blacklist_list.py tidak ditemukan!")
-
-elif page == "admin_blacklist_requests":
-    try:
-        admin_blacklist_requests = importlib.import_module("pages.admin_blacklist_requests")
-        admin_blacklist_requests.show_admin_blacklist_requests()
-    except ModuleNotFoundError:
-        st.error("File pages/admin_blacklist_requests.py tidak ditemukan!")
-
 elif page == "db_kode_posisi":
     db_kode_posisi = importlib.import_module("pages.05_db_kode_posisi")
     db_kode_posisi.show_db_kode_posisi()
@@ -939,7 +923,7 @@ with st.expander("📋 Export Sheet Spesifik"):
         "DB Kode Posisi",
         "FPTK",
         "DB Sourcing",
-        "Graik MPP",
+        "Grafik MPP",
         "Recruiter Performance",
         "Master Dropdown",
         "Evidence"
