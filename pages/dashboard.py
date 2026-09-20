@@ -5,16 +5,16 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 from core.database import get_db
-from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle
+from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle, MasterDropdown
 from core.auth import get_current_user, is_admin
 from core.utils import get_filter_options_from_db
 from datetime import datetime, timedelta
-from sqlalchemy import func, extract
+from sqlalchemy import func
 import time
 
 
 # ============================================================
-# CACHE FUNCTIONS
+# CACHE: LOAD FPTK
 # ============================================================
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -62,6 +62,10 @@ def load_fptk_data(
         db.close()
 
 
+# ============================================================
+# CACHE: LOAD SOURCING
+# ============================================================
+
 @st.cache_data(ttl=300, show_spinner=False)
 def load_sourcing_data(pic_filter=None, date_from=None, date_to=None):
     db = next(get_db())
@@ -83,6 +87,10 @@ def load_sourcing_data(pic_filter=None, date_from=None, date_to=None):
     finally:
         db.close()
 
+
+# ============================================================
+# CACHE: METRICS
+# ============================================================
 
 @st.cache_data(ttl=300)
 def calculate_metrics(df):
@@ -119,6 +127,10 @@ def calculate_metrics(df):
     }
 
 
+# ============================================================
+# CACHE: UPLOAD CYCLE PROGRESS
+# ============================================================
+
 @st.cache_data(ttl=60)
 def get_upload_cycle_progress():
     db = next(get_db())
@@ -149,6 +161,10 @@ def get_upload_cycle_progress():
         db.close()
 
 
+# ============================================================
+# CACHE: ADMIN CHECK
+# ============================================================
+
 @st.cache_data(ttl=300)
 def check_admin_role():
     db = next(get_db())
@@ -159,7 +175,7 @@ def check_admin_role():
 
 
 # ============================================================
-# HELPER: BUILD WEEK / MONTH
+# HELPER: ENRICH DATES
 # ============================================================
 
 def enrich_fptk_dates(df):
@@ -168,6 +184,8 @@ def enrich_fptk_dates(df):
     df = df.copy()
     df["fptk_date_real"] = pd.to_datetime(df["fptk_date_real"], errors="coerce")
     df = df.dropna(subset=["fptk_date_real"])
+    if df.empty:
+        return df
     df["year"] = df["fptk_date_real"].dt.year
     df["month"] = df["fptk_date_real"].dt.to_period("M").astype(str)
     df["week"] = df["fptk_date_real"].dt.isocalendar().week.astype(int)
@@ -176,14 +194,15 @@ def enrich_fptk_dates(df):
         df["fptk_date_real"].dt.isocalendar().week.astype(str).str.zfill(2)
     )
     df["month_year"] = df["fptk_date_real"].dt.strftime("%b %Y")
+    df["quarter"] = df["fptk_date_real"].dt.to_period("Q").astype(str)
     return df
 
 
 # ============================================================
-# CHART BUILDERS
+# METRIC CARDS
 # ============================================================
 
-def render_metrics_cards(metrics, df_sourcing):
+def render_metrics_cards(metrics):
     col1, col2, col3, col4, col5, col6 = st.columns(6)
     col1.metric("Total FPTK", f"{metrics['total']:,}")
     col2.metric("Open", f"{metrics['op']:,}")
@@ -192,6 +211,10 @@ def render_metrics_cards(metrics, df_sourcing):
     col5.metric("Fulfillment Rate", f"{metrics['fulfillment_rate']:.1f}%")
     col6.metric("Closed Sesuai SLA", f"{metrics['closed_sla_rate']:.1f}%")
 
+
+# ============================================================
+# CHART: MPP (CUMULATIVE / WEEK / MONTH / QUARTER)
+# ============================================================
 
 def render_mpp_chart(df, mode="Cumulative"):
     if df.empty:
@@ -205,28 +228,31 @@ def render_mpp_chart(df, mode="Cumulative"):
 
     if mode == "Trend per Week":
         group_col = "year_week"
-        title = "Trend FPTK per Week"
+        title = "📈 Trend FPTK per Week"
     elif mode == "Trend per Month":
         group_col = "month_year"
-        title = "Trend FPTK per Month"
+        title = "📈 Trend FPTK per Month"
     elif mode == "Trend per Quarter":
-        df["quarter"] = df["fptk_date_real"].dt.to_period("Q").astype(str)
         group_col = "quarter"
-        title = "Trend FPTK per Quarter"
+        title = "📈 Trend FPTK per Quarter"
     else:
         group_col = "year_week"
-        title = "MPP Cumulative (FPTK Diterima vs Closed)"
+        title = "📊 MPP Cumulative (FPTK Diterima vs Closed)"
 
     incoming = df.groupby(group_col).size().reset_index(name="FPTK Diterima")
     closed_df = df[df["status"] == "Closed"]
     closed = closed_df.groupby(group_col).size().reset_index(name="FPTK Closed")
+    cancel_df = df[df["status"] == "Cancel"]
+    cancel = cancel_df.groupby(group_col).size().reset_index(name="FPTK Cancel")
 
     merged = incoming.merge(closed, on=group_col, how="outer").fillna(0)
+    merged = merged.merge(cancel, on=group_col, how="outer").fillna(0)
     merged = merged.sort_values(group_col)
 
     if mode == "Cumulative":
         merged["FPTK Diterima"] = merged["FPTK Diterima"].cumsum()
         merged["FPTK Closed"] = merged["FPTK Closed"].cumsum()
+        merged["FPTK Cancel"] = merged["FPTK Cancel"].cumsum()
         merged["Sisa FPTK"] = merged["FPTK Diterima"] - merged["FPTK Closed"]
 
     fig = go.Figure()
@@ -239,6 +265,11 @@ def render_mpp_chart(df, mode="Cumulative"):
         x=merged[group_col], y=merged["FPTK Closed"],
         mode="lines+markers", name="FPTK Closed",
         line=dict(color="#2ecc71", width=3),
+    ))
+    fig.add_trace(go.Scatter(
+        x=merged[group_col], y=merged["FPTK Cancel"],
+        mode="lines+markers", name="FPTK Cancel",
+        line=dict(color="#e74c3c", width=2),
     ))
 
     if mode == "Cumulative":
@@ -258,6 +289,10 @@ def render_mpp_chart(df, mode="Cumulative"):
     st.plotly_chart(fig, use_container_width=True)
 
 
+# ============================================================
+# CHART: STATUS DISTRIBUTION
+# ============================================================
+
 def render_status_distribution(df):
     if df.empty or "status" not in df.columns:
         st.info("Tidak ada data status.")
@@ -266,7 +301,7 @@ def render_status_distribution(df):
     status_counts.columns = ["Status", "Count"]
     fig = px.pie(
         status_counts, values="Count", names="Status",
-        title="Distribusi Status FPTK",
+        title="🥧 Distribusi Status FPTK",
         color="Status",
         color_discrete_map={"OP": "#2ecc71", "Closed": "#3498db", "Cancel": "#e74c3c"},
         hole=0.4,
@@ -274,6 +309,10 @@ def render_status_distribution(df):
     fig.update_layout(height=400)
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: FULFILLMENT PER PIC
+# ============================================================
 
 def render_fulfillment_per_pic(df):
     if df.empty or "pic_recruiter" not in df.columns:
@@ -309,13 +348,114 @@ def render_fulfillment_per_pic(df):
     fig.update_yaxes(title_text="Jumlah FPTK", secondary_y=False)
     fig.update_yaxes(title_text="Fulfillment %", secondary_y=True, range=[0, 100])
     fig.update_layout(
-        title="Pemenuhan SDM per Recruiter (OP & Closed)",
+        title="📊 Pemenuhan SDM per Recruiter (OP & Closed)",
         height=450,
         barmode="group",
         xaxis_tickangle=-45,
     )
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: TOP PIC (USER PILIH METRIK)
+# ============================================================
+
+def render_top_pic_performance(df):
+    if df.empty or "pic_recruiter" not in df.columns:
+        st.info("Tidak ada data PIC.")
+        return
+
+    metric_options = {
+        "Composite Score (Fair)": "composite",
+        "Fulfillment Rate (%)": "fulfillment",
+        "SLA Rate (%)": "sla",
+        "Total Closed (Volume)": "closed",
+        "Total FPTK (All)": "total",
+    }
+
+    selected_metric_label = st.radio(
+        "🏆 Pilih metrik Top PIC:",
+        list(metric_options.keys()),
+        horizontal=True,
+        key="top_pic_metric",
+    )
+    key = metric_options[selected_metric_label]
+
+    rows = []
+    for pic in df["pic_recruiter"].dropna().unique():
+        sub = df[df["pic_recruiter"] == pic]
+
+        op = len(sub[sub["status"] == "OP"])
+        closed = len(sub[sub["status"] == "Closed"])
+        cancel = len(sub[sub["status"] == "Cancel"])
+        total = op + closed + cancel
+
+        denom = op + closed
+        fulfillment = (closed / denom * 100) if denom > 0 else 0
+
+        if closed > 0 and "detail_sla" in sub.columns:
+            closed_df = sub[sub["status"] == "Closed"]
+            lulus = len(closed_df[closed_df["detail_sla"] == "Closed Lulus SLA"])
+            sla_rate = (lulus / closed * 100) if closed > 0 else 0
+        else:
+            sla_rate = 0
+
+        volume_score = min(closed, 50) / 50 * 100
+        composite = (fulfillment * 0.4) + (sla_rate * 0.4) + (volume_score * 0.2)
+
+        rows.append({
+            "PIC": pic,
+            "Open": op,
+            "Closed": closed,
+            "Cancel": cancel,
+            "Total": total,
+            "Fulfillment %": round(fulfillment, 1),
+            "SLA %": round(sla_rate, 1),
+            "Composite Score": round(composite, 1),
+            "composite": composite,
+            "fulfillment": fulfillment,
+            "sla": sla_rate,
+            "closed": closed,
+            "total": total,
+        })
+
+    perf_df = pd.DataFrame(rows)
+
+    if perf_df.empty:
+        st.info("Tidak ada data untuk dianalisis.")
+        return
+
+    perf_df = perf_df.sort_values(key, ascending=False).head(10)
+
+    fig = px.bar(
+        perf_df,
+        x="PIC",
+        y=key,
+        title=f"🏆 Top 10 PIC by {selected_metric_label}",
+        color=key,
+        color_continuous_scale="RdYlGn",
+        text=key,
+    )
+    fig.update_traces(textposition="outside")
+    fig.update_layout(
+        height=450,
+        xaxis_tickangle=-45,
+        showlegend=False,
+        coloraxis_showscale=False,
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    with st.expander("📋 Detail Metrik PIC", expanded=False):
+        st.dataframe(
+            perf_df[["PIC", "Open", "Closed", "Cancel", "Fulfillment %", "SLA %", "Composite Score"]],
+            use_container_width=True,
+            hide_index=True,
+        )
+
+
+# ============================================================
+# CHART: POSITION CLOSED PER LEVEL
+# ============================================================
 
 def render_position_closed_per_level(df):
     if df.empty or "level_fptk" not in df.columns:
@@ -341,7 +481,7 @@ def render_position_closed_per_level(df):
         fig.add_trace(go.Bar(x=pivot["pic_recruiter"], y=pivot[col], name=col))
 
     fig.update_layout(
-        title="Position Closed per Recruiter per Level Jabatan",
+        title="📊 Position Closed per Recruiter per Level Jabatan",
         xaxis_title="Recruiter",
         yaxis_title="Jumlah Closed",
         barmode="stack",
@@ -350,6 +490,10 @@ def render_position_closed_per_level(df):
     )
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: POSITION COMPLEXITY
+# ============================================================
 
 def render_position_complexity(df):
     if df.empty or "level_fptk" not in df.columns:
@@ -389,7 +533,7 @@ def render_position_complexity(df):
             fig.add_trace(go.Bar(x=pivot["pic_recruiter"], y=pivot[cat], name=cat))
 
     fig.update_layout(
-        title="Complexity Closed Position: Distribution per Recruiter",
+        title="🎯 Complexity Closed Position: Distribution per Recruiter",
         xaxis_title="Recruiter",
         yaxis_title="Jumlah Closed",
         barmode="stack",
@@ -398,6 +542,10 @@ def render_position_complexity(df):
     )
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: SLA DISTRIBUTION
+# ============================================================
 
 def render_sla_distribution(df):
     if df.empty or "detail_sla" not in df.columns:
@@ -426,13 +574,17 @@ def render_sla_distribution(df):
     }
     fig = px.bar(
         detail_counts, x="Detail SLA", y="Count",
-        title="Distribusi Detail SLA",
+        title="⏱️ Distribusi Detail SLA",
         color="Detail SLA", color_discrete_map=color_map, text="Count",
     )
     fig.update_traces(textposition="outside")
     fig.update_layout(height=400, xaxis_tickangle=-45, showlegend=False)
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: SLA PER RECRUITER
+# ============================================================
 
 def render_sla_per_recruiter(df):
     if df.empty or "pic_recruiter" not in df.columns:
@@ -478,7 +630,7 @@ def render_sla_per_recruiter(df):
         x=sla_df["Recruiter"], y=sla_df["OP Lewat SLA"], name="OP Lewat SLA", marker_color="#e67e22",
     ))
     fig.update_layout(
-        title="Pemenuhan SDM by SLA (Total Closed)",
+        title="⏱️ Pemenuhan SDM by SLA (Total Closed)",
         barmode="group",
         xaxis_title="Recruiter",
         yaxis_title="Jumlah",
@@ -487,6 +639,10 @@ def render_sla_per_recruiter(df):
     )
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: OVERVIEW PER DIREKTORAT
+# ============================================================
 
 def render_penyebaran_per_direktorat(df):
     if df.empty or "direktorat" not in df.columns:
@@ -510,7 +666,7 @@ def render_penyebaran_per_direktorat(df):
     fig.add_trace(go.Bar(x=pivot["direktorat"], y=pivot["Closed"], name="Closed", marker_color="#3498db"))
     fig.add_trace(go.Bar(x=pivot["direktorat"], y=pivot["Cancel"], name="Cancel", marker_color="#e74c3c"))
     fig.update_layout(
-        title="Overview Status FPTK per Direktorat",
+        title="🏢 Overview Status FPTK per Direktorat",
         barmode="stack",
         xaxis_title="Direktorat",
         yaxis_title="Jumlah FPTK",
@@ -520,24 +676,9 @@ def render_penyebaran_per_direktorat(df):
     st.plotly_chart(fig, use_container_width=True)
 
 
-def render_top_pic_performance(df):
-    if df.empty or "pic_recruiter" not in df.columns:
-        st.info("Tidak ada data PIC.")
-        return
-
-    counts = df["pic_recruiter"].value_counts().head(10).reset_index()
-    counts.columns = ["PIC", "Jumlah FPTK"]
-
-    fig = px.bar(
-        counts, x="PIC", y="Jumlah FPTK",
-        title="Top 10 PIC Performance",
-        color="Jumlah FPTK", color_continuous_scale="Blues",
-        text="Jumlah FPTK",
-    )
-    fig.update_traces(textposition="outside")
-    fig.update_layout(height=400, xaxis_tickangle=-45, showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
-
+# ============================================================
+# CHART: LEVEL DISTRIBUTION
+# ============================================================
 
 def render_level_distribution(df):
     if df.empty or "level_fptk" not in df.columns:
@@ -550,14 +691,18 @@ def render_level_distribution(df):
 
     fig = px.bar(
         counts, x="Level", y="Count",
-        title="Distribusi Level FPTK",
+        title="📊 Distribusi Level FPTK",
         color="Count", color_continuous_scale="Viridis",
         text="Count",
     )
     fig.update_traces(textposition="outside")
-    fig.update_layout(height=400, showlegend=False)
+    fig.update_layout(height=400, showlegend=False, coloraxis_showscale=False)
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: HEATMAP FPTK
+# ============================================================
 
 def render_heatmap_fptk(df):
     if df.empty or "fptk_date_real" not in df.columns:
@@ -579,12 +724,16 @@ def render_heatmap_fptk(df):
 
     fig = px.density_heatmap(
         heatmap_data, x="day", y="month_name", z="count",
-        title="Persebaran FPTK (Calendar Heatmap)",
+        title="🔥 Persebaran FPTK (Calendar Heatmap)",
         color_continuous_scale="Blues",
     )
     fig.update_layout(height=400)
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# CHART: SOURCING FUNNEL
+# ============================================================
 
 def render_sourcing_funnel(df_sourcing):
     if df_sourcing.empty:
@@ -624,9 +773,13 @@ def render_sourcing_funnel(df_sourcing):
         textposition="inside", textinfo="value+percent initial",
         marker=dict(color=px.colors.sequential.Blues_r[: len(df_funnel)]),
     ))
-    fig.update_layout(title="Funnel Sourcing Pipeline", height=550)
+    fig.update_layout(title="🔍 Funnel Sourcing Pipeline", height=550)
     st.plotly_chart(fig, use_container_width=True)
 
+
+# ============================================================
+# SOURCING SUMMARY
+# ============================================================
 
 def render_sourcing_summary(df_sourcing):
     if df_sourcing.empty:
@@ -640,6 +793,72 @@ def render_sourcing_summary(df_sourcing):
     c2.metric("Kandidat Blacklist", f"{blacklisted:,}")
     c3.metric("Kandidat Aktif", f"{total - blacklisted:,}")
 
+
+# ============================================================
+# SOURCING BY SUMBER (DARI DATABASE)
+# ============================================================
+
+@st.cache_data(ttl=300, show_spinner=False)
+def get_sumber_sourcing_options():
+    """Ambil sumber sourcing dari database (DBSourcing → fallback MasterDropdown)."""
+    db = next(get_db())
+    try:
+        sources = set()
+
+        rows = db.query(DBSourcing.sumber_sourcing).filter(
+            DBSourcing.sumber_sourcing.isnot(None),
+            DBSourcing.sumber_sourcing != ""
+        ).distinct().all()
+        for r in rows:
+            if r[0]:
+                sources.add(r[0].strip())
+
+        if not sources:
+            rows = db.query(MasterDropdown.sumber_sourcing).filter(
+                MasterDropdown.is_active == True,
+                MasterDropdown.sumber_sourcing.isnot(None),
+                MasterDropdown.sumber_sourcing != ""
+            ).distinct().all()
+            for r in rows:
+                if r[0]:
+                    sources.add(r[0].strip())
+
+        return sorted(sources)
+    except Exception:
+        return []
+    finally:
+        db.close()
+
+
+def render_sumber_sourcing_pie(df_sourcing):
+    if df_sourcing.empty or "sumber_sourcing" not in df_sourcing.columns:
+        st.info("Tidak ada data sumber sourcing.")
+        return
+
+    src = df_sourcing["sumber_sourcing"].dropna()
+    src = src[src.astype(str).str.strip() != ""]
+
+    if src.empty:
+        st.info("Tidak ada data sumber sourcing.")
+        return
+
+    counts = src.value_counts().reset_index()
+    counts.columns = ["Sumber", "Count"]
+
+    fig = px.pie(
+        counts,
+        values="Count",
+        names="Sumber",
+        title="🌐 Distribusi Sumber Sourcing",
+        hole=0.4,
+    )
+    fig.update_layout(height=550)
+    st.plotly_chart(fig, use_container_width=True)
+
+
+# ============================================================
+# UPLOAD CYCLE PROGRESS
+# ============================================================
 
 def render_upload_cycle_progress():
     df = get_upload_cycle_progress()
@@ -678,7 +897,6 @@ def show_dashboard():
     st.markdown("Visualisasi lengkap recruitment analytics.")
     st.markdown("---")
 
-    # ---------- LOAD FILTER OPTIONS ----------
     try:
         filter_opts = get_filter_options_from_db()
     except Exception:
@@ -688,7 +906,6 @@ def show_dashboard():
             "status_options": ["OP", "Closed", "Cancel"],
         }
 
-    # ---------- SIDEBAR FILTERS ----------
     with st.sidebar:
         st.markdown("### 🔍 Filter Dashboard")
 
@@ -717,7 +934,6 @@ def show_dashboard():
             st.cache_data.clear()
             st.rerun()
 
-    # ---------- LOAD DATA ----------
     with st.spinner("📊 Memuat data..."):
         df = load_fptk_data(
             pic_filter=pic_filter,
@@ -738,12 +954,10 @@ def show_dashboard():
 
     admin = check_admin_role()
 
-    # ---------- METRIC CARDS ----------
     metrics = calculate_metrics(df)
-    render_metrics_cards(metrics, df_sourcing)
+    render_metrics_cards(metrics)
     st.markdown("---")
 
-    # ---------- ROW 1: MPP + STATUS ----------
     col1, col2 = st.columns([2, 1])
     with col1:
         render_mpp_chart(df, mode=mpp_mode)
@@ -752,7 +966,6 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # ---------- ROW 2: FULFILLMENT + TOP PIC ----------
     col1, col2 = st.columns(2)
     with col1:
         render_fulfillment_per_pic(df)
@@ -761,7 +974,6 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # ---------- ROW 3: POSITION CLOSED + COMPLEXITY ----------
     col1, col2 = st.columns(2)
     with col1:
         render_position_closed_per_level(df)
@@ -770,7 +982,6 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # ---------- ROW 4: SLA ----------
     col1, col2 = st.columns(2)
     with col1:
         render_sla_distribution(df)
@@ -779,7 +990,6 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # ---------- ROW 5: LEVEL + HEATMAP ----------
     col1, col2 = st.columns(2)
     with col1:
         render_level_distribution(df)
@@ -788,7 +998,6 @@ def show_dashboard():
 
     st.markdown("---")
 
-    # ---------- ROW 6: SOURCING ----------
     st.subheader("🔍 Sourcing Analytics")
     render_sourcing_summary(df_sourcing)
     st.markdown("")
@@ -796,30 +1005,20 @@ def show_dashboard():
     with col1:
         render_sourcing_funnel(df_sourcing)
     with col2:
-        if not df_sourcing.empty and "sumber_sourcing" in df_sourcing.columns:
-            src = df_sourcing["sumber_sourcing"].value_counts().reset_index()
-            src.columns = ["Sumber", "Count"]
-            fig = px.pie(src, values="Count", names="Sumber", title="Sumber Sourcing", hole=0.4)
-            fig.update_layout(height=550)
-            st.plotly_chart(fig, use_container_width=True)
-        else:
-            st.info("Tidak ada data sumber sourcing.")
+        render_sumber_sourcing_pie(df_sourcing)
 
     st.markdown("---")
 
-    # ---------- ROW 7: PER DIREKTORAT (HANYA MUNCUL KALAU FILTER DIREKTORAT "Semua") ----------
     if dir_filter == "Semua" and bu_filter == "Semua":
         st.subheader("🏢 Overview per Direktorat")
         render_penyebaran_per_direktorat(df)
         st.markdown("---")
 
-    # ---------- ROW 8: UPLOAD CYCLE (ADMIN ONLY) ----------
     if admin:
         st.subheader("🔄 Upload Cycle Progress (Admin)")
         render_upload_cycle_progress()
         st.markdown("---")
 
-    # ---------- AUTO REFRESH TIMER ----------
     last_fptk = st.session_state.get("last_fptk_load", datetime.now())
     last_sourcing = st.session_state.get("last_sourcing_load", datetime.now())
     st.caption(
