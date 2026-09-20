@@ -1,3 +1,4 @@
+# pages/10_admin_delete_requests.py
 import streamlit as st
 import pandas as pd
 from core.database import get_db
@@ -8,7 +9,7 @@ import time
 
 
 def show_admin_delete_requests():
-    st.title("📩 Request Hapus FPTK")
+    st.title("Request Hapus FPTK")
     st.markdown("Kelola request hapus FPTK dari PIC.")
 
     db = next(get_db())
@@ -21,9 +22,6 @@ def show_admin_delete_requests():
         st.error("Hanya Admin yang bisa mengakses halaman ini.")
         return
 
-    # ============================================================
-    # STATISTIK
-    # ============================================================
     pending_count = db.query(FPTKDeleteRequest).filter(
         FPTKDeleteRequest.status == "PENDING"
     ).count()
@@ -35,20 +33,14 @@ def show_admin_delete_requests():
     ).count()
 
     col1, col2, col3 = st.columns(3)
-    col1.metric("⏳ Pending", pending_count)
-    col2.metric("✅ Approved", approved_count)
-    col3.metric("❌ Rejected", rejected_count)
+    col1.metric("Pending", pending_count)
+    col2.metric("Approved", approved_count)
+    col3.metric("Rejected", rejected_count)
 
     st.markdown("---")
 
-    # ============================================================
-    # TABS
-    # ============================================================
-    tab1, tab2, tab3 = st.tabs(["⏳ Pending", "✅ Approved", "❌ Rejected"])
+    tab1, tab2, tab3 = st.tabs(["Pending", "Approved", "Rejected"])
 
-    # ============================================================
-    # TAB 1: PENDING
-    # ============================================================
     with tab1:
         pending_requests = db.query(FPTKDeleteRequest).filter(
             FPTKDeleteRequest.status == "PENDING"
@@ -59,7 +51,7 @@ def show_admin_delete_requests():
         else:
             for req in pending_requests:
                 with st.container():
-                    st.markdown(f"### 📩 Request #{req.id}")
+                    st.markdown(f"### Request #{req.id}")
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
@@ -76,12 +68,10 @@ def show_admin_delete_requests():
                     with col2:
                         st.markdown("**Aksi:**")
 
-                        if st.button(f"✅ Approve", key=f"approve_{req.id}", type="primary", use_container_width=True):
+                        if st.button(f"Approve", key=f"approve_{req.id}", type="primary", use_container_width=True):
                             try:
-                                # Hapus FPTK
                                 fptk = db.query(FPTK).filter(FPTK.id == req.fptk_id).first()
                                 if fptk:
-                                    # Hapus TransferHistory juga (kalau ada)
                                     try:
                                         from core.models import TransferHistory
                                         db.query(TransferHistory).filter(
@@ -92,7 +82,6 @@ def show_admin_delete_requests():
 
                                     db.delete(fptk)
 
-                                # Update request status
                                 req.status = "APPROVED"
                                 req.reviewed_by = user.id
                                 req.reviewed_by_name = user.display_name
@@ -100,17 +89,16 @@ def show_admin_delete_requests():
                                 db.commit()
 
                                 st.cache_data.clear()
-                                st.success(f"✅ FPTK {req.kode_unik} dihapus!")
+                                st.success(f"FPTK {req.kode_unik} dihapus!")
                                 time.sleep(0.5)
                                 st.rerun()
                             except Exception as e:
-                                st.error(f"❌ Error: {str(e)}")
+                                st.error(f"Error: {str(e)}")
                                 db.rollback()
 
-                        if st.button(f"❌ Reject", key=f"reject_{req.id}", use_container_width=True):
+                        if st.button(f"Reject", key=f"reject_{req.id}", use_container_width=True):
                             st.session_state[f"show_reject_{req.id}"] = True
 
-                        # Form reject dengan alasan
                         if st.session_state.get(f"show_reject_{req.id}", False):
                             with st.form(f"reject_form_{req.id}"):
                                 reject_reason = st.text_area(
@@ -118,7 +106,7 @@ def show_admin_delete_requests():
                                     placeholder="Contoh: FPTK masih dibutuhkan, tidak ada duplikasi, dll.",
                                     height=100
                                 )
-                                if st.form_submit_button("❌ Konfirmasi Reject", type="primary"):
+                                if st.form_submit_button("Konfirmasi Reject", type="primary"):
                                     if not reject_reason or len(reject_reason.strip()) < 5:
                                         st.error("Alasan wajib diisi minimal 5 karakter!")
                                     else:
@@ -131,19 +119,16 @@ def show_admin_delete_requests():
                                             db.commit()
 
                                             st.cache_data.clear()
-                                            st.success(f"❌ Request #{req.id} ditolak.")
+                                            st.success(f"Request #{req.id} ditolak.")
                                             st.session_state[f"show_reject_{req.id}"] = False
                                             time.sleep(0.5)
                                             st.rerun()
                                         except Exception as e:
-                                            st.error(f"❌ Error: {str(e)}")
+                                            st.error(f"Error: {str(e)}")
                                             db.rollback()
 
                     st.markdown("---")
 
-    # ============================================================
-    # TAB 2: APPROVED
-    # ============================================================
     with tab2:
         approved_requests = db.query(FPTKDeleteRequest).filter(
             FPTKDeleteRequest.status == "APPROVED"
@@ -167,9 +152,6 @@ def show_admin_delete_requests():
                 })
             st.dataframe(pd.DataFrame(data), use_container_width=True)
 
-    # ============================================================
-    # TAB 3: REJECTED
-    # ============================================================
     with tab3:
         rejected_requests = db.query(FPTKDeleteRequest).filter(
             FPTKDeleteRequest.status == "REJECTED"
@@ -180,13 +162,13 @@ def show_admin_delete_requests():
         else:
             for req in rejected_requests:
                 with st.container():
-                    st.markdown(f"### ❌ Request #{req.id} — DITOLAK")
+                    st.markdown(f"### Request #{req.id} - DITOLAK")
                     st.markdown(f"**FPTK:** {req.kode_unik} | {req.posisi}")
                     st.markdown(f"**PIC:** {req.pic_recruiter}")
-                    st.markdown(f"**Requested by:** {req.requested_by_name} — {req.requested_at.strftime('%d/%m/%Y %H:%M') if req.requested_at else '-'}")
+                    st.markdown(f"**Requested by:** {req.requested_by_name} - {req.requested_at.strftime('%d/%m/%Y %H:%M') if req.requested_at else '-'}")
                     st.markdown(f"**Alasan PIC:**")
                     st.info(req.reason)
-                    st.markdown(f"**Rejected by:** {req.reviewed_by_name} — {req.reviewed_at.strftime('%d/%m/%Y %H:%M') if req.reviewed_at else '-'}")
+                    st.markdown(f"**Rejected by:** {req.reviewed_by_name} - {req.reviewed_at.strftime('%d/%m/%Y %H:%M') if req.reviewed_at else '-'}")
                     st.markdown(f"**Alasan Reject Admin:**")
                     st.warning(req.admin_notes or "-")
                     st.markdown("---")
