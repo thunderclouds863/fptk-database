@@ -8,11 +8,7 @@ from core.models import FPTK, DBSourcing, DBKodePosisi
 from core.utils import parse_date_dmy, safe_int, normalize_key, is_valid_email, get_single_value
 
 
-def build_friendly_header_error(
-    df_columns: list,
-    missing_fields: list,
-    required_mappings: dict
-) -> dict:
+def build_friendly_header_error(df_columns: list, missing_fields: list, required_mappings: dict) -> dict:
     FIELD_DISPLAY_NAMES = {
         "kode_unik": "Kode Unik",
         "posisi": "Posisi",
@@ -42,9 +38,7 @@ def build_friendly_header_error(
     missing_list = []
     for field_key in missing_fields:
         expected_names = required_mappings.get(field_key, [])
-        display_name = FIELD_DISPLAY_NAMES.get(
-            field_key, field_key.replace("_", " ").title()
-        )
+        display_name = FIELD_DISPLAY_NAMES.get(field_key, field_key.replace("_", " ").title())
 
         closest = _find_closest_match(display_name, df_columns)
 
@@ -78,9 +72,7 @@ def _find_closest_match(target: str, candidates: list) -> str:
     for col in candidates:
         col_lower = str(col).lower()
         if target_lower in col_lower or col_lower in target_lower:
-            score = min(len(target_lower), len(col_lower)) / max(
-                len(target_lower), len(col_lower)
-            )
+            score = min(len(target_lower), len(col_lower)) / max(len(target_lower), len(col_lower))
             if score > best_score:
                 best_score = score
                 best_match = col
@@ -443,12 +435,7 @@ def safe_level_number_from_string(value):
     return None
 
 
-def validate_fptk_file(
-    df: pd.DataFrame,
-    db,
-    user_id: int,
-    is_sto: bool = False
-) -> Tuple[bool, List[Dict[str, Any]]]:
+def validate_fptk_file(df: pd.DataFrame, db, user_id: int, is_sto: bool = False) -> Tuple[bool, List[Dict[str, Any]]]:
     errors = []
 
     if df.empty:
@@ -630,27 +617,18 @@ def validate_fptk_file(
                 fptk_date_kode = parsed_kode
 
         if kode_unik is None or pd.isna(kode_unik) or str(kode_unik).strip() == "":
-            if kode_pic and kode_angka and fptk_date_kode:
-                kode_unik_baru = generate_kode_unik_from_excel(kode_pic, kode_angka, fptk_date_kode)
-                df.at[idx, 'kode_unik'] = kode_unik_baru
-                errors.append({
-                    "row": row_num,
-                    "field": "Kode Unik",
-                    "value": kode_unik,
-                    "warning": True,
-                    "error": f"Kode Unik kosong, auto-generate menjadi: {kode_unik_baru}",
-                    "expected": "Kode Unik akan digenerate otomatis"
-                })
-            else:
-                errors.append({
-                    "row": row_num,
-                    "field": "Kode Unik",
-                    "value": kode_unik,
-                    "error": "Kode Unik tidak bisa di-generate (Kode PIC/Kode Angka/FPTK Date Kode tidak lengkap)",
-                    "expected": "Format: [Kode PIC][Kode Angka][FPTK Date Kode DDMMYY]"
-                })
+            errors.append({
+                "row": row_num,
+                "field": "Kode Unik",
+                "value": kode_unik,
+                "error": "Kode Unik tidak boleh kosong. Isi sesuai format: [Kode PIC][Kode Angka 3 digit][FPTK Date Kode DDMMYY]",
+                "expected": "Kode Unik wajib diisi di Excel"
+            })
+            continue
         else:
             kode_unik_clean = str(kode_unik).strip()
+            df.at[idx, 'kode_unik'] = kode_unik_clean
+
             existing_same_code = db.query(FPTK).filter(
                 FPTK.kode_unik == kode_unik_clean,
                 FPTK.posisi == posisi
@@ -662,7 +640,7 @@ def validate_fptk_file(
                     "field": "Kode Unik",
                     "value": kode_unik,
                     "warning": True,
-                    "error": f"Kode Unik '{kode_unik}' dengan posisi '{posisi}' sudah ada di database! Data akan di-update (upsert).",
+                    "error": f"Kode Unik '{kode_unik}' dengan posisi '{posisi}' sudah ada di database. Data akan di-update (upsert).",
                     "expected": "Kode Unik akan di-update oleh sistem"
                 })
 
@@ -847,11 +825,7 @@ def validate_fptk_file(
     return True, warnings
 
 
-def validate_db_sourcing_file(
-    df: pd.DataFrame,
-    db,
-    user_id: int
-) -> Tuple[bool, List[Dict[str, Any]]]:
+def validate_db_sourcing_file(df: pd.DataFrame, db, user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     errors = []
 
     if df.empty:
@@ -1173,11 +1147,7 @@ def validate_db_sourcing_file(
     return True, warnings
 
 
-def validate_db_kode_posisi_file(
-    df: pd.DataFrame,
-    db,
-    user_id: int
-) -> Tuple[bool, List[Dict[str, Any]]]:
+def validate_db_kode_posisi_file(df: pd.DataFrame, db, user_id: int) -> Tuple[bool, List[Dict[str, Any]]]:
     errors = []
 
     if df.empty:
