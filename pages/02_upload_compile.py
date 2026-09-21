@@ -147,31 +147,59 @@ def add_position_to_master(db, posisi, direktorat=None, business_unit=None, loca
 
 
 def get_kandidat_options_for_fptk(db, kode_unik):
-    """
-    Ambil list kandidat dari DB Sourcing yang punya kode_unik tertentu.
-    Return list of dict {id, nama, email, hp, posisi, last_stage}
-    """
     if not kode_unik:
         return []
-
     from core.utils import get_last_pipeline_stage
-
-    kandidat_list = db.query(DBSourcing).filter(
-        DBSourcing.kode_unik == kode_unik
-    ).all()
-
+    kandidat_list = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).all()
     result = []
     for k in kandidat_list:
         last = get_last_pipeline_stage(k)
         result.append({
-            "id": k.id,
-            "nama": k.nama,
-            "email": k.email,
-            "hp": k.nomor_hp,
-            "posisi": k.posisi,
-            "last_stage": last["stage_label"] if last else "Belum ada stage",
+            "id": k.id, "nama": k.nama, "email": k.email, "hp": k.nomor_hp,
+            "posisi": k.posisi, "last_stage": last["stage_label"] if last else "Belum ada stage",
         })
     return result
+
+
+def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value=""):
+    kandidat_list = get_kandidat_options_for_fptk(db, kode_unik_input)
+    mode_key = f"{key_prefix}_mode"
+    select_key = f"{key_prefix}_select"
+    manual_key = f"{key_prefix}_manual"
+
+    if mode_key not in st.session_state:
+        st.session_state[mode_key] = "dropdown" if kandidat_list else "manual"
+
+    if kandidat_list:
+        mode = st.radio(
+            "Pilih Mode Input Nama Kandidat", ["dropdown", "manual"],
+            format_func=lambda x: "Pilih dari DB Sourcing" if x == "dropdown" else "Ketik Manual",
+            index=0 if st.session_state[mode_key] == "dropdown" else 1,
+            horizontal=True, key=f"{key_prefix}_radio"
+        )
+        st.session_state[mode_key] = mode
+    else:
+        st.caption(f"ℹ️ Belum ada kandidat di DB Sourcing untuk kode unik `{kode_unik_input}`. Silakan ketik manual.")
+        st.session_state[mode_key] = "manual"
+        mode = "manual"
+
+    if mode == "dropdown" and kandidat_list:
+        options = {}
+        for k in kandidat_list:
+            display = f"{k['nama']} | {k['email'] or '-'} | {k['last_stage']}"
+            options[display] = k['nama']
+        default_idx = 0
+        if default_value:
+            for i, (disp, nama) in enumerate(options.items()):
+                if nama == default_value:
+                    default_idx = i
+                    break
+        selected = st.selectbox("Nama Kandidat (dari DB Sourcing)", list(options.keys()),
+            index=default_idx, key=select_key)
+        return options.get(selected, "")
+    else:
+        return st.text_input("Nama Kandidat (Manual)", value=default_value,
+            placeholder="Ketik nama kandidat manual", key=manual_key)
 
 
 def sanitize_value(value):
@@ -244,63 +272,34 @@ def get_level_options():
     return LEVEL_OPTIONS.copy()
 
 
-def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value=""):
-    """
-    Render dropdown kandidat dari DB Sourcing + opsi manual.
-    Return nama_kandidat (str)
-    """
-    kandidat_list = get_kandidat_options_for_fptk(db, kode_unik_input)
+@st.dialog("⚠️ Konfirmasi Selesai Upload")
+def dialog_confirm_done(db, user_id, cycle_id, cycle_name):
+    st.warning("⚠️ Anda yakin sudah **SELESAI** upload untuk cycle ini?")
+    st.markdown(f"**Cycle:** {cycle_name}")
+    st.markdown("---")
 
-    mode_key = f"{key_prefix}_mode"
-    select_key = f"{key_prefix}_select"
-    manual_key = f"{key_prefix}_manual"
+    st.markdown("""
+    ### ⚠️ Perhatian:
+    - Setelah klik **"Ya, Selesai Upload"**, status Anda menjadi **Done**
+    - Anda **masih bisa upload** kalau ada data baru, tapi status akan berubah kembali jadi **"Sedang Upload"**
+    - Admin akan menutup cycle setelah semua user **Done**
+    """)
 
-    if mode_key not in st.session_state:
-        st.session_state[mode_key] = "dropdown" if kandidat_list else "manual"
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("✅ Ya, Selesai Upload", type="primary", use_container_width=True, key="btn_confirm_done"):
+            try:
+                mark_user_done(db, user_id, cycle_id)
+                st.success("✅ Status Anda diupdate ke **Done**!")
+                st.info("📌 Kalau ada data baru, upload lagi dan status akan kembali ke 'Sedang Upload'.")
+                time.sleep(1)
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
 
-    if kandidat_list:
-        mode = st.radio(
-            "Pilih Mode Input Nama Kandidat",
-            ["dropdown", "manual"],
-            format_func=lambda x: "Pilih dari DB Sourcing" if x == "dropdown" else "Ketik Manual",
-            index=0 if st.session_state[mode_key] == "dropdown" else 1,
-            horizontal=True,
-            key=f"{key_prefix}_radio"
-        )
-        st.session_state[mode_key] = mode
-    else:
-        st.caption("ℹ️ Belum ada kandidat di DB Sourcing untuk kode unik ini. Silakan ketik manual.")
-        st.session_state[mode_key] = "manual"
-        mode = "manual"
-
-    if mode == "dropdown" and kandidat_list:
-        options = {}
-        for k in kandidat_list:
-            display = f"{k['nama']} | {k['email'] or '-'} | {k['last_stage']}"
-            options[display] = k['nama']
-
-        default_idx = 0
-        if default_value:
-            for i, (disp, nama) in enumerate(options.items()):
-                if nama == default_value:
-                    default_idx = i
-                    break
-
-        selected = st.selectbox(
-            "Nama Kandidat (dari DB Sourcing)",
-            list(options.keys()),
-            index=default_idx,
-            key=select_key
-        )
-        return options.get(selected, "")
-
-    else:
-        return st.text_input(
-            "Nama Kandidat (Manual)",
-            value=default_value,
-            placeholder="Ketik nama kandidat manual",
-            key=manual_key
-        )
+    with col2:
+        if st.button("❌ Batal", use_container_width=True, key="btn_cancel_done"):
+            st.rerun()
 
 
 def show_upload_compile():
@@ -366,7 +365,26 @@ def show_upload_compile():
             UploadStatus.user_id == user.id,
             UploadStatus.cycle_id == cycle.id
         ).first()
-        st.caption(f"Status Anda: **{status.status if status else 'Belum Mulai'}**")
+
+        current_status = status.status if status else "Belum Mulai"
+
+        col_status1, col_status2 = st.columns([2, 2])
+
+        with col_status1:
+            if current_status == "Done":
+                st.success(f"✅ Status Anda: **{current_status}**")
+                st.caption("📌 Kalau ada data baru, upload lagi. Status akan kembali ke 'Sedang Upload'.")
+            elif current_status == "Sedang Upload":
+                st.warning(f"⏳ Status Anda: **{current_status}**")
+            else:
+                st.info(f"📋 Status Anda: **{current_status}**")
+
+        with col_status2:
+            if current_status != "Done":
+                if st.button("📌 Saya Selesai Upload", type="primary", use_container_width=True, key="btn_done_upload_top"):
+                    dialog_confirm_done(db, user.id, cycle.id, cycle.cycle_name)
+            else:
+                st.caption("✅ Anda sudah Done")
 
         st.markdown("---")
         st.subheader("📁 Upload File Excel")
@@ -590,12 +608,8 @@ def show_upload_compile():
 
                                         if dbs_validated or not dbs_real_errors:
                                             dbs_result = compile_db_sourcing(
-                                                db=db,
-                                                df=dbs_df,
-                                                user_id=user.id,
-                                                cycle_id=cycle.id,
-                                                file_name=file_name,
-                                                file_hash=file_hash
+                                                db=db, df=dbs_df, user_id=user.id,
+                                                cycle_id=cycle.id, file_name=file_name, file_hash=file_hash
                                             )
                                             if dbs_result["success"]:
                                                 progress_placeholder.progress(75, text=f"✅ DB Sourcing: {dbs_result.get('imported', 0)} rows")
@@ -634,12 +648,8 @@ def show_upload_compile():
                                                     st.markdown(f"- **Row {row}** - {field}: `{value}` → {error_msg}")
                                         else:
                                             dbk_result = compile_db_kode_posisi(
-                                                db=db,
-                                                df=dbk_df,
-                                                user_id=user.id,
-                                                cycle_id=cycle.id,
-                                                file_name=file_name,
-                                                file_hash=file_hash
+                                                db=db, df=dbk_df, user_id=user.id,
+                                                cycle_id=cycle.id, file_name=file_name, file_hash=file_hash
                                             )
                                             if dbk_result["success"]:
                                                 progress_placeholder.progress(95, text=f"✅ DB Kode Posisi: {dbk_result.get('imported', 0)} rows")
@@ -682,12 +692,6 @@ def show_upload_compile():
                     st.warning(f"⚠️ {success_count} file berhasil, {error_count} file gagal")
                 else:
                     st.error("❌ Semua file gagal di-compile")
-
-                if success_count > 0:
-                    if st.button("📌 Saya Selesai Upload", type="primary"):
-                        mark_user_done(db, user.id, cycle.id)
-                        st.success("Status Anda diupdate ke Done!")
-                        st.rerun()
 
                 time.sleep(2)
                 progress_placeholder.empty()
@@ -985,15 +989,10 @@ def show_upload_compile():
 
                         if posisi:
                             add_position_to_master(
-                                db,
-                                posisi=posisi,
-                                direktorat=direktorat,
-                                business_unit=business_unit,
-                                location=lokasi_kerja,
-                                division=divisi,
-                                department=department,
-                                user_manager=user_manager,
-                                indirect_user=indirect_user,
+                                db, posisi=posisi, direktorat=direktorat,
+                                business_unit=business_unit, location=lokasi_kerja,
+                                division=divisi, department=department,
+                                user_manager=user_manager, indirect_user=indirect_user,
                                 kode=kode_pic
                             )
 
@@ -1005,9 +1004,7 @@ def show_upload_compile():
 
                         deadline_sla = fptk_date + timedelta(days=sla_days) if fptk_date else None
                         auto_detail_sla = calculate_detail_sla(
-                            status=status,
-                            deadline_sla=deadline_sla,
-                            offering_date=offering_date
+                            status=status, deadline_sla=deadline_sla, offering_date=offering_date
                         )
 
                         kode_angka_current = kode_angka_used
@@ -1428,9 +1425,7 @@ def show_upload_compile():
                             filter_kat = 'Level 4'
 
                         auto_detail_sla = calculate_detail_sla(
-                            status=status,
-                            deadline_sla=deadline_sla,
-                            offering_date=offering_date
+                            status=status, deadline_sla=deadline_sla, offering_date=offering_date
                         )
 
                         if db.is_active:
@@ -1438,15 +1433,10 @@ def show_upload_compile():
 
                         if posisi:
                             add_position_to_master(
-                                db,
-                                posisi=posisi,
-                                direktorat=direktorat,
-                                business_unit=business_unit,
-                                location=lokasi_kerja,
-                                division=divisi,
-                                department=department,
-                                user_manager=user_manager,
-                                indirect_user=indirect_user,
+                                db, posisi=posisi, direktorat=direktorat,
+                                business_unit=business_unit, location=lokasi_kerja,
+                                division=divisi, department=department,
+                                user_manager=user_manager, indirect_user=indirect_user,
                                 kode=kode_pic
                             )
 
