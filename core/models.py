@@ -155,7 +155,6 @@ class DBSourcing(Base):
     kode_unik = Column(String(50), nullable=False, index=True)
     posisi = Column(String(255))
     model_rekrutmen = Column(String(50))
-    model_rekrutmen_kategori = Column(String(100))
     rekruter = Column(String(100))
     sumber_sourcing = Column(String(100))
     nama = Column(String(255), nullable=False, index=True)
