@@ -348,7 +348,7 @@ def show_upload_compile():
         template_file = st.file_uploader("Upload Template Excel", type=["xlsx"], key="admin_template_upload")
         if template_file:
             if st.button("💾 Simpan Template", key="save_template_btn"):
-                save_template(db, template_file, user.id)
+                save_template(db, template_file, user.id, template_type="FPTK")
                 st.cache_data.clear()
                 st.success("✅ Template berhasil diperbarui")
                 st.rerun()
@@ -371,7 +371,7 @@ def show_upload_compile():
         st.markdown("---")
         st.subheader("📁 Upload File Excel")
 
-        active_template = get_active_template(db)
+        active_template = get_active_template(db, template_type="FPTK")
         if active_template:
             template_bytes = get_template_bytes(active_template)
             st.download_button(
