@@ -5,7 +5,9 @@ from datetime import datetime, date, timedelta
 from core.database import get_db
 from core.models import FPTK, User, RecruitmentProgress
 from core.auth import get_current_user, is_admin
-from core.utils import generate_progress_from_sourcing, get_last_pipeline_stage
+from core.template_manager import (
+    save_template, get_active_template, get_template_bytes, get_template_history
+)
 import time
 
 from io import BytesIO
@@ -80,12 +82,8 @@ def _load_filter_options():
     except Exception as e:
         st.error(f"Gagal load filter options: {e}")
         return {
-            "pic_options": [],
-            "bu_options": [],
-            "direktorat_options": [],
-            "filter_kategorisasi_options": [],
-            "divisi_options": [],
-            "dept_options": [],
+            "pic_options": [], "bu_options": [], "direktorat_options": [],
+            "filter_kategorisasi_options": [], "divisi_options": [], "dept_options": [],
         }
     finally:
         db_local.close()
@@ -106,12 +104,8 @@ def generate_progress_recruitment_excel(df):
     for col_idx, header in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=header)
         cell.font = Font(bold=True, color="FFFFFF", size=11)
-        cell.fill = PatternFill(
-            start_color="1F4E78", end_color="1F4E78", fill_type="solid"
-        )
-        cell.alignment = Alignment(
-            horizontal="center", vertical="center", wrap_text=True
-        )
+        cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+        cell.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
         cell.border = Border(
             left=Side(style='thin'), right=Side(style='thin'),
             top=Side(style='thin'), bottom=Side(style='thin')
@@ -121,18 +115,12 @@ def generate_progress_recruitment_excel(df):
         for col_idx, value in enumerate(row, start=1):
             if pd.isna(value):
                 value = ""
-
             cell = ws.cell(row=row_idx + 2, column=col_idx, value=value)
             cell.alignment = Alignment(vertical="top", wrap_text=True)
             cell.border = Border(
                 left=Side(style='thin'), right=Side(style='thin'),
                 top=Side(style='thin'), bottom=Side(style='thin')
             )
-
-            header_name = headers[col_idx - 1]
-            if header_name in ('Tanggal FPTK', 'SLA Target Pemenuhan'):
-                if isinstance(value, (datetime, date, pd.Timestamp)):
-                    cell.number_format = 'DD-MM-YYYY'
 
     column_widths = {
         'A': 6, 'B': 14, 'C': 38, 'D': 7, 'E': 30,
@@ -183,6 +171,10 @@ def upsert_progress(db, fptk, week_num, year, progress_text, next_action=""):
         return new_progress, "created"
 
 
+# ============================================================
+# TAB 1: UPDATE MANUAL
+# ============================================================
+
 def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     query = db.query(FPTK).filter(FPTK.status == "OP")
 
@@ -194,32 +186,25 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
 
     if st.session_state.get("pic_progres") and st.session_state.pic_progres != "Semua":
         query = query.filter(FPTK.pic_recruiter == st.session_state.pic_progres)
-
     if st.session_state.get("bu_progres") and st.session_state.bu_progres != "Semua":
         query = query.filter(FPTK.business_unit == st.session_state.bu_progres)
-
     if st.session_state.get("dir_progres") and st.session_state.dir_progres != "Semua":
         query = query.filter(FPTK.direktorat == st.session_state.dir_progres)
-
     if st.session_state.get("divisi_progres") and st.session_state.divisi_progres != "Semua":
         query = query.filter(FPTK.divisi == st.session_state.divisi_progres)
-
     if st.session_state.get("dept_progres") and st.session_state.dept_progres != "Semua":
         query = query.filter(FPTK.department == st.session_state.dept_progres)
-
     if st.session_state.get("kat_progres") and st.session_state.kat_progres != "Semua":
         query = query.filter(FPTK.filter_kategorisasi_fptk == st.session_state.kat_progres)
-
     if st.session_state.get("level_progres") and st.session_state.level_progres != "Semua":
         query = query.filter(FPTK.level_fptk == st.session_state.level_progres)
-
     if st.session_state.get("show_mine_progres") and not admin:
         query = query.filter(FPTK.pic_recruiter == user.pic_recruiter)
 
     query = query.order_by(FPTK.fptk_date_real.desc())
     total = query.count()
 
-    st.markdown("### Statistik")
+    st.markdown("### 📈 Statistik")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -235,9 +220,9 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     belum_update = total - already_updated
 
     col1.metric("Total FPTK OP", total)
-    col2.metric("Sudah Update", already_updated)
-    col3.metric("Belum Update", belum_update)
-    col4.metric("Progress", f"{(already_updated/total*100):.0f}%" if total > 0 else "0%")
+    col2.metric("✅ Sudah Update", already_updated)
+    col3.metric("⏳ Belum Update", belum_update)
+    col4.metric("📊 Progress", f"{(already_updated/total*100):.0f}%" if total > 0 else "0%")
 
     st.markdown("---")
 
@@ -245,8 +230,8 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
         st.info("Tidak ada FPTK dengan status **OP** yang sesuai filter.")
         return
 
-    page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
-    page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
+    page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50, key="up_page_size")
+    page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1, key="up_page")
     offset = (page - 1) * page_size
 
     df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
@@ -264,13 +249,13 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
                 "PIC": row.get('pic_recruiter', ''),
                 "BU": (row.get('business_unit', '') or '')[:30],
                 "Level": row.get('level_fptk', ''),
-                "Status Update": "Sudah" if has_progress else "Belum",
+                "Status Update": "✅ Sudah" if has_progress else "⏳ Belum",
             })
 
         st.dataframe(pd.DataFrame(display_data), use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### Update Progress FPTK")
+    st.markdown("### ✏️ Update Progress FPTK")
 
     df_all = pd.read_sql(query.statement, db.bind)
     if df_all.empty:
@@ -283,7 +268,7 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
         display = f"{kode} | {posisi[:50]}" if len(str(posisi)) > 50 else f"{kode} | {posisi}"
         select_options[display] = row.get('id')
 
-    selected_display = st.selectbox("Pilih FPTK", list(select_options.keys()))
+    selected_display = st.selectbox("Pilih FPTK", list(select_options.keys()), key="up_fptk_select")
     selected_id = select_options[selected_display]
 
     detail = db.query(FPTK).filter(FPTK.id == selected_id).first()
@@ -324,33 +309,8 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     if form_key_next not in st.session_state:
         st.session_state[form_key_next] = default_next
 
-    st.markdown("---")
-    st.markdown("### 🪄 Auto-Generate dari DB Sourcing")
-    st.caption("Klik tombol di bawah untuk generate progress otomatis dari data kandidat di DB Sourcing.")
-
-    col_gen1, col_gen2 = st.columns([1, 3])
-
-    with col_gen1:
-        if st.button("🪄 Generate dari DB Sourcing", type="primary", use_container_width=True, key="btn_generate_progress"):
-            result = generate_progress_from_sourcing(db, detail.kode_unik)
-
-            st.session_state[form_key_progress] = result["text"]
-
-            st.success(f"✅ Progress ter-generate dari {result['total_kandidat']} kandidat!")
-            time.sleep(0.5)
-            st.rerun()
-
-    with col_gen2:
-        result_preview = generate_progress_from_sourcing(db, detail.kode_unik)
-        st.info(
-            f"📊 **Preview**: {result_preview['total_kandidat']} kandidat di DB Sourcing "
-            f"| Top kandidat: {result_preview['top_candidates'][0]['nama'] if result_preview['top_candidates'] else '-'}"
-        )
-
-    st.markdown("---")
-
     with st.form(f"form_progress_{selected_id}", clear_on_submit=False):
-        st.markdown(f"#### Update untuk **{get_week_label(current_week, current_year)}**")
+        st.markdown(f"#### 📅 Update untuk **{get_week_label(current_week, current_year)}**")
 
         if existing:
             st.info(f"✏️ Sudah ada update sebelumnya.")
@@ -359,8 +319,8 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
             "📝 **Progress Week Ini**",
             value=st.session_state[form_key_progress],
             key=f"text_area_progress_{selected_id}",
-            placeholder="Klik '🪄 Generate dari DB Sourcing' untuk auto-isi, atau ketik manual.",
-            height=300
+            placeholder="Contoh:\n> Send 25 CV\n> Shortlisted 9 kandidat\n> HR Interview 5 kandidat",
+            height=200
         )
 
         next_action = st.text_area(
@@ -436,33 +396,205 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
                             db.rollback()
 
 
+# ============================================================
+# TAB 2: UPLOAD EXCEL MASSAL
+# ============================================================
+
 def tab_upload_excel(db, user, admin, current_week, current_year):
     st.markdown("### 📤 Upload Excel Progress Massal")
     st.caption("Upload file Excel untuk import progress sekaligus banyak.")
 
-    st.info(
-        "💡 **Format Excel yang dibutuhkan:**\n"
-        "- Kolom **Kode Unik** (wajib) — harus sama dengan kode unik di database FPTK\n"
-        "- Kolom **Recruitment Update** (wajib) — isi progress text\n"
-        "- Kolom **Next Action** (opsional) — isi next action\n\n"
-        "Contoh sheet: **COPAS yang ini** dari file Update Progres Recruitment.xlsx"
-    )
+    # ============================================================
+    # ADMIN: TEMPLATE MANAGEMENT
+    # ============================================================
+    if admin:
+        with st.expander("⚙️ Admin - Kelola Template Excel Progress", expanded=False):
+            st.markdown("#### 📋 Template Aktif")
+
+            active_template = get_active_template(db, template_type="PROGRESS")
+
+            if active_template:
+                template_bytes = get_template_bytes(active_template)
+                col1, col2 = st.columns([2, 1])
+
+                with col1:
+                    st.markdown(f"**File:** `{active_template.file_name}`")
+                    st.caption(f"Versi: **{active_template.version}** | Diupload: {active_template.created_at.strftime('%d/%m/%Y %H:%M') if active_template.created_at else '-'}")
+                    st.caption(f"Ukuran: {len(template_bytes) / 1024:.1f} KB")
+
+                with col2:
+                    st.download_button(
+                        "📥 Download Template",
+                        template_bytes,
+                        active_template.file_name,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key="admin_dl_progress_template"
+                    )
+            else:
+                st.warning("⚠️ Belum ada template aktif untuk Update Progress Recruitment.")
+
+            st.markdown("---")
+            st.markdown("#### 📤 Upload Template Baru")
+            st.caption("Upload file Excel template baru. Template lama otomatis jadi non-aktif. Versi auto increment.")
+
+            new_template_file = st.file_uploader(
+                "Pilih file Excel template",
+                type=["xlsx", "xlsm"],
+                key="admin_upload_progress_template"
+            )
+
+            if new_template_file:
+                # Validasi: cek header
+                try:
+                    test_df = pd.read_excel(new_template_file, nrows=0)
+                    cols_lower = [str(c).lower().strip() for c in test_df.columns]
+
+                    has_kode = any("kode" in c and "unik" in c for c in cols_lower)
+                    has_progress = any(("recruitment" in c and "update" in c) or "progress" in c for c in cols_lower)
+
+                    if has_kode and has_progress:
+                        st.success(f"✅ Template valid! Kolom: {', '.join(test_df.columns.tolist())}")
+
+                        # Preview 5 baris pertama
+                        preview_df = pd.read_excel(new_template_file, nrows=5)
+                        st.markdown("**Preview 5 baris pertama:**")
+                        st.dataframe(preview_df, use_container_width=True)
+
+                        # Reset file pointer
+                        new_template_file.seek(0)
+
+                        col_btn1, col_btn2 = st.columns(2)
+                        with col_btn1:
+                            if st.button("💾 Simpan Template", type="primary", use_container_width=True, key="admin_save_progress_template"):
+                                try:
+                                    saved = save_template(db, new_template_file, user.id, template_type="PROGRESS")
+                                    st.success(f"✅ Template berhasil disimpan! Versi: {saved.version}")
+                                    st.cache_data.clear()
+                                    time.sleep(0.5)
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(f"❌ Error: {str(e)}")
+                    else:
+                        st.error("❌ Template tidak valid!")
+                        missing = []
+                        if not has_kode:
+                            missing.append("**Kode Unik**")
+                        if not has_progress:
+                            missing.append("**Recruitment Update** atau **Progress**")
+                        st.warning(f"Kolom yang wajib ada: {', '.join(missing)}")
+                        st.caption(f"Kolom yang ditemukan: {', '.join(test_df.columns.tolist())}")
+
+                except Exception as e:
+                    st.error(f"❌ Gagal baca file: {str(e)}")
+
+            st.markdown("---")
+            st.markdown("#### 📜 History Template")
+
+            history = get_template_history(db, template_type="PROGRESS", limit=10)
+
+            if history:
+                hist_data = []
+                for h in history:
+                    hist_data.append({
+                        "Versi": h.version,
+                        "File": h.file_name,
+                        "Status": "✅ Aktif" if h.is_active else "⏸️ Non-aktif",
+                        "Tanggal": h.created_at.strftime("%d/%m/%Y %H:%M") if h.created_at else "-",
+                    })
+                st.dataframe(pd.DataFrame(hist_data), use_container_width=True, hide_index=True)
+            else:
+                st.info("Belum ada history template.")
+
+    # ============================================================
+    # USER: DOWNLOAD TEMPLATE + PETUNJUK
+    # ============================================================
+    st.markdown("---")
+    st.markdown("#### 📥 Download Template")
+    st.caption("Download template untuk memudahkan pengisian progress recruitment.")
+
+    active_template = get_active_template(db, template_type="PROGRESS")
+
+    if active_template:
+        template_bytes = get_template_bytes(active_template)
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            st.info(f"📋 Template aktif: **{active_template.file_name}** (v{active_template.version})")
+
+        with col2:
+            st.download_button(
+                "📥 Download Template",
+                template_bytes,
+                active_template.file_name,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                use_container_width=True,
+                key="user_dl_progress_template"
+            )
+    else:
+        st.warning("⚠️ Belum ada template. Hubungi Admin.")
+
+    # ============================================================
+    # PETUNJUK
+    # ============================================================
+    with st.expander("📋 Petunjuk Penggunaan Template", expanded=False):
+        st.markdown("""
+        ### 🎯 Cara Menggunakan Template
+
+        **Langkah 1: Download Template**
+        - Klik tombol **📥 Download Template** di atas
+        - Template akan berisi kolom:
+          - **Kode Unik** — Kode unik FPTK (wajib)
+          - **Recruitment Update** — Progress recruitment (wajib)
+          - **Next Action** — Next action (opsional)
+
+        **Langkah 2: Isi Template**
+        - Isi kolom **Kode Unik** dengan Kode Unik FPTK yang valid
+        - Isi kolom **Recruitment Update** dengan progress text
+        - Isi kolom **Next Action** (kalau ada)
+
+        **Langkah 3: Upload Kembali**
+        - Upload file Excel yang sudah diisi di section **📤 Upload File Excel** di bawah
+        - Sistem akan otomatis detect kolom dari template
+
+        ### 📌 Tips
+        - **Kode Unik** harus sama persis dengan yang ada di DB FPTK
+        - Kolom lain (Posisi, PIC, BU, dll) otomatis di-link dari FPTK via Kode Unik
+        - Kalau upload file sendiri (bukan template), bisa manual mapping kolom
+
+        ### ⚠️ Penting
+        - Kolom **Kode Unik** dan **Recruitment Update** wajib ada
+        - Kode Unik yang gak ketemu di DB FPTK akan di-skip
+        - Bisa upload multiple kandidat sekaligus
+        """)
+
+    # ============================================================
+    # UPLOAD FILE
+    # ============================================================
+    st.markdown("---")
+    st.markdown("#### 📤 Upload File Excel")
 
     col1, col2 = st.columns(2)
     with col1:
         week_num = st.number_input(
             "Week Number",
             min_value=1, max_value=53,
-            value=current_week
+            value=current_week,
+            key="up_upload_week"
         )
     with col2:
         year = st.number_input(
             "Year",
             min_value=2024, max_value=2030,
-            value=current_year
+            value=current_year,
+            key="up_upload_year"
         )
 
-    uploaded = st.file_uploader("Pilih file Excel", type=["xlsx", "xlsm"])
+    uploaded = st.file_uploader(
+        "Pilih file Excel",
+        type=["xlsx", "xlsm"],
+        key="up_upload_file"
+    )
 
     if uploaded:
         try:
@@ -472,7 +604,8 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             selected_sheet = st.selectbox(
                 "Pilih Sheet",
                 sheet_names,
-                index=sheet_names.index("COPAS yang ini") if "COPAS yang ini" in sheet_names else 0
+                index=sheet_names.index("COPAS yang ini") if "COPAS yang ini" in sheet_names else 0,
+                key="up_upload_sheet"
             )
 
             df = pd.read_excel(uploaded, sheet_name=selected_sheet)
@@ -481,6 +614,9 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             st.markdown("**Preview 5 rows:**")
             st.dataframe(df.head(5), use_container_width=True)
 
+            # ============================================================
+            # AUTO-DETECT KOLOM
+            # ============================================================
             kolom_kode = None
             kolom_progress = None
             kolom_next_action = None
@@ -496,28 +632,63 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                 if "next" in cl and "action" in cl:
                     kolom_next_action = col
 
+            # Cek apakah dari template (semua kolom ketemu)
+            from_template = (kolom_kode is not None and kolom_progress is not None)
+
             st.markdown("---")
-            st.markdown("#### 🔧 Mapping Kolom")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                kode_col = st.selectbox(
-                    "Kolom **Kode Unik**",
-                    df.columns.tolist(),
-                    index=df.columns.tolist().index(kolom_kode) if kolom_kode in df.columns else 0
-                )
-            with col2:
-                progress_col = st.selectbox(
-                    "Kolom **Recruitment Update**",
-                    df.columns.tolist(),
-                    index=df.columns.tolist().index(kolom_progress) if kolom_progress in df.columns else 0
-                )
+            if from_template:
+                st.info("✅ Kolom terdeteksi otomatis! (kemungkinan dari template)")
 
-            next_action_col = st.selectbox(
-                "Kolom **Next Action** (opsional)",
-                ["(tidak ada)"] + df.columns.tolist(),
-                index=df.columns.tolist().index(kolom_next_action) + 1 if kolom_next_action in df.columns else 0
-            )
+                with st.expander("🔧 Ubah Mapping Kolom (opsional)", expanded=False):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        kode_col = st.selectbox(
+                            "Kolom **Kode Unik**",
+                            df.columns.tolist(),
+                            index=df.columns.tolist().index(kolom_kode) if kolom_kode in df.columns else 0,
+                            key="up_map_kode"
+                        )
+                    with col2:
+                        progress_col = st.selectbox(
+                            "Kolom **Recruitment Update**",
+                            df.columns.tolist(),
+                            index=df.columns.tolist().index(kolom_progress) if kolom_progress in df.columns else 0,
+                            key="up_map_progress"
+                        )
+
+                    next_action_col = st.selectbox(
+                        "Kolom **Next Action** (opsional)",
+                        ["(tidak ada)"] + df.columns.tolist(),
+                        index=df.columns.tolist().index(kolom_next_action) + 1 if kolom_next_action in df.columns else 0,
+                        key="up_map_next"
+                    )
+            else:
+                st.warning("⚠️ Beberapa kolom tidak terdeteksi. Silakan mapping manual di bawah.")
+                st.caption("💡 Kalau pakai template dari admin, kolom harus ada: **Kode Unik** & **Recruitment Update**")
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    kode_col = st.selectbox(
+                        "Kolom **Kode Unik**",
+                        df.columns.tolist(),
+                        index=df.columns.tolist().index(kolom_kode) if kolom_kode in df.columns else 0,
+                        key="up_map_kode_manual"
+                    )
+                with col2:
+                    progress_col = st.selectbox(
+                        "Kolom **Recruitment Update**",
+                        df.columns.tolist(),
+                        index=df.columns.tolist().index(kolom_progress) if kolom_progress in df.columns else 0,
+                        key="up_map_progress_manual"
+                    )
+
+                next_action_col = st.selectbox(
+                    "Kolom **Next Action** (opsional)",
+                    ["(tidak ada)"] + df.columns.tolist(),
+                    index=df.columns.tolist().index(kolom_next_action) + 1 if kolom_next_action in df.columns else 0,
+                    key="up_map_next_manual"
+                )
 
             st.markdown("---")
             st.markdown("#### 👀 Preview Data yang Akan Di-import")
@@ -537,7 +708,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             else:
                 st.warning("⚠️ Gak ada row yang valid untuk di-import.")
 
-            if st.button("🚀 Mulai Import", type="primary", use_container_width=True):
+            if st.button("🚀 Mulai Import", type="primary", use_container_width=True, key="up_btn_import"):
                 if not preview_rows:
                     st.error("❌ Tidak ada data valid untuk di-import.")
                 else:
@@ -636,6 +807,10 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                 st.code(traceback.format_exc())
 
 
+# ============================================================
+# TAB 3: EXPORT EXCEL
+# ============================================================
+
 def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
     st.markdown("### 📥 Export Excel Update Progress Recruitment")
     st.caption("Download data progress recruitment dalam format Excel yang siap dipakai.")
@@ -654,34 +829,22 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
 
     with col2:
         pic_options = ["Semua"] + filter_opts.get("pic_options", [])
-        pic_export = st.selectbox(
-            "PIC Recruiter",
-            pic_options,
-            key="export_pic_filter"
-        )
+        pic_export = st.selectbox("PIC Recruiter", pic_options, key="export_pic_filter")
 
     with col3:
         bu_options = ["Semua"] + filter_opts.get("bu_options", [])
-        bu_export = st.selectbox(
-            "Business Unit",
-            bu_options,
-            key="export_bu_filter"
-        )
+        bu_export = st.selectbox("Business Unit", bu_options, key="export_bu_filter")
 
     col4, col5 = st.columns(2)
     with col4:
         week_export = st.number_input(
-            "Week Number",
-            min_value=1, max_value=53,
-            value=current_week,
-            key="export_week_num"
+            "Week Number", min_value=1, max_value=53,
+            value=current_week, key="export_week_num"
         )
     with col5:
         year_export = st.number_input(
-            "Year",
-            min_value=2024, max_value=2030,
-            value=current_year,
-            key="export_year"
+            "Year", min_value=2024, max_value=2030,
+            value=current_year, key="export_year"
         )
 
     only_with_progress = st.checkbox(
@@ -690,25 +853,16 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
         key="export_only_with_progress"
     )
 
-    use_auto_generate = st.checkbox(
-        "🪄 Auto-generate progress dari DB Sourcing untuk FPTK yang belum ada progress",
-        value=False,
-        key="export_auto_generate"
-    )
-
     st.markdown("---")
 
     query = db.query(FPTK)
 
     if status_filter != "Semua":
         query = query.filter(FPTK.status == status_filter)
-
     if pic_export != "Semua":
         query = query.filter(FPTK.pic_recruiter == pic_export)
-
     if bu_export != "Semua":
         query = query.filter(FPTK.business_unit == bu_export)
-
     if not admin:
         query = query.filter(FPTK.pic_recruiter == user.pic_recruiter)
 
@@ -719,7 +873,7 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
         return
 
     progress_map = {}
-    if only_with_progress or use_auto_generate:
+    if only_with_progress:
         progress_records = db.query(RecruitmentProgress).filter(
             RecruitmentProgress.week_number == week_export,
             RecruitmentProgress.year == year_export
@@ -728,12 +882,10 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
 
     rows = []
     no = 1
-    auto_generated_count = 0
-
     for fptk in fptk_list:
         progress = progress_map.get(fptk.id)
 
-        if only_with_progress and not progress and not use_auto_generate:
+        if only_with_progress and not progress:
             continue
 
         progress_text = ""
@@ -753,11 +905,6 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
                     progress_text += f"\nNext Action: {na}"
                 else:
                     progress_text = f"Next Action: {na}"
-
-        elif use_auto_generate:
-            auto_result = generate_progress_from_sourcing(db, fptk.kode_unik)
-            progress_text = f"Progress Weekly: {auto_result['text']}"
-            auto_generated_count += 1
 
         rows.append({
             'No': no,
@@ -779,9 +926,6 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
     if df_export.empty:
         st.warning("⚠️ Tidak ada data untuk di-export.")
         return
-
-    if auto_generated_count > 0:
-        st.info(f"🪄 Auto-generated progress untuk {auto_generated_count} FPTK dari DB Sourcing")
 
     st.markdown(f"#### 👀 Preview ({len(df_export)} baris)")
     st.dataframe(df_export.head(20), use_container_width=True, hide_index=True)
@@ -823,6 +967,10 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
             )
 
 
+# ============================================================
+# MAIN FUNCTION
+# ============================================================
+
 def show_update_progres():
     st.title("📊 Update Progres Recruitment")
     st.markdown("Update progress rekrutmen mingguan per FPTK yang masih OP.")
@@ -851,13 +999,6 @@ def show_update_progres():
     with st.sidebar:
         st.markdown("### 🔍 Filter FPTK OP")
 
-        st.caption(
-            f"🔍 PIC: {len(filter_opts.get('pic_options', []))} | "
-            f"BU: {len(filter_opts.get('bu_options', []))} | "
-            f"Dir: {len(filter_opts.get('direktorat_options', []))} | "
-            f"Kat: {len(filter_opts.get('filter_kategorisasi_options', []))}"
-        )
-
         st.text_input(
             "🔎 Cari (Kode Unik / Posisi)",
             key="search_progres",
@@ -868,71 +1009,23 @@ def show_update_progres():
         default_pic_idx = 0
         if not admin and user.pic_recruiter in pic_options:
             default_pic_idx = pic_options.index(user.pic_recruiter)
-        st.selectbox(
-            "PIC Recruiter",
-            pic_options,
-            index=default_pic_idx,
-            key="pic_progres"
-        )
+        st.selectbox("PIC Recruiter", pic_options, index=default_pic_idx, key="pic_progres")
 
-        bu_options = ["Semua"] + filter_opts.get("bu_options", [])
-        st.selectbox(
-            "Business Unit",
-            bu_options,
-            key="bu_progres"
-        )
-
-        dir_options = ["Semua"] + filter_opts.get("direktorat_options", [])
-        st.selectbox(
-            "Direktorat",
-            dir_options,
-            key="dir_progres"
-        )
-
-        divisi_options = ["Semua"] + filter_opts.get("divisi_options", [])
-        st.selectbox(
-            "Divisi",
-            divisi_options,
-            key="divisi_progres"
-        )
-
-        dept_options = ["Semua"] + filter_opts.get("dept_options", [])
-        st.selectbox(
-            "Department",
-            dept_options,
-            key="dept_progres"
-        )
-
-        kat_options = ["Semua"] + filter_opts.get("filter_kategorisasi_options", [])
-        st.selectbox(
-            "Filter Kategorisasi",
-            kat_options,
-            key="kat_progres"
-        )
-
-        level_options = ["Semua", "1A", "1B", "1C", "2A", "2B", "2C",
-                         "3A", "3B", "3C", "4A", "4B", "5A", "5B"]
-        st.selectbox(
-            "Level FPTK",
-            level_options,
-            key="level_progres"
-        )
+        st.selectbox("Business Unit", ["Semua"] + filter_opts.get("bu_options", []), key="bu_progres")
+        st.selectbox("Direktorat", ["Semua"] + filter_opts.get("direktorat_options", []), key="dir_progres")
+        st.selectbox("Divisi", ["Semua"] + filter_opts.get("divisi_options", []), key="divisi_progres")
+        st.selectbox("Department", ["Semua"] + filter_opts.get("dept_options", []), key="dept_progres")
+        st.selectbox("Filter Kategorisasi", ["Semua"] + filter_opts.get("filter_kategorisasi_options", []), key="kat_progres")
+        st.selectbox("Level FPTK", ["Semua", "1A", "1B", "1C", "2A", "2B", "2C", "3A", "3B", "3C", "4A", "4B", "5A", "5B"], key="level_progres")
 
         st.markdown("---")
-
-        st.checkbox(
-            "Hanya FPTK saya",
-            value=not admin,
-            key="show_mine_progres"
-        )
+        st.checkbox("Hanya FPTK saya", value=not admin, key="show_mine_progres")
 
         if st.button("🔄 Refresh Filter Options", use_container_width=True, key="refresh_filter_progres"):
             _load_filter_options.clear()
-            st.success("✅ Filter refreshed!")
+            st.success("Filter refreshed!")
             time.sleep(0.3)
             st.rerun()
-
-        st.caption("💡 Hanya FPTK dengan status **OP** yang ditampilkan")
 
     tab1, tab2, tab3 = st.tabs([
         "✏️ Update Manual",
