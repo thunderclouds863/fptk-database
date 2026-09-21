@@ -1,155 +1,146 @@
-# pages/04_sourcing_view.py
+# pages/03_fptk_view.py
 import streamlit as st
 import pandas as pd
 from sqlalchemy.orm import Session
 from core.database import get_db
-from core.models import (
-    DBSourcing, User, FPTK, MasterDropdown,
-    CVAttachment, SourcingDeleteRequest
-)
-from core.auth import get_current_user, is_admin
-from core.utils import get_filter_options_from_db
-from datetime import datetime
-import base64 as b64
+from core.models import FPTK, User, MasterDropdown, FPTKDeleteRequest, TransferHistory
+from core.auth import get_current_user, is_admin, is_it, is_editor
+from core.utils import get_filter_options_from_db, calculate_detail_sla, calculate_sla_days
+from datetime import datetime, timedelta
+import re
 import time
 
 
 @st.cache_data(ttl=3600)
-def get_sourcing_options_view():
-    return {
-        'sumber_options': ["Jobstreet", "LinkedIn", "Google Form", "Referensi User", "Referensi Karyawan", "Campus Hiring", "Walk-in Interview", "Database Internal", "Freelance", "Lainnya"],
-        'model_options': ["Model 1", "Model 2", "Model 3", "Model 4"],
-        'pipeline_status_options': ["V", "X"],
-        'fmcg_options': ["Ya", "Tidak"],
-        'jenjang_options': ["SMA/SMK", "D3", "D4", "S1", "S2"],
-        'univ_tier_options': ["Tier 1", "Tier 2", "Tier 3", "Lainnya"],
-        'ipk_tier_options': ["> 3.5", "3.0 - 3.5", "2.5 - 3.0", "< 2.5"]
-    }
+def get_level_options_fptk():
+    LEVEL_OPTIONS = []
+    for num in range(1, 6):
+        for letter in ['A', 'B', 'C']:
+            LEVEL_OPTIONS.append(f"{num}{letter}")
+    return LEVEL_OPTIONS
 
 
 @st.cache_data(ttl=3600)
-def get_pipeline_stages_view():
-    return [
-        {"field": "sourcing_freelance", "label": "Sourcing Freelance", "has_detail": False},
-        {"field": "sourcing_hr", "label": "Sourcing HR", "has_detail": True},
-        {"field": "shortlist_cv", "label": "Shortlist CV", "has_detail": True},
-        {"field": "psikotes", "label": "Psikotes", "has_detail": True},
-        {"field": "hr_interview", "label": "HR Interview", "has_detail": True},
-        {"field": "technical_test_case_study", "label": "Technical Test", "has_detail": True},
-        {"field": "market_visit", "label": "Market Visit", "has_detail": True},
-        {"field": "user_interview", "label": "User Interview", "has_detail": True},
-        {"field": "panel_interview", "label": "Panel Interview", "has_detail": True},
-        {"field": "reference_check", "label": "Reference Check", "has_detail": True},
-        {"field": "mcu", "label": "MCU", "has_detail": True},
-        {"field": "offering", "label": "Offering", "has_detail": True},
-        {"field": "day1", "label": "Day 1", "has_detail": True}
-    ]
+def get_detail_sla_options():
+    return ["OP Belum Lewat SLA", "OP Tidak Lulus SLA", "Closed Lulus SLA", "Closed Tidak Lulus SLA", "Cancel FPTK"]
 
 
-@st.dialog("📩 Request Hapus Kandidat ke Admin")
-def request_delete_sourcing(db, sourcing_id: int, kode_unik: str, nama: str, posisi: str, pic_name: str):
-    st.info(f"**Kandidat:** {nama}")
-    st.caption(f"Kode Unik: {kode_unik} | Posisi: {posisi}")
+FALLBACK_BU_OPTIONS = [
+    "PT CISARUA MOUNTAIN DAIRY, TBK", "PT JAVA EGG SPECIALITIES", "PT MACROSENTRA NIAGABOGA",
+    "PT MACROPRIMA PANGANUTAMA", "PT ARTHA RASA CIMORY", "PT MACROTAMA BINASANTIKA",
+]
+
+FALLBACK_DIREKTORAT_OPTIONS = [
+    "CEO Office", "CEO, Corsec, & Investor Relation", "Commercial CMD", "Commercial JES",
+    "Commercial MP", "Finance & Business Support", "Logistic & Distribution",
+    "Manufacture CMD", "Manufacture JES", "Manufacture MP", "Procurement CMD & Corporate",
+    "Procurement MP & JES", "Sales General Trade CMD", "Sales General Trade JES",
+    "Sales General Trade MP", "Sales International Market", "Sales Modern Trade",
+]
+
+FALLBACK_FILTER_KATEGORISASI = ["CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"]
+
+
+def update_all_sla_bulk(db):
+    updated_count = 0
+    try:
+        fptk_list = db.query(FPTK).filter(FPTK.status.in_(["OP", "Closed", "Cancel"])).all()
+        for fptk in fptk_list:
+            new_detail_sla = calculate_detail_sla(
+                status=fptk.status, deadline_sla=fptk.deadline_sla, offering_date=fptk.offering_date
+            )
+            if fptk.detail_sla != new_detail_sla:
+                fptk.detail_sla = new_detail_sla
+                fptk.last_updated_at = datetime.now()
+                updated_count += 1
+        if updated_count > 0:
+            db.commit()
+        else:
+            db.rollback()
+        return updated_count
+    except Exception as e:
+        db.rollback()
+        print(f"Error updating SLA: {str(e)}")
+        return -1
+
+
+@st.dialog("Request Hapus FPTK ke Admin")
+def request_delete_fptk(db, fptk_id, kode_unik, posisi, pic_name):
+    st.info(f"**FPTK:** {kode_unik} | {posisi}")
     st.caption("Request Anda akan dikirim ke Admin untuk di-approve.")
-
-    reason = st.text_area(
-        "Alasan Request Hapus *",
-        placeholder="Contoh: Kandidat duplikat, salah input, dibatalkan kandidat, dll.",
-        height=150,
-        key="reason_delete_sourcing"
-    )
-
+    reason = st.text_area("Alasan Request Hapus *", height=150, key="reason_delete_fptk")
     st.caption("Alasan wajib diisi minimal 10 karakter.")
-
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("📤 Kirim Request", type="primary", use_container_width=True, key="btn_submit_del_req"):
+        if st.button("Kirim Request", type="primary", use_container_width=True):
             if not reason or len(reason.strip()) < 10:
-                st.error("❌ Alasan wajib diisi minimal 10 karakter!")
+                st.error("Alasan wajib diisi minimal 10 karakter!")
             else:
                 try:
-                    existing = db.query(SourcingDeleteRequest).filter(
-                        SourcingDeleteRequest.sourcing_id == sourcing_id,
-                        SourcingDeleteRequest.status == "PENDING"
+                    existing = db.query(FPTKDeleteRequest).filter(
+                        FPTKDeleteRequest.fptk_id == fptk_id,
+                        FPTKDeleteRequest.status == "PENDING"
                     ).first()
-
                     if existing:
-                        st.warning("⚠️ Request hapus untuk kandidat ini sudah ada dan masih PENDING.")
+                        st.warning("Request sudah ada dan masih PENDING.")
                     else:
                         user = get_current_user(db)
-                        new_request = SourcingDeleteRequest(
-                            sourcing_id=sourcing_id,
-                            kode_unik=kode_unik,
-                            nama=nama,
-                            posisi=posisi,
-                            pic_recruiter=pic_name,
-                            reason=reason.strip(),
-                            status="PENDING",
+                        new_request = FPTKDeleteRequest(
+                            fptk_id=fptk_id, kode_unik=kode_unik, posisi=posisi,
+                            pic_recruiter=pic_name, reason=reason.strip(), status="PENDING",
                             requested_by=user.id if user else None,
                             requested_by_name=user.display_name if user else "Unknown",
                             requested_at=datetime.now()
                         )
                         db.add(new_request)
                         db.commit()
-
-                        st.success("✅ Request hapus berhasil dikirim ke Admin!")
+                        st.success("Request berhasil dikirim!")
                         time.sleep(0.5)
                         st.rerun()
                 except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
                     db.rollback()
-
     with col2:
-        if st.button("❌ Batal", use_container_width=True, key="btn_cancel_del_req"):
+        if st.button("Batal", use_container_width=True):
             st.rerun()
 
 
-@st.dialog("⚠️ HAPUS KANDIDAT PERMANEN")
-def confirm_delete_sourcing(db, sourcing_id: int, kode_unik: str, nama: str):
-    st.error(f"⚠️ Anda akan menghapus kandidat **{nama}** (Kode Unik: {kode_unik}) secara PERMANEN!")
-    st.warning("⚠️ TINDAKAN INI TIDAK DAPAT DIBATALKAN!")
-    st.caption("Data terkait (CV attachments, transfer history, request un-blacklist) juga akan terhapus otomatis.")
-
-    confirm_kode = st.text_input(
-        f"Ketik kode unik **{kode_unik}** untuk konfirmasi:",
-        placeholder=f"Ketik {kode_unik} di sini",
-        key="confirm_del_src_input"
-    )
-
+@st.dialog("HAPUS FPTK PERMANEN")
+def confirm_delete_fptk(db, fptk_id, kode_unik, posisi):
+    st.error(f"Anda akan menghapus FPTK **{kode_unik}** - **{posisi}** secara PERMANEN!")
+    st.warning("TINDAKAN INI TIDAK DAPAT DIBATALKAN!")
+    confirm_kode = st.text_input(f"Ketik kode unik **{kode_unik}** untuk konfirmasi:", key="confirm_del_fptk")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🗑️ Ya, Hapus Permanen", type="primary", use_container_width=True, key="btn_confirm_del_src"):
+        if st.button("Ya, Hapus Permanen", type="primary", use_container_width=True):
             if confirm_kode.strip() == kode_unik:
                 try:
-                    src = db.query(DBSourcing).filter(DBSourcing.id == sourcing_id).first()
-                    if src:
-                        db.query(SourcingDeleteRequest).filter(
-                            SourcingDeleteRequest.sourcing_id == sourcing_id
-                        ).delete(synchronize_session=False)
-
-                        db.delete(src)
+                    fptk = db.query(FPTK).filter(FPTK.id == fptk_id).first()
+                    if fptk:
+                        try:
+                            db.query(TransferHistory).filter(TransferHistory.fptk_id == fptk_id).delete(synchronize_session=False)
+                        except Exception:
+                            pass
+                        db.query(FPTKDeleteRequest).filter(FPTKDeleteRequest.fptk_id == fptk_id).delete(synchronize_session=False)
+                        db.delete(fptk)
                         db.commit()
-
                         st.cache_data.clear()
-                        st.success(f"✅ Kandidat **{nama}** berhasil dihapus!")
+                        st.success(f"FPTK **{kode_unik}** berhasil dihapus!")
                         time.sleep(0.5)
                         st.rerun()
-                    else:
-                        st.error("Kandidat tidak ditemukan!")
                 except Exception as e:
-                    st.error(f"❌ Error: {str(e)}")
+                    st.error(f"Error: {str(e)}")
                     db.rollback()
             else:
-                st.error(f"❌ Kode unik tidak cocok!")
-
+                st.error(f"Kode unik tidak cocok!")
     with col2:
-        if st.button("❌ Batal", use_container_width=True, key="btn_cancel_del_src"):
+        if st.button("Batal", use_container_width=True):
             st.rerun()
 
 
-def show_sourcing_view():
-    st.title("👤 Sourcing Database")
-    st.markdown("Lihat dan filter data kandidat sourcing.")
+def show_fptk_view():
+    st.title("📋 FPTK Database")
+    st.markdown("Lihat semua data FPTK & transfer.")
 
     db = next(get_db())
     user = get_current_user(db)
@@ -159,822 +150,767 @@ def show_sourcing_view():
 
     admin = is_admin(db)
 
-    with st.spinner("📋 Memuat data..."):
-        filter_opts = get_filter_options_from_db()
-        sourcing_options = get_sourcing_options_view()
-        pipeline_stages = get_pipeline_stages_view()
+    with st.spinner("Memeriksa SLA..."):
+        updated = update_all_sla_bulk(db)
+        if updated > 0:
+            st.success(f"✅ {updated} data FPTK diperbarui SLA-nya!")
+        time.sleep(0.3)
 
-    pic_from_users = filter_opts.get("pic_options", [])
+    tab1, tab2 = st.tabs(["📋 Database FPTK", "🔄 Transfer FPTK"])
 
-    if not pic_from_users:
+    with tab1:
+        render_fptk_database(db, user, admin)
+
+    with tab2:
+        render_transfer_fptk(db, user, admin)
+
+
+def render_fptk_database(db, user, admin):
+    filter_opts = get_filter_options_from_db()
+
+    pic_options_all = filter_opts.get("pic_options", [])
+    if not pic_options_all:
         try:
-            master_pics = db.query(MasterDropdown.pic_recruiter).filter(
-                MasterDropdown.pic_recruiter.isnot(None),
-                MasterDropdown.pic_recruiter != "",
-                MasterDropdown.is_active == True
-            ).distinct().all()
-            pic_from_users = sorted(set([r[0] for r in master_pics if r[0]]))
+            master_records = db.query(MasterDropdown).filter(MasterDropdown.is_active == True).all()
+            pic_options_all = sorted(set([m.pic_recruiter for m in master_records if m.pic_recruiter]))
         except Exception:
-            pic_from_users = []
+            pic_options_all = []
 
-    if not pic_from_users:
-        try:
-            rekruter_from_db = db.query(DBSourcing.rekruter).filter(
-                DBSourcing.rekruter.isnot(None),
-                DBSourcing.rekruter != ""
-            ).distinct().all()
-            pic_from_users = sorted(set([r[0] for r in rekruter_from_db if r[0]]))
-        except Exception:
-            pic_from_users = []
+    bu_options = filter_opts.get("bu_options", []) or FALLBACK_BU_OPTIONS
+    direktorat_options = filter_opts.get("direktorat_options", []) or FALLBACK_DIREKTORAT_OPTIONS
+    filter_kategorisasi_options = filter_opts.get("filter_kategorisasi_options", []) or FALLBACK_FILTER_KATEGORISASI
+    divisi_options = filter_opts.get("divisi_options", [])
+    dept_options = filter_opts.get("dept_options", [])
+    alasan_options = filter_opts.get("alasan_options", [])
+    lokasi_onboarding_options = filter_opts.get("lokasi_onboarding_options", [])
+
+    status_options = ["OP", "Closed", "Cancel"]
+    LEVEL_OPTIONS = get_level_options_fptk()
+    detail_sla_options = get_detail_sla_options()
 
     with st.sidebar:
-        st.markdown("### 🔍 Filter Sourcing")
-        search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
-        pic_options = ["Semua"] + pic_from_users
-        pic_filter = st.selectbox("PIC Recruiter / Rekruter", pic_options)
-
-        sumber_options = ["Semua"] + filter_opts.get("sumber_options", [])
-        if len(sumber_options) == 1:
-            sumber_options = ["Semua"] + sourcing_options['sumber_options']
-        sumber_filter = st.selectbox("Sumber Sourcing", sumber_options)
-
-        model_options = ["Semua"] + sourcing_options['model_options']
-        model_filter = st.selectbox("Model Rekrutmen", model_options)
-
-        stage_labels = ["Semua"] + [s["label"] for s in pipeline_stages]
-        stage_filter = st.selectbox("Tahap Pipeline", stage_labels)
-
-        col1, col2 = st.columns(2)
-        with col1:
-            date_from = st.date_input("Dari Sourcing", datetime.now().replace(year=2020))
-        with col2:
-            date_to = st.date_input("Sampai Sourcing", datetime.now())
-
-        show_mine = st.checkbox("Hanya data saya", value=False)
-
+        st.markdown("### 🔍 Filter FPTK")
+        search = st.text_input("🔎 Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...", key="fptk_search")
+        status_filter = st.selectbox("Status", ["Semua"] + status_options, key="fptk_status")
+        pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + pic_options_all, key="fptk_pic")
+        bu_filter = st.selectbox("Business Unit", ["Semua"] + bu_options, key="fptk_bu")
+        dir_filter = st.selectbox("Direktorat", ["Semua"] + direktorat_options, key="fptk_dir")
+        divisi_filter = st.selectbox("Divisi", ["Semua"] + (divisi_options if divisi_options else ["-"]), key="fptk_div")
+        dept_filter = st.selectbox("Department", ["Semua"] + (dept_options if dept_options else ["-"]), key="fptk_dept")
+        filter_kat = st.selectbox("Filter Kategorisasi", ["Semua"] + filter_kategorisasi_options, key="fptk_kat")
         st.markdown("---")
-        if st.button("🔄 Reset Filter", use_container_width=True):
+        if st.button("🔄 Refresh SLA Now", use_container_width=True, type="primary", key="fptk_refresh_sla"):
+            with st.spinner("Memperbarui SLA..."):
+                updated = update_all_sla_bulk(db)
+                if updated > 0:
+                    st.success(f"✅ {updated} data SLA diperbarui!")
+                else:
+                    st.info("✅ Semua SLA sudah sesuai.")
+                time.sleep(0.5)
+                st.rerun()
+        if st.button("🔄 Reset Filter", use_container_width=True, key="fptk_reset"):
             st.rerun()
-        if st.button("🔄 Refresh Filter Options", use_container_width=True):
-            get_filter_options_from_db.clear()
-            st.success("✅ Filter refreshed!")
-            time.sleep(0.3)
-            st.rerun()
-        st.caption("💡 Filter diambil langsung dari database")
 
-    query = db.query(DBSourcing)
+    query = db.query(FPTK)
 
     if search:
-        search_term = search.strip()
-        query = query.filter(
-            (DBSourcing.nama.ilike(f"%{search_term}%")) |
-            (DBSourcing.posisi.ilike(f"%{search_term}%")) |
-            (DBSourcing.kode_unik.ilike(f"%{search_term}%"))
-        )
-
+        query = query.filter((FPTK.kode_unik.ilike(f"%{search}%")) | (FPTK.posisi.ilike(f"%{search}%")))
+    if status_filter != "Semua":
+        query = query.filter(FPTK.status == status_filter)
     if pic_filter != "Semua":
-        query = query.filter(DBSourcing.rekruter == pic_filter)
-    if sumber_filter != "Semua":
-        query = query.filter(DBSourcing.sumber_sourcing == sumber_filter)
-    if model_filter != "Semua":
-        query = query.filter(DBSourcing.model_rekrutmen == model_filter)
-    if show_mine and not admin:
-        query = query.filter(DBSourcing.rekruter == user.pic_recruiter)
-    if date_from:
-        query = query.filter(DBSourcing.sourcing_date >= date_from)
-    if date_to:
-        query = query.filter(DBSourcing.sourcing_date <= date_to)
-
-    if stage_filter != "Semua":
-        for stage in pipeline_stages:
-            if stage["label"] == stage_filter:
-                field = getattr(DBSourcing, stage["field"])
-                query = query.filter(field.isnot(None))
-                break
+        query = query.filter(FPTK.pic_recruiter == pic_filter)
+    if bu_filter != "Semua":
+        query = query.filter(FPTK.business_unit == bu_filter)
+    if dir_filter != "Semua":
+        query = query.filter(FPTK.direktorat == dir_filter)
+    if divisi_filter != "Semua":
+        query = query.filter(FPTK.divisi == divisi_filter)
+    if dept_filter != "Semua":
+        query = query.filter(FPTK.department == dept_filter)
+    if filter_kat != "Semua":
+        query = query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
 
     total = query.count()
-    st.markdown(f"**Total Kandidat: {total}**")
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total FPTK", total)
 
     if total > 0:
-        col_export1, col_export2 = st.columns(2)
-        with col_export1:
-            if st.button("📥 Export CSV (Filtered)", use_container_width=True):
-                df_export = pd.read_sql(query.statement, db.bind)
-                csv = df_export.to_csv(index=False)
-                st.download_button(
-                    "⬇️ Download CSV",
-                    csv,
-                    f"sourcing_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
-                    "text/csv",
-                    key="dl_sourcing_csv"
-                )
-        with col_export2:
-            if st.button("📊 Export Excel (Filtered)", use_container_width=True):
-                from io import BytesIO
-                df_export = pd.read_sql(query.statement, db.bind)
-                output = BytesIO()
-                with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                    df_export.to_excel(writer, sheet_name='Sourcing', index=False)
-                output.seek(0)
-                st.download_button(
-                    "⬇️ Download Excel",
-                    output.getvalue(),
-                    f"sourcing_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
-                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    key="dl_sourcing_xlsx"
-                )
-
-        st.markdown("---")
-
-        page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50)
-        page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1)
-        offset = (page - 1) * page_size
-
-        df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
-
-        exclude_cols = ['created_at', 'last_updated_at', 'last_compile_action',
-                       'source_file', 'source_file_hash', 'source_user_id', 'source_cycle_id']
-        display_cols = [c for c in df.columns if c not in exclude_cols]
-
-        if 'blacklisted_by' in display_cols:
-            display_cols.remove('blacklisted_by')
-
-        column_config = {
-            "id": "ID",
-            "no": "No",
-            "sourcing_date": "Tgl Sourcing",
-            "kode_unik": "Kode Unik",
-            "posisi": "Posisi",
-            "model_rekrutmen": "Model Rekrutmen",
-            "rekruter": "PIC Recruiter",
-            "sumber_sourcing": "Sumber Sourcing",
-            "nama": "Nama Kandidat",
-            "nama_universitas_top10": "Universitas Top 10",
-            "nama_universitas_lainnya": "Universitas Lainnya",
-            "jenjang_pendidikan": "Jenjang Pendidikan",
-            "jurusan": "Jurusan",
-            "jurusan_lainnya": "Jurusan Lainnya",
-            "tahun_lulus": "Tahun Lulus",
-            "ipk": "IPK",
-            "skor_bahasa_inggris": "Skor Bahasa Inggris",
-            "university_tier": "University Tier",
-            "ipk_tier": "IPK Tier",
-            "nomor_hp": "No HP",
-            "email": "Email",
-            "domisili": "Domisili",
-            "last_position": "Posisi Terakhir",
-            "last_tenure": "Masa Kerja Terakhir",
-            "last_company": "Perusahaan Terakhir",
-            "total_tenure": "Total Masa Kerja",
-            "pernah_di_fmcg": "Pernah di FMCG",
-            "sourcing_freelance": "Sourcing Freelance",
-            "tanggal_sourcing_freelance": "Tgl Sourcing Freelance",
-            "sourcing_hr": "Sourcing HR",
-            "detail_keterangan_sourcing_hr": "Keterangan Sourcing HR",
-            "tanggal_sourcing": "Tgl Sourcing",
-            "shortlist_cv": "Shortlist CV",
-            "detail_keterangan_shortlist_cv": "Keterangan Shortlist",
-            "tanggal_shortlist_cv": "Tgl Shortlist",
-            "psikotes": "Psikotes",
-            "kode_psikotes": "Kode Psikotes",
-            "detail_keterangan_psikotes": "Keterangan Psikotes",
-            "tanggal_psikotes": "Tgl Psikotes",
-            "nilai_logika": "Nilai Logika",
-            "nilai_iq": "Nilai IQ",
-            "nilai_daya_tangkap": "Nilai Daya Tangkap",
-            "nilai_ra": "Nilai RA",
-            "disc": "DISC",
-            "hr_interview": "HR Interview",
-            "detail_keterangan_hr_interview": "Keterangan HR Interview",
-            "tanggal_hr_interview": "Tgl HR Interview",
-            "technical_test_case_study": "Technical Test",
-            "detail_keterangan_technical_test": "Keterangan Technical Test",
-            "tanggal_technical_test": "Tgl Technical Test",
-            "market_visit": "Market Visit",
-            "detail_market_visit": "Keterangan Market Visit",
-            "tanggal_market_visit": "Tgl Market Visit",
-            "user_interview": "User Interview",
-            "detail_keterangan_user_interview": "Keterangan User Interview",
-            "tanggal_user_interview": "Tgl User Interview",
-            "panel_interview": "Panel Interview",
-            "detail_keterangan_panel_interview": "Keterangan Panel Interview",
-            "tanggal_panel_interview": "Tgl Panel Interview",
-            "reference_check": "Reference Check",
-            "detail_keterangan_reference_check": "Keterangan Reference Check",
-            "tanggal_reference_check": "Tgl Reference Check",
-            "mcu": "MCU",
-            "detail_keterangan_mcu": "Keterangan MCU",
-            "tanggal_mcu": "Tgl MCU",
-            "offering": "Offering",
-            "detail_keterangan_offering": "Keterangan Offering",
-            "tanggal_offering": "Tgl Offering",
-            "notes": "Catatan",
-            "day1": "Day 1",
-            "detail_keterangan_day1": "Keterangan Day 1",
-            "tanggal_day1": "Tgl Day 1",
-            "is_blacklisted": "Blacklist",
-            "blacklisted_at": "Tgl Blacklist",
-            "blacklist_reason": "Alasan Blacklist"
-        }
-
-        display_df = df[display_cols].copy()
-
-        new_columns = []
-        used_names = set()
-        for col in display_df.columns:
-            new_name = column_config.get(col, col)
-            if new_name in used_names:
-                new_columns.append(col)
-            else:
-                new_columns.append(new_name)
-                used_names.add(new_name)
-        display_df.columns = new_columns
-
-        st.dataframe(display_df, use_container_width=True, height=500)
-
-        st.markdown("---")
-        st.markdown("### ✏️ Bulk Edit Sourcing")
-        st.caption("Pilih banyak kandidat sekaligus, lalu update field yang sama untuk semuanya.")
-
-        bulk_query = db.query(DBSourcing)
-        if search:
-            search_term = search.strip()
-            bulk_query = bulk_query.filter(
-                (DBSourcing.nama.ilike(f"%{search_term}%")) |
-                (DBSourcing.posisi.ilike(f"%{search_term}%")) |
-                (DBSourcing.kode_unik.ilike(f"%{search_term}%"))
-            )
-        if pic_filter != "Semua":
-            bulk_query = bulk_query.filter(DBSourcing.rekruter == pic_filter)
-        if sumber_filter != "Semua":
-            bulk_query = bulk_query.filter(DBSourcing.sumber_sourcing == sumber_filter)
-        if model_filter != "Semua":
-            bulk_query = bulk_query.filter(DBSourcing.model_rekrutmen == model_filter)
-        if date_from:
-            bulk_query = bulk_query.filter(DBSourcing.sourcing_date >= date_from)
-        if date_to:
-            bulk_query = bulk_query.filter(DBSourcing.sourcing_date <= date_to)
-        if not admin:
-            bulk_query = bulk_query.filter(DBSourcing.rekruter == user.pic_recruiter)
-
-        bulk_sourcing = bulk_query.limit(500).all()
-
-        if not bulk_sourcing:
-            st.info("Tidak ada kandidat yang bisa di-bulk edit dengan filter ini.")
-        else:
-            bulk_src_df = pd.DataFrame([{
-                "pilih": False,
-                "id": s.id,
-                "kode_unik": s.kode_unik,
-                "nama": s.nama,
-                "posisi": s.posisi,
-                "rekruter": s.rekruter,
-                "sumber_sourcing": s.sumber_sourcing,
-                "model_rekrutmen": s.model_rekrutmen,
-                "is_blacklisted": s.is_blacklisted or False,
-            } for s in bulk_sourcing])
-
-            edited_src_df = st.data_editor(
-                bulk_src_df,
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "pilih": st.column_config.CheckboxColumn("Pilih", default=False),
-                    "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
-                    "kode_unik": st.column_config.TextColumn("Kode Unik", disabled=True, width="medium"),
-                    "nama": st.column_config.TextColumn("Nama", disabled=True, width="medium"),
-                    "posisi": st.column_config.TextColumn("Posisi", disabled=True, width="medium"),
-                    "rekruter": st.column_config.TextColumn("PIC", disabled=True, width="small"),
-                    "sumber_sourcing": st.column_config.TextColumn("Sumber", disabled=True, width="small"),
-                    "model_rekrutmen": st.column_config.TextColumn("Model", disabled=True, width="small"),
-                    "is_blacklisted": st.column_config.CheckboxColumn("Blacklist", disabled=True, width="small"),
-                },
-                key="bulk_sourcing_table"
-            )
-
-            selected_src_ids = edited_src_df[edited_src_df["pilih"] == True]["id"].tolist()
-
-            st.markdown(f"**{len(selected_src_ids)} kandidat dipilih**")
-
-            if selected_src_ids:
-                st.markdown("#### Field yang Mau Diubah")
-
-                pipeline_fields = [
-                    "sourcing_freelance", "sourcing_hr", "shortlist_cv", "psikotes",
-                    "hr_interview", "technical_test_case_study", "market_visit",
-                    "user_interview", "panel_interview", "reference_check",
-                    "mcu", "offering", "day1"
-                ]
-
-                all_src_fields = {
-                    "posisi": "Posisi",
-                    "model_rekrutmen": "Model Rekrutmen",
-                    "rekruter": "Rekruter",
-                    "sumber_sourcing": "Sumber Sourcing",
-                    "jenjang_pendidikan": "Jenjang Pendidikan",
-                    "jurusan": "Jurusan",
-                    "tahun_lulus": "Tahun Lulus",
-                    "ipk": "IPK",
-                    "nama_universitas_top10": "Universitas Top 10",
-                    "university_tier": "University Tier",
-                    "ipk_tier": "IPK Tier",
-                    "domisili": "Domisili",
-                    "last_position": "Last Position",
-                    "last_company": "Last Company",
-                    "last_tenure": "Last Tenure",
-                    "total_tenure": "Total Tenure",
-                    "pernah_di_fmcg": "Pernah di FMCG",
-                    "notes": "Notes",
-                    "is_blacklisted": "Blacklist Status",
-                }
-
-                for pf in pipeline_fields:
-                    all_src_fields[pf] = f"Pipeline: {pf.replace('_', ' ').title()}"
-
-                field_src = st.selectbox(
-                    "Pilih Field",
-                    list(all_src_fields.keys()),
-                    format_func=lambda x: all_src_fields[x],
-                    key="bulk_src_field"
-                )
-
-                new_src_value = None
-                custom_date = None
-
-                if field_src in pipeline_fields:
-                    new_src_value = st.selectbox("Status Pipeline", ["", "V", "X"], key=f"bulk_src_v_{field_src}")
-                    auto_date = st.checkbox("Auto-isi tanggal hari ini", value=True, key=f"bulk_src_autodate_{field_src}")
-                    if not auto_date:
-                        custom_date = st.date_input("Tanggal", datetime.now().date(), key=f"bulk_src_date_{field_src}")
-                    else:
-                        custom_date = datetime.now().date()
-                elif field_src == "model_rekrutmen":
-                    new_src_value = st.selectbox("Model Rekrutmen", ["Model 1", "Model 2", "Model 3", "Model 4"], key="bulk_src_model")
-                elif field_src == "pernah_di_fmcg":
-                    new_src_value = st.selectbox("Pernah di FMCG", ["Ya", "Tidak"], key="bulk_src_fmcg")
-                elif field_src == "jenjang_pendidikan":
-                    new_src_value = st.selectbox("Jenjang", ["SMA/SMK", "D3", "D4", "S1", "S2"], key="bulk_src_jenjang")
-                elif field_src == "university_tier":
-                    new_src_value = st.selectbox("University Tier", ["Top 3 PTN", "Top 10 PTN", "Top 20 PTN", "Top 10 PTS", "Lainnya"], key="bulk_src_unitier")
-                elif field_src == "ipk_tier":
-                    new_src_value = st.selectbox("IPK Tier", ["> 3.5", "3.0 - 3.5", "2.5 - 3.0", "< 2.5"], key="bulk_src_ipktier")
-                elif field_src == "is_blacklisted":
-                    new_src_value = st.selectbox("Blacklist", [True, False], format_func=lambda x: "Ya" if x else "Tidak", key="bulk_src_blacklist")
-                elif field_src == "tahun_lulus":
-                    new_src_value = st.number_input("Tahun Lulus", min_value=1900, max_value=2100, value=2020, key="bulk_src_tahun")
-                elif field_src == "ipk":
-                    new_src_value = st.number_input("IPK", min_value=0.0, max_value=4.0, value=3.0, step=0.01, key="bulk_src_ipk")
-                else:
-                    new_src_value = st.text_input("Nilai Baru", key="bulk_src_text")
-
-                col_a, col_b = st.columns(2)
-                with col_a:
-                    if st.button("✅ Terapkan ke Kandidat", type="primary", use_container_width=True, key="bulk_src_apply"):
-                        try:
-                            updated_count = 0
-                            for sid in selected_src_ids:
-                                src_obj = db.query(DBSourcing).filter(DBSourcing.id == sid).first()
-                                if not src_obj:
-                                    continue
-
-                                setattr(src_obj, field_src, new_src_value)
-
-                                if field_src in pipeline_fields and new_src_value and custom_date:
-                                    date_field = f"tanggal_{field_src}"
-                                    if hasattr(src_obj, date_field):
-                                        setattr(src_obj, date_field, custom_date)
-
-                                if field_src == "is_blacklisted" and new_src_value:
-                                    src_obj.blacklisted_at = datetime.now()
-                                    src_obj.blacklisted_by = user.id
-                                    src_obj.blacklist_reason = "Bulk edit"
-                                elif field_src == "is_blacklisted" and not new_src_value:
-                                    src_obj.blacklisted_at = None
-                                    src_obj.blacklisted_by = None
-                                    src_obj.blacklist_reason = None
-
-                                src_obj.last_updated_at = datetime.now()
-                                src_obj.last_compile_action = "BULK_EDIT"
-                                updated_count += 1
-
-                            db.commit()
-                            st.cache_data.clear()
-                            st.success(f"✅ Berhasil update {updated_count} kandidat!")
-                            time.sleep(0.5)
-                            st.rerun()
-                        except Exception as e:
-                            st.error(f"❌ Error: {str(e)}")
-                            db.rollback()
-
-                with col_b:
-                    if st.button("❌ Batal", use_container_width=True, key="bulk_src_cancel"):
-                        st.rerun()
-
-        st.markdown("---")
-        st.subheader("✏️ Detail & Edit Kandidat")
-        st.caption("🔍 Cari berdasarkan Kode Unik, Nama, atau Posisi")
-
         df_all = pd.read_sql(query.statement, db.bind)
+        op_count = len(df_all[df_all['status'] == 'OP']) if 'status' in df_all else 0
+        closed_count = len(df_all[df_all['status'] == 'Closed']) if 'status' in df_all else 0
+        cancel_count = len(df_all[df_all['status'] == 'Cancel']) if 'status' in df_all else 0
+        col2.metric("OP", op_count)
+        col3.metric("Closed", closed_count)
+        col4.metric("Cancel", cancel_count)
+    else:
+        col2.metric("OP", 0)
+        col3.metric("Closed", 0)
+        col4.metric("Cancel", 0)
+        st.info("Tidak ada data FPTK dengan filter yang dipilih.")
+        return
 
-        if not df_all.empty:
-            search_options = {}
-            for _, row in df_all.iterrows():
-                kode = row.get('kode_unik', '')
-                nama = row.get('nama', '')
-                posisi = row.get('posisi', '')
-                display = f"{kode} | {nama[:30]}..." if len(str(nama)) > 30 else f"{kode} | {nama}"
-                if posisi:
-                    display += f" | {posisi[:20]}..." if len(str(posisi)) > 20 else f" | {posisi}"
-                search_options[display] = row.get('id')
+    st.markdown("---")
 
-            selected_display = st.selectbox(
-                "Pilih Kandidat (Kode Unik | Nama | Posisi)",
-                list(search_options.keys())
-            )
+    col_exp1, col_exp2 = st.columns(2)
+    with col_exp1:
+        if st.button("📥 Export CSV (Filtered)", use_container_width=True, key="fptk_exp_csv"):
+            df_export = pd.read_sql(query.statement, db.bind)
+            csv = df_export.to_csv(index=False)
+            st.download_button("⬇️ Download CSV", csv, f"fptk_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", "text/csv", key="dl_fptk_csv")
+    with col_exp2:
+        if st.button("📊 Export Excel (Filtered)", use_container_width=True, key="fptk_exp_xlsx"):
+            from io import BytesIO
+            df_export = pd.read_sql(query.statement, db.bind)
+            output = BytesIO()
+            with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                df_export.to_excel(writer, sheet_name='FPTK', index=False)
+            output.seek(0)
+            st.download_button("⬇️ Download Excel", output.getvalue(), f"fptk_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_fptk_xlsx")
 
-            selected_id = search_options[selected_display] if selected_display else None
-        else:
-            selected_id = None
-            st.info("Tidak ada data untuk diedit.")
-            return
+    st.markdown("---")
+    st.markdown("### 📋 Daftar FPTK")
 
-        if not selected_id:
-            st.info("Pilih data dari daftar di atas untuk diedit.")
-            return
+    page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50, key="fptk_page_size")
+    page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1, key="fptk_page")
+    offset = (page - 1) * page_size
 
-        detail = db.query(DBSourcing).filter(DBSourcing.id == selected_id).first()
-        if not detail:
-            st.error("Data tidak ditemukan")
-            return
+    df = pd.read_sql(query.limit(page_size).offset(offset).statement, db.bind)
 
-        with st.expander("📋 Data Pribadi & Pendidikan", expanded=True):
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.markdown(f"**ID:** {detail.id}")
-                st.markdown(f"**No:** {detail.no or '-'}")
-                st.markdown(f"**Nama:** {detail.nama}")
-                st.markdown(f"**Posisi:** {detail.posisi or '-'}")
-                st.markdown(f"**Kode Unik:** {detail.kode_unik}")
-            with col2:
-                st.markdown(f"**Email:** {detail.email or '-'}")
-                st.markdown(f"**No HP:** {detail.nomor_hp or '-'}")
-                st.markdown(f"**Domisili:** {detail.domisili or '-'}")
-                st.markdown(f"**Sumber Sourcing:** {detail.sumber_sourcing or '-'}")
-            with col3:
-                st.markdown(f"**Universitas Top 10:** {detail.nama_universitas_top10 or '-'}")
-                st.markdown(f"**Universitas Lainnya:** {detail.nama_universitas_lainnya or '-'}")
-                st.markdown(f"**Jurusan:** {detail.jurusan or '-'}")
-                st.markdown(f"**Jurusan Lainnya:** {getattr(detail, 'jurusan_lainnya', None) or '-'}")
-                st.markdown(f"**IPK:** {detail.ipk or '-'}")
+    if 'fptk_date_real' in df.columns:
+        df['fptk_date_real'] = pd.to_datetime(df['fptk_date_real'])
+        df['FPTK Date Real'] = df['fptk_date_real'].dt.strftime('%d/%m/%Y')
 
-        with st.expander("💼 Pengalaman Kerja"):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"**Posisi Terakhir:** {detail.last_position or '-'}")
-                st.markdown(f"**Perusahaan Terakhir:** {detail.last_company or '-'}")
-            with col2:
-                st.markdown(f"**Masa Kerja Terakhir:** {detail.last_tenure or '-'}")
-                st.markdown(f"**Total Masa Kerja:** {detail.total_tenure or '-'}")
-                st.markdown(f"**Pernah di FMCG:** {detail.pernah_di_fmcg or '-'}")
+    display_cols = ['FPTK Date Real', 'kode_unik', 'posisi', 'pic_recruiter', 'business_unit',
+                    'direktorat', 'divisi', 'department', 'status', 'filter_kategorisasi_fptk',
+                    'vacancy', 'level_fptk', 'jumlah_sla', 'detail_sla']
+    available_cols = [c for c in display_cols if c in df.columns]
 
-        with st.expander("📊 Pipeline Status"):
-            pipeline_data = []
-            for stage in pipeline_stages:
-                field = getattr(detail, stage["field"])
-                date_field_name = f"tanggal_{stage['field']}"
-                detail_field_name = f"detail_keterangan_{stage['field']}"
-                date_value = getattr(detail, date_field_name) if hasattr(detail, date_field_name) else None
-                detail_value = getattr(detail, detail_field_name) if hasattr(detail, detail_field_name) else None
+    if not df.empty:
+        st.dataframe(df[available_cols], use_container_width=True, height=400)
 
-                pipeline_data.append({
-                    "Tahap": stage["label"],
-                    "Status": field or "-",
-                    "Tanggal": date_value.strftime('%d/%m/%Y') if date_value else "-",
-                    "Keterangan": detail_value or "-"
-                })
+    st.markdown("---")
+    st.markdown("### ✏️ Bulk Edit FPTK")
+    st.caption("Pilih banyak FPTK sekaligus, lalu update field yang sama untuk semuanya.")
 
-            pipeline_df = pd.DataFrame(pipeline_data)
-            st.dataframe(pipeline_df, use_container_width=True)
+    bulk_query = db.query(FPTK)
+    if status_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.status == status_filter)
+    if pic_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.pic_recruiter == pic_filter)
+    if bu_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.business_unit == bu_filter)
+    if dir_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.direktorat == dir_filter)
+    if divisi_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.divisi == divisi_filter)
+    if dept_filter != "Semua":
+        bulk_query = bulk_query.filter(FPTK.department == dept_filter)
+    if filter_kat != "Semua":
+        bulk_query = bulk_query.filter(FPTK.filter_kategorisasi_fptk == filter_kat)
+    if search:
+        bulk_query = bulk_query.filter((FPTK.kode_unik.ilike(f"%{search}%")) | (FPTK.posisi.ilike(f"%{search}%")))
+    if not admin:
+        bulk_query = bulk_query.filter(FPTK.pic_recruiter == user.pic_recruiter)
 
-        with st.expander("📝 Catatan & Blacklist"):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown(f"**Catatan:** {detail.notes or '-'}")
-            with col2:
-                st.markdown(f"**Blacklist:** {'Ya' if detail.is_blacklisted else 'Tidak'}")
-                if detail.is_blacklisted:
-                    st.markdown(f"**Tgl Blacklist:** {detail.blacklisted_at.strftime('%d/%m/%Y %H:%M') if detail.blacklisted_at else '-'}")
-                    st.markdown(f"**Alasan:** {detail.blacklist_reason or '-'}")
+    bulk_fptk = bulk_query.limit(500).all()
 
-        with st.expander("📎 Lampiran CV"):
-            cv_list = db.query(CVAttachment).filter(
-                CVAttachment.sourcing_id == detail.id
-            ).order_by(CVAttachment.created_at.desc()).all()
+    if not bulk_fptk:
+        st.info("Tidak ada FPTK yang bisa di-bulk edit dengan filter ini.")
+    else:
+        bulk_df = pd.DataFrame([{
+            "pilih": False, "id": f.id, "kode_unik": f.kode_unik, "posisi": f.posisi,
+            "pic_recruiter": f.pic_recruiter, "status": f.status, "level_fptk": f.level_fptk,
+            "business_unit": f.business_unit, "divisi": f.divisi or "-", "department": f.department or "-",
+        } for f in bulk_fptk])
 
-            if not cv_list:
-                st.info("Belum ada CV terlampir untuk kandidat ini.")
-                st.caption("Upload CV di halaman **Lampiran CV Kandidat**.")
+        edited_df = st.data_editor(
+            bulk_df, use_container_width=True, hide_index=True,
+            column_config={
+                "pilih": st.column_config.CheckboxColumn("Pilih", default=False),
+                "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+                "kode_unik": st.column_config.TextColumn("Kode Unik", disabled=True, width="medium"),
+                "posisi": st.column_config.TextColumn("Posisi", disabled=True, width="medium"),
+                "pic_recruiter": st.column_config.TextColumn("PIC", disabled=True, width="small"),
+                "status": st.column_config.TextColumn("Status", disabled=True, width="small"),
+                "level_fptk": st.column_config.TextColumn("Level", disabled=True, width="small"),
+                "business_unit": st.column_config.TextColumn("BU", disabled=True, width="medium"),
+                "divisi": st.column_config.TextColumn("Divisi", disabled=True, width="medium"),
+                "department": st.column_config.TextColumn("Department", disabled=True, width="medium"),
+            }, key="bulk_edit_table"
+        )
+
+        selected_ids = edited_df[edited_df["pilih"] == True]["id"].tolist()
+        st.markdown(f"**{len(selected_ids)} FPTK dipilih**")
+
+        if selected_ids:
+            st.markdown("#### Field yang Mau Diubah")
+            all_bulk_fields = {
+                "level_fptk": "Level FPTK (auto recalc SLA)", "level_number": "Level Number",
+                "status": "Status (auto recalc SLA)", "business_unit": "Business Unit",
+                "direktorat": "Direktorat", "divisi": "Divisi", "department": "Department",
+                "alasan_permintaan_fptk": "Alasan Permintaan FPTK", "category_fptk": "Category FPTK",
+                "pic_recruiter": "PIC Recruiter", "filter_kategorisasi_fptk": "Filter Kategorisasi FPTK",
+                "vacancy": "Vacancy", "offering_date": "Offering Date", "fptk_cancel_date": "FPTK Cancel Date",
+                "jumlah_sla": "Jumlah SLA", "deadline_sla": "Deadline SLA", "detail_sla": "Detail SLA",
+                "nama_kandidat": "Nama Kandidat", "estimasi_join": "Estimasi Join",
+                "kebutuhan_laptop": "Kebutuhan Laptop", "lokasi_onboarding": "Lokasi Onboarding",
+                "user_manager": "User (Manager)", "indirect_user": "Indirect User",
+                "lokasi_kerja": "Lokasi Kerja", "lokasi_hr": "Lokasi HR",
+                "status_karyawan": "Status Karyawan", "kode_bu": "Kode BU",
+                "fptk_availability": "FPTK Availability", "remark": "Remark",
+            }
+
+            field_to_update = st.selectbox("Pilih Field", list(all_bulk_fields.keys()),
+                format_func=lambda x: all_bulk_fields[x], key="bulk_field_select_v2")
+
+            new_value = None
+            if field_to_update == "level_fptk":
+                new_value = st.selectbox("Level FPTK", LEVEL_OPTIONS, key="bulk_v2_level")
+            elif field_to_update == "level_number":
+                new_value = st.number_input("Level Number", min_value=1, max_value=5, value=1, key="bulk_v2_levelnum")
+            elif field_to_update == "status":
+                new_value = st.selectbox("Status", ["OP", "Closed", "Cancel"], key="bulk_v2_status")
+            elif field_to_update == "business_unit":
+                new_value = st.selectbox("Business Unit", [""] + bu_options, key="bulk_v2_bu")
+            elif field_to_update == "direktorat":
+                new_value = st.selectbox("Direktorat", [""] + direktorat_options, key="bulk_v2_dir")
+            elif field_to_update == "divisi":
+                new_value = st.selectbox("Divisi", [""] + divisi_options if divisi_options else [""], key="bulk_v2_div")
+            elif field_to_update == "department":
+                new_value = st.selectbox("Department", [""] + dept_options if dept_options else [""], key="bulk_v2_dept")
+            elif field_to_update == "pic_recruiter":
+                new_value = st.selectbox("PIC Recruiter", pic_options_all, key="bulk_v2_pic")
+            elif field_to_update == "filter_kategorisasi_fptk":
+                new_value = st.selectbox("Filter Kategorisasi", ["CLAP FGDP", "STO", "Level 1-2", "Level 3", "Level 4"], key="bulk_v2_kat")
+            elif field_to_update == "category_fptk":
+                new_value = st.selectbox("Category FPTK", ["NEW", "REPLACEMENT"], key="bulk_v2_cat")
+            elif field_to_update == "vacancy":
+                new_value = st.number_input("Vacancy", min_value=1, value=1, key="bulk_v2_vac")
+            elif field_to_update in ["offering_date", "fptk_cancel_date", "deadline_sla", "estimasi_join"]:
+                new_value = st.date_input("Tanggal", datetime.now().date(), key=f"bulk_v2_date_{field_to_update}")
+            elif field_to_update == "jumlah_sla":
+                new_value = st.number_input("Jumlah SLA (hari)", min_value=1, max_value=365, value=30, key="bulk_v2_sla")
+            elif field_to_update == "detail_sla":
+                new_value = st.selectbox("Detail SLA", detail_sla_options, key="bulk_v2_detailsla")
+            elif field_to_update == "kebutuhan_laptop":
+                new_value = st.selectbox("Kebutuhan Laptop", ["Ya", "Tidak"], key="bulk_v2_laptop")
+            elif field_to_update == "fptk_availability":
+                new_value = st.selectbox("FPTK Availability", ["V", "X", "Y", "N"], key="bulk_v2_avail")
+            elif field_to_update == "alasan_permintaan_fptk":
+                new_value = st.selectbox("Alasan", [""] + alasan_options, key="bulk_v2_alasan")
+            elif field_to_update == "lokasi_onboarding":
+                new_value = st.selectbox("Lokasi Onboarding", [""] + lokasi_onboarding_options, key="bulk_v2_onboard")
             else:
-                st.markdown(f"**{len(cv_list)} CV terlampir:**")
+                new_value = st.text_area("Nilai Baru", key="bulk_v2_text")
 
-                for cv in cv_list:
-                    col1, col2, col3 = st.columns([3, 1, 1])
-                    with col1:
-                        size_kb = (cv.file_size or 0) / 1024
-                        st.markdown(f"📄 **{cv.file_name}** ({size_kb:.1f} KB)")
-                        st.caption(f"Upload: {cv.created_at.strftime('%d/%m/%Y %H:%M')} oleh {cv.uploaded_by_name or '-'}")
-                    with col2:
-                        try:
-                            file_bytes = b64.b64decode(cv.file_data)
-                            st.download_button(
-                                "⬇️ Download",
-                                file_bytes,
-                                cv.file_name,
-                                mime=cv.file_type or "application/octet-stream",
-                                key=f"dl_cv_src_{cv.id}",
-                                use_container_width=True
-                            )
-                        except Exception:
-                            st.caption("Error")
-                    with col3:
-                        file_lower = cv.file_name.lower()
-                        if file_lower.endswith(('.jpg', '.jpeg', '.png')):
-                            if st.button("👁️ Lihat", key=f"view_cv_src_{cv.id}", use_container_width=True):
-                                st.session_state[f"show_cv_{cv.id}"] = not st.session_state.get(f"show_cv_{cv.id}", False)
-                                st.rerun()
-
-                    if st.session_state.get(f"show_cv_{cv.id}", False):
-                        try:
-                            file_bytes = b64.b64decode(cv.file_data)
-                            st.image(file_bytes, caption=cv.file_name, use_container_width=True)
-                        except Exception as e:
-                            st.error(f"Error: {str(e)}")
-
-        st.markdown("---")
-        st.markdown("### ⚙️ Aksi Hapus Data")
-
-        existing_del_request = db.query(SourcingDeleteRequest).filter(
-            SourcingDeleteRequest.sourcing_id == detail.id,
-            SourcingDeleteRequest.status == "PENDING"
-        ).first()
-
-        all_del_requests = db.query(SourcingDeleteRequest).filter(
-            SourcingDeleteRequest.sourcing_id == detail.id
-        ).order_by(SourcingDeleteRequest.requested_at.desc()).all()
-
-        col1, col2, col3 = st.columns(3)
-
-        is_owner = detail.rekruter == user.pic_recruiter
-
-        if admin:
-            with col1:
-                if st.button("🗑️ Hapus Langsung (Admin)", type="secondary", use_container_width=True, key=f"del_direct_{detail.id}"):
-                    confirm_delete_sourcing(db, detail.id, detail.kode_unik, detail.nama)
-
-            with col2:
-                if existing_del_request:
-                    st.warning(f"📩 Pending dari {existing_del_request.requested_by_name}")
-                else:
-                    st.caption("Tidak ada request pending")
-
-            with col3:
-                if all_del_requests:
-                    with st.expander(f"📋 History ({len(all_del_requests)})"):
-                        for req in all_del_requests:
-                            emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
-                            st.markdown(f"{emoji} **{req.status}**")
-                            st.caption(f"By: {req.requested_by_name} - {req.requested_at.strftime('%d/%m/%Y %H:%M') if req.requested_at else '-'}")
-                            st.caption(f"Alasan: {req.reason}")
-                            if req.admin_notes:
-                                st.caption(f"Admin: {req.admin_notes}")
-                            st.markdown("---")
-
-        else:
-            with col1:
-                if existing_del_request:
-                    st.info(f"📩 Request Anda PENDING - {existing_del_request.requested_at.strftime('%d/%m/%Y %H:%M')}")
-                else:
-                    if is_owner:
-                        if st.button("📩 Request Hapus ke Admin", type="primary", use_container_width=True, key=f"req_del_{detail.id}"):
-                            request_delete_sourcing(db, detail.id, detail.kode_unik, detail.nama, detail.posisi, detail.rekruter)
-                    else:
-                        st.caption("ℹ️ Hanya PIC pemilik data yang bisa request hapus")
-
-            with col2:
-                if all_del_requests:
-                    st.caption(f"📋 Total {len(all_del_requests)} request")
-                else:
-                    st.caption("Belum ada request")
-
-            with col3:
-                if all_del_requests:
-                    with st.expander("📋 Lihat History Request"):
-                        for req in all_del_requests:
-                            emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
-                            st.markdown(f"{emoji} **{req.status}** - {req.requested_at.strftime('%d/%m/%Y %H:%M') if req.requested_at else '-'}")
-                            st.caption(f"Alasan: {req.reason}")
-                            if req.status == "REJECTED" and req.admin_notes:
-                                st.caption(f"Admin Notes: {req.admin_notes}")
-                            st.markdown("---")
-
-        st.markdown("---")
-        st.subheader("✏️ Edit Data Kandidat")
-
-        can_edit = admin or is_owner
-
-        if not can_edit:
-            st.warning("⚠️ Anda hanya bisa mengedit data yang Anda input sendiri. Hubungi admin untuk mengedit data ini.")
-        else:
-            with st.form("edit_sourcing_full", clear_on_submit=False):
-                st.markdown("### 📋 Data Pribadi & Pendidikan")
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    nama = st.text_input("Nama Kandidat *", value=detail.nama or "")
-                    posisi = st.text_input("Posisi *", value=detail.posisi or "")
-                    kode_unik = st.text_input("Kode Unik *", value=detail.kode_unik or "")
-                    sourcing_date = st.date_input("Tanggal Sourcing", value=detail.sourcing_date if detail.sourcing_date else datetime.now().date())
-
-                with col2:
-                    email = st.text_input("Email", value=detail.email or "")
-                    nomor_hp = st.text_input("No HP", value=detail.nomor_hp or "")
-                    domisili = st.text_input("Domisili", value=detail.domisili or "")
-                    rekruter = st.text_input("PIC Recruiter", value=detail.rekruter or "")
-
-                with col3:
-                    sumber_sourcing = st.selectbox("Sumber Sourcing", [""] + sourcing_options['sumber_options'],
-                                                  index=([""] + sourcing_options['sumber_options']).index(detail.sumber_sourcing) if detail.sumber_sourcing in sourcing_options['sumber_options'] else 0)
-                    model_rekrutmen = st.selectbox("Model Rekrutmen", [""] + sourcing_options['model_options'],
-                                                  index=([""] + sourcing_options['model_options']).index(detail.model_rekrutmen) if detail.model_rekrutmen in sourcing_options['model_options'] else 0)
-                    no = st.number_input("No", value=detail.no or 0, step=1)
-                    pernah_di_fmcg = st.selectbox("Pernah di FMCG", [""] + sourcing_options['fmcg_options'],
-                                                 index=([""] + sourcing_options['fmcg_options']).index(detail.pernah_di_fmcg) if detail.pernah_di_fmcg in sourcing_options['fmcg_options'] else 0)
-
-                st.markdown("---")
-                st.markdown("### 🎓 Pendidikan")
-                col1, col2, col3 = st.columns(3)
-
-                with col1:
-                    jenjang_pendidikan = st.selectbox("Jenjang Pendidikan", [""] + sourcing_options['jenjang_options'],
-                                                     index=([""] + sourcing_options['jenjang_options']).index(detail.jenjang_pendidikan) if detail.jenjang_pendidikan in sourcing_options['jenjang_options'] else 0)
-                    nama_universitas_top10 = st.text_input("Nama Universitas Top 10", value=detail.nama_universitas_top10 or "")
-                    nama_universitas_lainnya = st.text_input("Nama Universitas Lainnya", value=detail.nama_universitas_lainnya or "")
-
-                with col2:
-                    jurusan = st.text_input("Jurusan", value=detail.jurusan or "")
-                    jurusan_lainnya = st.text_input(
-                        "Jurusan Lainnya",
-                        value=getattr(detail, 'jurusan_lainnya', None) or ""
-                    )
-                    tahun_lulus = st.number_input("Tahun Lulus", value=detail.tahun_lulus or 0, step=1)
-                    ipk = st.text_input("IPK", value=str(detail.ipk) if detail.ipk else "")
-
-                with col3:
-                    skor_bahasa_inggris = st.text_input("Skor Bahasa Inggris", value=detail.skor_bahasa_inggris or "")
-                    university_tier = st.selectbox("University Tier", [""] + sourcing_options['univ_tier_options'],
-                                                  index=([""] + sourcing_options['univ_tier_options']).index(detail.university_tier) if detail.university_tier in sourcing_options['univ_tier_options'] else 0)
-                    ipk_tier = st.selectbox("IPK Tier", [""] + sourcing_options['ipk_tier_options'],
-                                           index=([""] + sourcing_options['ipk_tier_options']).index(detail.ipk_tier) if detail.ipk_tier in sourcing_options['ipk_tier_options'] else 0)
-
-                st.markdown("---")
-                st.markdown("### 💼 Pengalaman Kerja")
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    last_position = st.text_input("Posisi Terakhir", value=detail.last_position or "")
-                    last_company = st.text_input("Perusahaan Terakhir", value=detail.last_company or "")
-
-                with col2:
-                    last_tenure = st.text_input("Masa Kerja Terakhir", value=detail.last_tenure or "")
-                    total_tenure = st.text_input("Total Masa Kerja", value=detail.total_tenure or "")
-
-                st.markdown("---")
-                st.markdown("### 📊 Pipeline Stages (V = Lolos, X = Tidak Lolos)")
-
-                pipeline_inputs = {}
-
-                for i, stage in enumerate(pipeline_stages):
-                    if i % 3 == 0:
-                        cols = st.columns(3)
-
-                    status_field = stage["field"]
-                    label = stage["label"]
-                    date_field = f"tanggal_{status_field}"
-                    detail_field = f"detail_keterangan_{status_field}"
-
-                    status_value = getattr(detail, status_field)
-                    date_value = getattr(detail, date_field) if hasattr(detail, date_field) else None
-                    detail_value = getattr(detail, detail_field) if hasattr(detail, detail_field) else None
-
-                    with cols[i % 3]:
-                        st.markdown(f"**{label}**")
-
-                        new_status = st.selectbox(
-                            f"Status {label}",
-                            [""] + sourcing_options['pipeline_status_options'],
-                            index=([""] + sourcing_options['pipeline_status_options']).index(status_value) if status_value in sourcing_options['pipeline_status_options'] else 0,
-                            key=f"status_{status_field}"
-                        )
-
-                        new_date = st.date_input(
-                            f"Tgl {label}",
-                            value=date_value if date_value else None,
-                            key=f"date_{date_field}"
-                        )
-
-                        if hasattr(detail, detail_field):
-                            new_detail = st.text_area(
-                                f"Keterangan {label}",
-                                value=detail_value or "",
-                                key=f"detail_{detail_field}",
-                                height=50
-                            )
-                            pipeline_inputs[detail_field] = new_detail if new_detail else None
-
-                        pipeline_inputs[status_field] = new_status if new_status else None
-                        pipeline_inputs[date_field] = new_date
-
-                st.markdown("---")
-                st.markdown("### 📝 Catatan & Blacklist")
-                col1, col2 = st.columns(2)
-
-                with col1:
-                    notes = st.text_area("Catatan", value=detail.notes or "", height=100)
-
-                with col2:
-                    is_blacklisted = st.checkbox("Blacklist", value=detail.is_blacklisted or False)
-                    blacklist_reason = st.text_area("Alasan Blacklist", value=detail.blacklist_reason or "", height=100)
-
-                st.markdown("---")
-                st.markdown("### 🔧 Audit Info")
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.markdown(f"**Created At:** {detail.created_at.strftime('%d/%m/%Y %H:%M') if detail.created_at else '-'}")
-                with col2:
-                    st.markdown(f"**Last Updated:** {detail.last_updated_at.strftime('%d/%m/%Y %H:%M') if detail.last_updated_at else '-'}")
-
-                submitted = st.form_submit_button("💾 Simpan Perubahan")
-
-                if submitted:
+            col_apply, col_cancel = st.columns(2)
+            with col_apply:
+                if st.button("✅ Terapkan", type="primary", use_container_width=True, key="bulk_v2_apply"):
                     try:
-                        detail.nama = nama
-                        detail.posisi = posisi
-                        detail.kode_unik = kode_unik
-                        detail.sourcing_date = sourcing_date
-                        detail.email = email if email else None
-                        detail.nomor_hp = nomor_hp if nomor_hp else None
-                        detail.domisili = domisili if domisili else None
-                        detail.rekruter = rekruter if rekruter else None
-                        detail.sumber_sourcing = sumber_sourcing if sumber_sourcing else None
-                        detail.model_rekrutmen = model_rekrutmen if model_rekrutmen else None
-                        detail.no = no if no else None
-                        detail.pernah_di_fmcg = pernah_di_fmcg if pernah_di_fmcg != "" else None
+                        updated_count = 0
+                        for fptk_id in selected_ids:
+                            fptk_obj = db.query(FPTK).filter(FPTK.id == fptk_id).first()
+                            if not fptk_obj:
+                                continue
 
-                        detail.jenjang_pendidikan = jenjang_pendidikan if jenjang_pendidikan else None
-                        detail.nama_universitas_top10 = nama_universitas_top10 if nama_universitas_top10 else None
-                        detail.nama_universitas_lainnya = nama_universitas_lainnya if nama_universitas_lainnya else None
-                        detail.jurusan = jurusan if jurusan else None
-                        detail.jurusan_lainnya = jurusan_lainnya if jurusan_lainnya else None
-                        detail.tahun_lulus = tahun_lulus if tahun_lulus else None
+                            setattr(fptk_obj, field_to_update, new_value)
 
-                        try:
-                            if ipk:
-                                detail.ipk = float(ipk)
-                            else:
-                                detail.ipk = None
-                        except ValueError:
-                            st.error("IPK harus berupa angka (contoh: 3.5)")
-                            return
+                            if field_to_update == "level_fptk":
+                                match = re.search(r'(\d+)', str(new_value))
+                                new_level_num = int(match.group(1)) if match else 1
+                                fptk_obj.level_number = new_level_num
+                                sla_days = calculate_sla_days(new_level_num)
+                                fptk_obj.jumlah_sla = sla_days
+                                if fptk_obj.fptk_date_real:
+                                    fptk_obj.deadline_sla = fptk_obj.fptk_date_real + timedelta(days=sla_days)
+                                fptk_obj.detail_sla = calculate_detail_sla(
+                                    status=fptk_obj.status, deadline_sla=fptk_obj.deadline_sla,
+                                    offering_date=fptk_obj.offering_date
+                                )
 
-                        detail.skor_bahasa_inggris = skor_bahasa_inggris if skor_bahasa_inggris else None
-                        detail.university_tier = university_tier if university_tier else None
-                        detail.ipk_tier = ipk_tier if ipk_tier else None
+                            if field_to_update == "status":
+                                fptk_obj.detail_sla = calculate_detail_sla(
+                                    status=new_value, deadline_sla=fptk_obj.deadline_sla,
+                                    offering_date=fptk_obj.offering_date
+                                )
 
-                        detail.last_position = last_position if last_position else None
-                        detail.last_company = last_company if last_company else None
-                        detail.last_tenure = last_tenure if last_tenure else None
-                        detail.total_tenure = total_tenure if total_tenure else None
-
-                        detail.notes = notes if notes else None
-                        detail.is_blacklisted = is_blacklisted
-                        detail.blacklist_reason = blacklist_reason if blacklist_reason else None
-                        if is_blacklisted and not detail.blacklisted_at:
-                            detail.blacklisted_at = datetime.now()
-                        elif not is_blacklisted:
-                            detail.blacklisted_at = None
-
-                        for field_name, value in pipeline_inputs.items():
-                            setattr(detail, field_name, value)
-
-                        detail.last_updated_at = datetime.now()
-                        detail.last_compile_action = "Manual Edit"
+                            fptk_obj.last_updated_at = datetime.now()
+                            fptk_obj.last_compile_action = "BULK_EDIT"
+                            updated_count += 1
 
                         db.commit()
-                        st.success("✅ Data berhasil diupdate!")
+                        st.cache_data.clear()
+                        st.success(f"✅ Berhasil update {updated_count} FPTK!")
+                        time.sleep(0.5)
                         st.rerun()
-
                     except Exception as e:
+                        st.error(f"❌ Error: {str(e)}")
                         db.rollback()
-                        st.error(f"❌ Gagal mengupdate data: {str(e)}")
+
+            with col_cancel:
+                if st.button("❌ Batal", use_container_width=True, key="bulk_v2_cancel"):
+                    st.rerun()
+
+    st.markdown("---")
+    st.markdown("### ✏️ Pilih Data FPTK")
+
+    df_all = pd.read_sql(query.statement, db.bind)
+    if not df_all.empty:
+        select_options = {}
+        for _, row in df_all.iterrows():
+            kode = row.get('kode_unik', '')
+            posisi = row.get('posisi', '')
+            display = f"{kode} | {posisi[:50]}..." if len(str(posisi)) > 50 else f"{kode} | {posisi}"
+            select_options[display] = row.get('id')
+        selected_display = st.selectbox("Pilih FPTK", list(select_options.keys()), key="fptk_select")
+        selected_id = select_options.get(selected_display)
     else:
-        st.info("Tidak ada data sourcing dengan filter yang dipilih.")
+        selected_id = None
+
+    if not selected_id:
+        return
+
+    detail = db.query(FPTK).filter(FPTK.id == selected_id).first()
+    if not detail:
+        st.error("Data tidak ditemukan")
+        return
+
+    can_edit = admin or (detail.pic_recruiter == user.pic_recruiter)
+
+    st.markdown("---")
+    st.markdown("### ⚙️ Aksi Data")
+
+    existing_request = db.query(FPTKDeleteRequest).filter(
+        FPTKDeleteRequest.fptk_id == detail.id, FPTKDeleteRequest.status == "PENDING"
+    ).first()
+    all_requests = db.query(FPTKDeleteRequest).filter(
+        FPTKDeleteRequest.fptk_id == detail.id
+    ).order_by(FPTKDeleteRequest.requested_at.desc()).all()
+
+    col1, col2, col3 = st.columns(3)
+    if admin:
+        with col1:
+            if st.button("🗑️ Hapus Langsung (Admin)", type="secondary", use_container_width=True, key=f"del_fptk_{detail.id}"):
+                confirm_delete_fptk(db, detail.id, detail.kode_unik, detail.posisi)
+        with col2:
+            if existing_request:
+                st.warning(f"📩 Pending dari {existing_request.requested_by_name}")
+            else:
+                st.caption("Tidak ada request pending")
+        with col3:
+            if all_requests:
+                with st.expander(f"📋 History ({len(all_requests)})"):
+                    for req in all_requests:
+                        emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
+                        st.markdown(f"{emoji} **{req.status}**")
+                        st.caption(f"By: {req.requested_by_name}")
+                        st.caption(f"Alasan: {req.reason}")
+                        st.markdown("---")
+    else:
+        with col1:
+            if existing_request:
+                st.info(f"📩 Request PENDING")
+            else:
+                if detail.pic_recruiter == user.pic_recruiter:
+                    if st.button("📩 Request Hapus", type="primary", use_container_width=True, key=f"req_del_fptk_{detail.id}"):
+                        request_delete_fptk(db, detail.id, detail.kode_unik, detail.posisi, detail.pic_recruiter)
+                else:
+                    st.caption("ℹ️ Hanya PIC pemilik")
+        with col2:
+            if all_requests:
+                st.caption(f"📋 {len(all_requests)} request")
+            else:
+                st.caption("Belum ada request")
+        with col3:
+            if all_requests:
+                with st.expander("📋 History"):
+                    for req in all_requests:
+                        emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
+                        st.markdown(f"{emoji} **{req.status}**")
+                        st.caption(f"Alasan: {req.reason}")
+                        st.markdown("---")
+
+    st.markdown("---")
+    st.markdown("### 📋 Detail FPTK")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown(f"**Kode Unik:** {detail.kode_unik}")
+        st.markdown(f"**Posisi:** {detail.posisi}")
+        st.markdown(f"**PIC Recruiter:** {detail.pic_recruiter}")
+        st.markdown(f"**Business Unit:** {detail.business_unit}")
+        st.markdown(f"**Direktorat:** {detail.direktorat}")
+        st.markdown(f"**Divisi:** {detail.divisi or '-'}")
+        st.markdown(f"**Department:** {detail.department or '-'}")
+        st.markdown(f"**Level FPTK:** {detail.level_fptk} (Level {detail.level_number})")
+        st.markdown(f"**Alasan:** {detail.alasan_permintaan_fptk or '-'}")
+        st.markdown(f"**Category:** {detail.category_fptk or '-'}")
+    with col2:
+        st.markdown(f"**Status:** {detail.status}")
+        st.markdown(f"**Filter Kategorisasi:** {detail.filter_kategorisasi_fptk}")
+        st.markdown(f"**Tanggal FPTK:** {detail.fptk_date_real.strftime('%d/%m/%Y') if detail.fptk_date_real else '-'}")
+        st.markdown(f"**Vacancy:** {detail.vacancy}")
+        st.markdown(f"**Jumlah SLA:** {detail.jumlah_sla} hari")
+        st.markdown(f"**Deadline SLA:** {detail.deadline_sla.strftime('%d/%m/%Y') if detail.deadline_sla else '-'}")
+        st.markdown(f"**Detail SLA:** {detail.detail_sla or '-'}")
+
+    if not can_edit:
+        st.warning("⚠️ Anda hanya bisa mengedit data FPTK milik PIC Anda sendiri.")
+    else:
+        st.markdown("---")
+        st.markdown("### ✏️ Edit Data FPTK")
+
+        with st.form("edit_fptk_form"):
+            st.markdown("#### Data Utama")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                if admin:
+                    new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "")
+                else:
+                    new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "", disabled=True)
+                new_posisi = st.text_input("Posisi", value=detail.posisi or "")
+                new_pic_recruiter = st.selectbox("PIC Recruiter", pic_options_all,
+                    index=pic_options_all.index(detail.pic_recruiter) if detail.pic_recruiter in pic_options_all else 0)
+                new_kode_pic = st.text_input("Kode PIC", value=detail.kode_pic or "")
+            with col2:
+                new_business_unit = st.selectbox("Business Unit", [""] + bu_options,
+                    index=(bu_options.index(detail.business_unit) + 1) if detail.business_unit in bu_options else 0)
+                new_direktorat = st.selectbox("Direktorat", [""] + direktorat_options,
+                    index=(direktorat_options.index(detail.direktorat) + 1) if detail.direktorat in direktorat_options else 0)
+                new_divisi = st.text_input("Divisi", value=detail.divisi or "")
+                new_department = st.text_input("Department", value=detail.department or "")
+            with col3:
+                new_status = st.selectbox("Status", status_options,
+                    index=status_options.index(detail.status) if detail.status in status_options else 0)
+                default_level = detail.level_fptk or "1A"
+                new_level_fptk = st.selectbox("Level FPTK", LEVEL_OPTIONS,
+                    index=LEVEL_OPTIONS.index(default_level) if default_level in LEVEL_OPTIONS else 0)
+                if new_level_fptk:
+                    match = re.search(r'(\d+)', new_level_fptk)
+                    new_level_number = int(match.group(1)) if match else 1
+                else:
+                    new_level_number = detail.level_number or 1
+                st.text_input("Level Number (auto)", value=str(new_level_number), disabled=True)
+                new_vacancy = st.number_input("Vacancy", min_value=1, value=detail.vacancy or 1)
+
+            st.markdown("---")
+            st.markdown("#### Tanggal")
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                new_fptk_date_real = st.date_input("FPTK Date Real",
+                    value=detail.fptk_date_real if detail.fptk_date_real else datetime.now().date())
+            with col2:
+                new_offering_date = st.date_input("Offering Date", value=detail.offering_date if detail.offering_date else None)
+            with col3:
+                new_fptk_cancel_date = st.date_input("FPTK Cancel Date",
+                    value=detail.fptk_cancel_date if detail.fptk_cancel_date else None)
+
+            st.markdown("---")
+            st.markdown("#### Data Tambahan")
+            col1, col2 = st.columns(2)
+            with col1:
+                new_nama_kandidat = st.text_input("Nama Kandidat", value=detail.nama_kandidat or "")
+                new_user_manager = st.text_input("User (Manager)", value=detail.user_manager or "")
+            with col2:
+                new_remark = st.text_area("Remark", value=detail.remark or "")
+
+            submitted = st.form_submit_button("💾 Update FPTK", type="primary")
+
+        if submitted:
+            try:
+                if new_level_number <= 3:
+                    sla_days = 30
+                elif new_level_number == 4:
+                    sla_days = 45
+                else:
+                    sla_days = 60
+
+                if new_fptk_date_real and sla_days:
+                    new_deadline_sla_calc = new_fptk_date_real + timedelta(days=sla_days)
+                else:
+                    new_deadline_sla_calc = detail.deadline_sla
+
+                new_detail_sla_auto = calculate_detail_sla(
+                    status=new_status, deadline_sla=new_deadline_sla_calc, offering_date=new_offering_date
+                )
+
+                if admin and new_kode_unik:
+                    detail.kode_unik = new_kode_unik
+
+                detail.posisi = new_posisi
+                detail.pic_recruiter = new_pic_recruiter
+                detail.kode_pic = new_kode_pic
+                detail.business_unit = new_business_unit
+                detail.direktorat = new_direktorat
+                detail.divisi = new_divisi
+                detail.department = new_department
+                detail.status = new_status
+                detail.level_fptk = new_level_fptk
+                detail.level_number = new_level_number
+                detail.vacancy = new_vacancy
+                detail.fptk_date_real = new_fptk_date_real
+                detail.offering_date = new_offering_date
+                detail.fptk_cancel_date = new_fptk_cancel_date
+                detail.nama_kandidat = new_nama_kandidat
+                detail.user_manager = new_user_manager
+                detail.remark = new_remark
+                detail.jumlah_sla = sla_days
+                detail.deadline_sla = new_deadline_sla_calc
+                detail.detail_sla = new_detail_sla_auto
+                detail.last_updated_at = datetime.now()
+                detail.last_compile_action = "MANUAL_EDIT"
+
+                db.commit()
+                st.cache_data.clear()
+                st.success(f"✅ FPTK berhasil diupdate!")
+                st.rerun()
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+                db.rollback()
+
+
+# ============================================================
+# TAB 2: TRANSFER FPTK
+# ============================================================
+
+def render_transfer_fptk(db, user, admin):
+    st.markdown("### 🔄 Transfer FPTK")
+    st.caption("Transfer FPTK dari satu PIC ke PIC lain.")
+
+    if is_it(db):
+        st.info("🔍 Mode View-Only (IT) - Anda hanya bisa melihat history transfer.")
+        render_transfer_fptk_history(db)
+        return
+
+    if not is_editor(db):
+        st.error("❌ Anda tidak memiliki akses untuk transfer FPTK. Hubungi Admin.")
+        return
+
+    sub_tab1, sub_tab2 = st.tabs(["🔄 Transfer FPTK", "📜 History Transfer"])
+
+    with sub_tab1:
+        render_transfer_fptk_form(db, user)
+
+    with sub_tab2:
+        render_transfer_fptk_history(db)
+
+
+def render_transfer_fptk_form(db, user):
+    st.subheader("Pilih FPTK yang akan ditransfer")
+
+    col1, col2 = st.columns([2, 2])
+    with col1:
+        search = st.text_input("🔎 Cari (Kode Unik / Posisi)", placeholder="Ketik kode unik atau posisi...", key="transfer_fptk_search")
+    with col2:
+        status_filter = st.selectbox("Filter Status", ["Semua", "OP", "Closed", "Cancel"], key="transfer_fptk_status")
+
+    query = db.query(FPTK)
+
+    if search:
+        s = search.strip()
+        query = query.filter((FPTK.kode_unik.ilike(f"%{s}%")) | (FPTK.posisi.ilike(f"%{s}%")))
+
+    if status_filter != "Semua":
+        query = query.filter(FPTK.status == status_filter)
+
+    query = query.order_by(FPTK.fptk_date_real.desc()).limit(500)
+    fptk_list = query.all()
+
+    if not fptk_list:
+        st.warning("Tidak ada data FPTK yang cocok.")
+        return
+
+    st.markdown(f"**Ditemukan {len(fptk_list)} FPTK**")
+
+    display_data = []
+    for f in fptk_list:
+        display_data.append({
+            "pilih": False, "id": f.id, "kode_unik": f.kode_unik, "posisi": f.posisi,
+            "pic_recruiter": f.pic_recruiter, "status": f.status,
+            "level_fptk": f.level_fptk, "business_unit": f.business_unit or "-",
+        })
+
+    df = pd.DataFrame(display_data)
+
+    edited_df = st.data_editor(
+        df, use_container_width=True, hide_index=True,
+        column_config={
+            "pilih": st.column_config.CheckboxColumn("Pilih", default=False),
+            "id": st.column_config.NumberColumn("ID", disabled=True, width="small"),
+            "kode_unik": st.column_config.TextColumn("Kode Unik", disabled=True, width="medium"),
+            "posisi": st.column_config.TextColumn("Posisi", disabled=True, width="large"),
+            "pic_recruiter": st.column_config.TextColumn("PIC Saat Ini", disabled=True, width="medium"),
+            "status": st.column_config.TextColumn("Status", disabled=True, width="small"),
+            "level_fptk": st.column_config.TextColumn("Level", disabled=True, width="small"),
+            "business_unit": st.column_config.TextColumn("BU", disabled=True, width="medium"),
+        }, key="transfer_fptk_table"
+    )
+
+    selected_ids = edited_df[edited_df["pilih"] == True]["id"].tolist()
+    st.markdown(f"**{len(selected_ids)} FPTK dipilih**")
+
+    if not selected_ids:
+        st.info("Pilih minimal 1 FPTK untuk ditransfer.")
+        return
+
+    st.markdown("---")
+    st.markdown("### Transfer Ke PIC Tujuan")
+
+    target_users = db.query(User).filter(
+        User.role.in_(['user', 'admin']),
+        User.pic_recruiter.isnot(None)
+    ).all()
+
+    target_options = {}
+    for u in target_users:
+        display = f"{u.pic_recruiter} ({u.username})"
+        target_options[display] = u.pic_recruiter
+
+    if not target_options:
+        st.warning("Tidak ada PIC tujuan yang tersedia.")
+        return
+
+    target_pic_display = st.selectbox("PIC Tujuan", list(target_options.keys()), key="transfer_target_pic")
+    target_pic_value = target_options[target_pic_display]
+
+    reason = st.text_area("Alasan Transfer *", placeholder="Isi alasan transfer (min 10 karakter)...", height=100, key="transfer_reason")
+
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🔄 Transfer Sekarang", type="primary", use_container_width=True):
+            if not reason or len(reason.strip()) < 10:
+                st.error("❌ Alasan wajib diisi minimal 10 karakter!")
+            else:
+                success_count = 0
+                error_count = 0
+                errors = []
+
+                for fptk_id in selected_ids:
+                    try:
+                        fptk = db.query(FPTK).filter(FPTK.id == fptk_id).first()
+                        if not fptk:
+                            error_count += 1
+                            errors.append(f"ID {fptk_id}: FPTK tidak ditemukan")
+                            continue
+
+                        if fptk.pic_recruiter == target_pic_value:
+                            error_count += 1
+                            errors.append(f"{fptk.kode_unik}: PIC sudah sama ({target_pic_value})")
+                            continue
+
+                        old_pic = fptk.pic_recruiter
+                        fptk.pic_recruiter = target_pic_value
+                        fptk.last_updated_at = datetime.now()
+                        fptk.last_compile_action = "TRANSFER"
+
+                        history = TransferHistory(
+                            fptk_id=fptk.id, kode_unik=fptk.kode_unik, posisi=fptk.posisi,
+                            from_pic=old_pic, to_pic=target_pic_value, reason=reason.strip(),
+                            transferred_by=user.id, transferred_by_name=user.display_name or user.username
+                        )
+                        db.add(history)
+                        db.commit()
+                        success_count += 1
+                    except Exception as e:
+                        error_count += 1
+                        errors.append(f"ID {fptk_id}: {str(e)}")
+                        db.rollback()
+
+                st.success(f"✅ Berhasil transfer: {success_count} FPTK")
+                if error_count > 0:
+                    st.warning(f"⚠️ Gagal: {error_count} FPTK")
+                    with st.expander("Detail Error"):
+                        for err in errors:
+                            st.text(err)
+
+                st.balloons()
+                time.sleep(1)
+                st.rerun()
+
+
+def render_transfer_fptk_history(db):
+    col1, col2 = st.columns(2)
+
+    with col1:
+        pic_options = ["Semua"] + sorted(set([
+            p[0] for p in db.query(FPTK.pic_recruiter).distinct().all() if p[0]
+        ]))
+        pic_filter = st.selectbox("Filter PIC", pic_options, key="transfer_hist_pic")
+
+    with col2:
+        search = st.text_input("Cari (Kode Unik / Posisi / Alasan)", placeholder="Ketik keyword...", key="transfer_hist_search")
+
+    filter_type = st.selectbox("Filter Waktu", ["Semua", "Hari Ini", "7 Hari Terakhir", "30 Hari Terakhir"], key="transfer_hist_time")
+
+    query = db.query(TransferHistory).order_by(TransferHistory.created_at.desc())
+
+    if pic_filter != "Semua":
+        query = query.filter((TransferHistory.from_pic == pic_filter) | (TransferHistory.to_pic == pic_filter))
+
+    if search:
+        s = search.strip()
+        query = query.filter(
+            (TransferHistory.kode_unik.ilike(f"%{s}%")) |
+            (TransferHistory.posisi.ilike(f"%{s}%")) |
+            (TransferHistory.reason.ilike(f"%{s}%"))
+        )
+
+    if filter_type == "Hari Ini":
+        today = datetime.now().date()
+        query = query.filter(TransferHistory.created_at >= datetime.combine(today, datetime.min.time()))
+    elif filter_type == "7 Hari Terakhir":
+        query = query.filter(TransferHistory.created_at >= (datetime.now() - pd.Timedelta(days=7)))
+    elif filter_type == "30 Hari Terakhir":
+        query = query.filter(TransferHistory.created_at >= (datetime.now() - pd.Timedelta(days=30)))
+
+    histories = query.limit(500).all()
+
+    if not histories:
+        st.info("Belum ada history transfer.")
+        return
+
+    data = []
+    for h in histories:
+        data.append({
+            "Tanggal": h.created_at.strftime("%d/%m/%Y %H:%M") if h.created_at else "-",
+            "Kode Unik": h.kode_unik, "Posisi": h.posisi or "-",
+            "From": h.from_pic, "To": h.to_pic,
+            "Alasan": h.reason or "-", "Oleh": h.transferred_by_name or "-"
+        })
+
+    df = pd.DataFrame(data)
+    st.dataframe(df, use_container_width=True, height=400, hide_index=True)
+
+    st.markdown("---")
+    st.markdown("### 📊 Statistik Transfer")
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("Total Transfer", len(histories))
+
+    to_counts = {}
+    for h in histories:
+        to_counts[h.to_pic] = to_counts.get(h.to_pic, 0) + 1
+    if to_counts:
+        most_receive = max(to_counts, key=to_counts.get)
+        col2.metric("Paling Sering Menerima", most_receive, f"{to_counts[most_receive]}x")
+
+    from_counts = {}
+    for h in histories:
+        from_counts[h.from_pic] = from_counts.get(h.from_pic, 0) + 1
+    if from_counts:
+        most_send = max(from_counts, key=from_counts.get)
+        col3.metric("Paling Sering Mengirim", most_send, f"{from_counts[most_send]}x")
+
+    month_counts = {}
+    for h in histories:
+        if h.created_at:
+            month_key = h.created_at.strftime("%B %Y")
+            month_counts[month_key] = month_counts.get(month_key, 0) + 1
+    if month_counts:
+        most_month = max(month_counts, key=month_counts.get)
+        col4.metric("Bulan Terbanyak", most_month, f"{month_counts[most_month]}x")
+
+    if st.button("📥 Export CSV", use_container_width=True, key="trf_fptk_exp_csv"):
+        csv = df.to_csv(index=False)
+        st.download_button("⬇️ Download CSV", csv, f"transfer_history_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
