@@ -12,18 +12,12 @@ from core.models import (
 
 def _build_grafik_mpp_df(db: Session) -> pd.DataFrame:
     fptk_all = db.query(FPTK).all()
-
     week_stats = {}
     for item in fptk_all:
         week = item.week_fptk_date
         if week is not None:
             if week not in week_stats:
-                week_stats[week] = {
-                    'diterima': 0,
-                    'closed': 0,
-                    'cancel': 0,
-                    'op': 0
-                }
+                week_stats[week] = {'diterima': 0, 'closed': 0, 'cancel': 0, 'op': 0}
             week_stats[week]['diterima'] += 1
             if item.status == 'Closed':
                 week_stats[week]['closed'] += 1
@@ -67,71 +61,39 @@ def _build_grafik_mpp_df(db: Session) -> pd.DataFrame:
         cumulative += count
         cancel_row.append(cumulative if cumulative > 0 else '')
 
-    grafik_rows = [diterima_row, diproses_row, pemenuhan_row, sisa_row, cancel_row]
-    return pd.DataFrame(grafik_rows)
+    return pd.DataFrame([diterima_row, diproses_row, pemenuhan_row, sisa_row, cancel_row])
 
 
 def _build_recruiter_performance_df(db: Session) -> pd.DataFrame:
     recruiters = db.query(FPTK.pic_recruiter).distinct().all()
     recruiter_list = [r[0] for r in recruiters if r[0] is not None]
-
     perf_rows = []
     for recruiter in recruiter_list:
-        op_count = db.query(FPTK).filter(
-            FPTK.pic_recruiter == recruiter,
-            FPTK.status == 'OP'
-        ).count()
-        closed_count = db.query(FPTK).filter(
-            FPTK.pic_recruiter == recruiter,
-            FPTK.status == 'Closed'
-        ).count()
-        cancel_count = db.query(FPTK).filter(
-            FPTK.pic_recruiter == recruiter,
-            FPTK.status == 'Cancel'
-        ).count()
-
-        closed_sla = db.query(FPTK).filter(
-            FPTK.pic_recruiter == recruiter,
-            FPTK.status == 'Closed',
-            FPTK.keterangan_lulus_sla.isnot(None)
-        ).count()
-
-        closed_no_sla = db.query(FPTK).filter(
-            FPTK.pic_recruiter == recruiter,
-            FPTK.status == 'Closed',
-            FPTK.keterangan_tidak_lulus_sla.isnot(None)
-        ).count()
-
-        op_no_sla = db.query(FPTK).filter(
-            FPTK.pic_recruiter == recruiter,
-            FPTK.status == 'OP',
-            FPTK.keterangan_tidak_lulus_sla.isnot(None)
-        ).count()
-
+        op_count = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'OP').count()
+        closed_count = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Closed').count()
+        cancel_count = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Cancel').count()
+        closed_sla = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Closed',
+            FPTK.keterangan_lulus_sla.isnot(None)).count()
+        closed_no_sla = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Closed',
+            FPTK.keterangan_tidak_lulus_sla.isnot(None)).count()
+        op_no_sla = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'OP',
+            FPTK.keterangan_tidak_lulus_sla.isnot(None)).count()
         perf_rows.append({
-            'Nama Recruiter': recruiter,
-            'Open': op_count,
-            'Closed': closed_count,
-            'Cancel': cancel_count,
-            'Total': op_count + closed_count + cancel_count,
-            'Closed Sesuai SLA': closed_sla,
-            'Closed Tidak Sesuai SLA': closed_no_sla,
+            'Nama Recruiter': recruiter, 'Open': op_count, 'Closed': closed_count,
+            'Cancel': cancel_count, 'Total': op_count + closed_count + cancel_count,
+            'Closed Sesuai SLA': closed_sla, 'Closed Tidak Sesuai SLA': closed_no_sla,
             'OP Lewat SLA': op_no_sla
         })
-
     return pd.DataFrame(perf_rows)
 
 
 def _build_blacklist_df(db: Session) -> pd.DataFrame:
     blacklist_data = db.query(Blacklist).all()
-
     rows = []
     for idx, item in enumerate(blacklist_data, 1):
         parts = item.key_value.split('|') if item.key_value else []
-
         rows.append({
-            'No': idx,
-            'Last Update': item.created_at,
+            'No': idx, 'Last Update': item.created_at,
             'Business Unit': parts[0] if len(parts) > 0 else '',
             'Posisi': parts[1] if len(parts) > 1 else '',
             'Lokasi': parts[2] if len(parts) > 2 else '',
@@ -148,16 +110,11 @@ def _build_db_kode_posisi_df(db: Session) -> pd.DataFrame:
     rows = []
     for item in data:
         rows.append({
-            'KODE_ANGKA': item.kode,
-            'POSISI_KEBUTUHAN_TA': item.position,
-            'LOKASI_ONBOARDING': item.location,
-            'BUSINESS UNIT': item.business_unit,
-            'DIVISI_SESUAI_SO': item.division_chris,
-            'DEPARTMENT': item.department_chris,
-            'USER (MANAGER)': item.user_manager,
-            'INDIRECT USER': item.indirect_user,
-            'DIREKTORAT': item.directorate,
-            'YEAR': item.year
+            'KODE_ANGKA': item.kode, 'POSISI_KEBUTUHAN_TA': item.position,
+            'LOKASI_ONBOARDING': item.location, 'BUSINESS UNIT': item.business_unit,
+            'DIVISI_SESUAI_SO': item.division_chris, 'DEPARTMENT': item.department_chris,
+            'USER (MANAGER)': item.user_manager, 'INDIRECT USER': item.indirect_user,
+            'DIREKTORAT': item.directorate, 'YEAR': item.year
         })
     return pd.DataFrame(rows)
 
@@ -167,24 +124,16 @@ def _build_fptk_df(db: Session) -> pd.DataFrame:
     rows = []
     for item in data:
         rows.append({
-            'Kode PIC': item.kode_pic,
-            'FPTK Date (Real)': item.fptk_date_real,
-            'Kode Angka': item.kode_angka,
-            'FPTK Date (Kode)': item.fptk_date_kode,
-            'Kode Unik': item.kode_unik,
-            'Posisi': item.posisi,
-            'Business Unit': item.business_unit,
-            'Direktorat': item.direktorat,
-            'Divisi': item.divisi,
-            'Department': item.department,
-            'Level FPTK': item.level_fptk,
-            'Level Number': item.level_number,
+            'Kode PIC': item.kode_pic, 'FPTK Date (Real)': item.fptk_date_real,
+            'Kode Angka': item.kode_angka, 'FPTK Date (Kode)': item.fptk_date_kode,
+            'Kode Unik': item.kode_unik, 'Posisi': item.posisi,
+            'Business Unit': item.business_unit, 'Direktorat': item.direktorat,
+            'Divisi': item.divisi, 'Department': item.department,
+            'Level FPTK': item.level_fptk, 'Level Number': item.level_number,
             'Alasan Permintaan FPTK': item.alasan_permintaan_fptk,
-            'Category FPTK': item.category_fptk,
-            'PIC Recruiter': item.pic_recruiter,
+            'Category FPTK': item.category_fptk, 'PIC Recruiter': item.pic_recruiter,
             'Filter Kategorisasi FPTK': item.filter_kategorisasi_fptk,
-            'Vacancy': item.vacancy,
-            'Status': item.status,
+            'Vacancy': item.vacancy, 'Status': item.status,
             'Week FPTK Date (Kode)': item.week_fptk_date,
             'Month FPTK Date': item.month_fptk_date,
             'FPTK Cancel Date': item.fptk_cancel_date,
@@ -193,30 +142,22 @@ def _build_fptk_df(db: Session) -> pd.DataFrame:
             'Offering Date': item.offering_date,
             'Week Offering Date': item.week_offering_date,
             'Month Offering': item.month_offering,
-            'Jumlah SLA': item.jumlah_sla,
-            'Deadline pemenuhan SLA': item.deadline_sla,
+            'Jumlah SLA': item.jumlah_sla, 'Deadline pemenuhan SLA': item.deadline_sla,
             'Detail SLA': item.detail_sla,
             'Keterangan Lulus SLA': item.keterangan_lulus_sla,
             'Keterangan Tidak Lulus SLA': item.keterangan_tidak_lulus_sla,
             'Keterangan Cancel': item.keterangan_cancel,
-            'Nama Kandidat': item.nama_kandidat,
-            'Estimasi Join': item.estimasi_join,
+            'Nama Kandidat': item.nama_kandidat, 'Estimasi Join': item.estimasi_join,
             'Kebutuhan Laptop': item.kebutuhan_laptop,
             'Lokasi Onboarding': item.lokasi_onboarding,
             'Tanggal Upload ke Website': item.tanggal_upload_web,
-            'User (Manager)': item.user_manager,
-            'Indirect User': item.indirect_user,
-            'Lokasi Kerja': item.lokasi_kerja,
-            'Lokasi HR': item.lokasi_hr,
-            'Status Karyawan': item.status_karyawan,
-            'Kode BU': item.kode_bu,
-            'FPTK Availability': item.fptk_availability,
-            'Remark': item.remark,
-            'Created At': item.created_at,
-            'Last Updated At': item.last_updated_at,
+            'User (Manager)': item.user_manager, 'Indirect User': item.indirect_user,
+            'Lokasi Kerja': item.lokasi_kerja, 'Lokasi HR': item.lokasi_hr,
+            'Status Karyawan': item.status_karyawan, 'Kode BU': item.kode_bu,
+            'FPTK Availability': item.fptk_availability, 'Remark': item.remark,
+            'Created At': item.created_at, 'Last Updated At': item.last_updated_at,
             'Last Compile Action': item.last_compile_action,
-            'Source File': item.source_file,
-            'is_sto': item.is_sto
+            'Source File': item.source_file, 'is_sto': item.is_sto
         })
     return pd.DataFrame(rows)
 
@@ -231,58 +172,39 @@ def _build_db_sourcing_df(db: Session) -> pd.DataFrame:
                 ipk_val = float(item.ipk)
             except Exception:
                 ipk_val = None
-
         rows.append({
-            'No': idx,
-            'Kode Unik': item.kode_unik,
-            'Posisi': item.posisi,
-            'Model Rekrutmen': item.model_rekrutmen,
-            'Rekruter': item.rekruter,
-            'Sumber Sourcing': item.sumber_sourcing,
-            'Nama': item.nama,
+            'No': idx, 'Kode Unik': item.kode_unik, 'Posisi': item.posisi,
+            'Model Rekrutmen': item.model_rekrutmen, 'Rekruter': item.rekruter,
+            'Sumber Sourcing': item.sumber_sourcing, 'Nama': item.nama,
             'Nama Universitas/Sekolah (TOP 10)': item.nama_universitas_top10,
             'Nama Universitas/Sekolah Lainnya': item.nama_universitas_lainnya,
-            'Jenjang Pendidikan': item.jenjang_pendidikan,
-            'Jurusan': item.jurusan,
-            'Jurusan Lainnya': item.jurusan_lainnya,
-            'Tahun Lulus': item.tahun_lulus,
-            'IPK': ipk_val,
-            'Skor Bahasa Inggris': item.skor_bahasa_inggris,
-            'University Tier': item.university_tier,
-            'IPK Tier': item.ipk_tier,
-            'Nomor HP': item.nomor_hp,
-            'Email': item.email,
-            'Domisili': item.domisili,
-            'Last Position': item.last_position,
-            'Last Tenure': item.last_tenure,
-            'Last Company': item.last_company,
-            'Total Tenure': item.total_tenure,
+            'Jenjang Pendidikan': item.jenjang_pendidikan, 'Jurusan': item.jurusan,
+            'Jurusan Lainnya': item.jurusan_lainnya, 'Tahun Lulus': item.tahun_lulus,
+            'IPK': ipk_val, 'Skor Bahasa Inggris': item.skor_bahasa_inggris,
+            'University Tier': item.university_tier, 'IPK Tier': item.ipk_tier,
+            'Nomor HP': item.nomor_hp, 'Email': item.email, 'Domisili': item.domisili,
+            'Last Position': item.last_position, 'Last Tenure': item.last_tenure,
+            'Last Company': item.last_company, 'Total Tenure': item.total_tenure,
             'Berpengalaman di industri FMCG': item.pernah_di_fmcg,
             'Sourcing Freelance': item.sourcing_freelance,
             'Tanggal Sourcing Freelance': item.tanggal_sourcing_freelance,
             'Sourcing HR': item.sourcing_hr,
             'Detail Keterangan Sourcing HR': item.detail_keterangan_sourcing_hr,
-            'Tanggal Sourcing': item.tanggal_sourcing,
-            'Shortlist CV': item.shortlist_cv,
+            'Tanggal Sourcing': item.tanggal_sourcing, 'Shortlist CV': item.shortlist_cv,
             'Detail Keterangan Shortlist CV': item.detail_keterangan_shortlist_cv,
             'Tanggal Shortlist CV': item.tanggal_shortlist_cv,
-            'Psikotes': item.psikotes,
-            'Kode Psikotes': item.kode_psikotes,
+            'Psikotes': item.psikotes, 'Kode Psikotes': item.kode_psikotes,
             'Detail Keterangan Psikotes': item.detail_keterangan_psikotes,
             'Tanggal Psikotes / Cek psikotes': item.tanggal_psikotes,
-            'Nilai Logika': item.nilai_logika,
-            'Nilai IQ': item.nilai_iq,
-            'Nilai Daya Tangkap': item.nilai_daya_tangkap,
-            'Nilai RA': item.nilai_ra,
-            'DISC': item.disc,
-            'HR Interview': item.hr_interview,
+            'Nilai Logika': item.nilai_logika, 'Nilai IQ': item.nilai_iq,
+            'Nilai Daya Tangkap': item.nilai_daya_tangkap, 'Nilai RA': item.nilai_ra,
+            'DISC': item.disc, 'HR Interview': item.hr_interview,
             'Detail Keterangan HR Interview': item.detail_keterangan_hr_interview,
             'Tanggal HR Interview': item.tanggal_hr_interview,
             'Technical Test/ Case Study': item.technical_test_case_study,
             'Detail Keterangan Technical Test/ Case Study': item.detail_keterangan_technical_test,
             'Tanggal Technical Test/ Case Study': item.tanggal_technical_test,
-            'Market Visit': item.market_visit,
-            'Detail Market Visit': item.detail_market_visit,
+            'Market Visit': item.market_visit, 'Detail Market Visit': item.detail_market_visit,
             'Tanggal Market Visit': item.tanggal_market_visit,
             'User Interview': item.user_interview,
             'Detail Keterangan User Interview': item.detail_keterangan_user_interview,
@@ -293,21 +215,14 @@ def _build_db_sourcing_df(db: Session) -> pd.DataFrame:
             'Reference Check': item.reference_check,
             'Detail Keterangan Reference Check': item.detail_keterangan_reference_check,
             'Tanggal Reference Check': item.tanggal_reference_check,
-            'MCU': item.mcu,
-            'Detail Keterangan MCU': item.detail_keterangan_mcu,
-            'Tanggal MCU': item.tanggal_mcu,
-            'Offering': item.offering,
+            'MCU': item.mcu, 'Detail Keterangan MCU': item.detail_keterangan_mcu,
+            'Tanggal MCU': item.tanggal_mcu, 'Offering': item.offering,
             'Detail Keterangan Offering': item.detail_keterangan_offering,
-            'Tanggal Offering': item.tanggal_offering,
-            'Notes': item.notes,
-            'Day 1': item.day1,
-            'Detail Keterangan Day 1': item.detail_keterangan_day1,
-            'Tanggal Day 1': item.tanggal_day1,
-            'Sourcing Date': item.sourcing_date,
-            'Created At': item.created_at,
-            'Last Updated At': item.last_updated_at,
-            'Last Compile Action': item.last_compile_action,
-            'Source File': item.source_file
+            'Tanggal Offering': item.tanggal_offering, 'Notes': item.notes,
+            'Day 1': item.day1, 'Detail Keterangan Day 1': item.detail_keterangan_day1,
+            'Tanggal Day 1': item.tanggal_day1, 'Sourcing Date': item.sourcing_date,
+            'Created At': item.created_at, 'Last Updated At': item.last_updated_at,
+            'Last Compile Action': item.last_compile_action, 'Source File': item.source_file
         })
     return pd.DataFrame(rows)
 
@@ -317,29 +232,19 @@ def _build_master_dropdown_df(db: Session) -> pd.DataFrame:
     rows = []
     for item in data:
         rows.append({
-            'kode_pic': item.kode_pic,
-            'bu': item.bu,
-            'alasan': item.alasan,
-            'category_fptk': item.category_fptk,
-            'pic_recruiter': item.pic_recruiter,
-            'filter_fptk': item.filter_fptk,
-            'status': item.status,
-            'lokasi_onboarding': item.lokasi_onboarding,
-            'detail_sla': item.detail_sla,
-            'keterangan_0': item.keterangan_0,
-            'keterangan_1': item.keterangan_1,
+            'kode_pic': item.kode_pic, 'bu': item.bu, 'alasan': item.alasan,
+            'category_fptk': item.category_fptk, 'pic_recruiter': item.pic_recruiter,
+            'filter_fptk': item.filter_fptk, 'status': item.status,
+            'lokasi_onboarding': item.lokasi_onboarding, 'detail_sla': item.detail_sla,
+            'keterangan_0': item.keterangan_0, 'keterangan_1': item.keterangan_1,
             'keterangan_cancel': item.keterangan_cancel,
-            'nama_direktorat': item.nama_direktorat,
-            'model': item.model,
+            'nama_direktorat': item.nama_direktorat, 'model': item.model,
             'sumber_sourcing': item.sumber_sourcing,
             'jenjang_pendidikan': item.jenjang_pendidikan,
             'nama_universitas_top10': item.nama_universitas_top10,
-            'jurusan': item.jurusan,
-            'university_tier': item.university_tier,
-            'ipk_tier': item.ipk_tier,
-            'divisi': item.divisi,
-            'department': item.department,
-            'is_active': item.is_active
+            'jurusan': item.jurusan, 'university_tier': item.university_tier,
+            'ipk_tier': item.ipk_tier, 'divisi': item.divisi,
+            'department': item.department, 'is_active': item.is_active
         })
     return pd.DataFrame(rows)
 
@@ -349,16 +254,11 @@ def _build_evidence_df(db: Session) -> pd.DataFrame:
     rows = []
     for item in data:
         rows.append({
-            'kode_unik': item.kode_unik,
-            'posisi': item.posisi,
-            'tanggal': item.tanggal,
-            'file_name': item.file_name,
-            'file_path': item.file_path,
-            'file_size': item.file_size,
-            'total_cv': item.total_cv,
-            'keterangan': getattr(item, 'keterangan', None),
-            'pic_recruiter': item.pic_recruiter,
-            'created_at': item.created_at
+            'kode_unik': item.kode_unik, 'posisi': item.posisi,
+            'tanggal': item.tanggal, 'file_name': item.file_name,
+            'file_path': item.file_path, 'file_size': item.file_size,
+            'total_cv': item.total_cv, 'keterangan': getattr(item, 'keterangan', None),
+            'pic_recruiter': item.pic_recruiter, 'created_at': item.created_at
         })
     return pd.DataFrame(rows)
 
