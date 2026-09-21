@@ -71,38 +71,21 @@ def update_all_sla_bulk(db):
 
 
 def get_kandidat_options_for_fptk(db, kode_unik):
-    """
-    Ambil list kandidat dari DB Sourcing yang punya kode_unik tertentu.
-    Return list of dict {id, nama, email, hp, posisi, last_stage}
-    """
     if not kode_unik:
         return []
-
-    kandidat_list = db.query(DBSourcing).filter(
-        DBSourcing.kode_unik == kode_unik
-    ).all()
-
+    kandidat_list = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).all()
     result = []
     for k in kandidat_list:
         last = get_last_pipeline_stage(k)
         result.append({
-            "id": k.id,
-            "nama": k.nama,
-            "email": k.email,
-            "hp": k.nomor_hp,
-            "posisi": k.posisi,
-            "last_stage": last["stage_label"] if last else "Belum ada stage",
+            "id": k.id, "nama": k.nama, "email": k.email, "hp": k.nomor_hp,
+            "posisi": k.posisi, "last_stage": last["stage_label"] if last else "Belum ada stage",
         })
     return result
 
 
 def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value=""):
-    """
-    Render dropdown kandidat dari DB Sourcing (filter by kode_unik) + opsi manual.
-    Return nama_kandidat (str)
-    """
     kandidat_list = get_kandidat_options_for_fptk(db, kode_unik_input)
-
     mode_key = f"{key_prefix}_mode"
     select_key = f"{key_prefix}_select"
     manual_key = f"{key_prefix}_manual"
@@ -112,12 +95,10 @@ def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value=""):
 
     if kandidat_list:
         mode = st.radio(
-            "Mode Input Nama Kandidat",
-            ["dropdown", "manual"],
+            "Mode Input Nama Kandidat", ["dropdown", "manual"],
             format_func=lambda x: "Pilih dari DB Sourcing" if x == "dropdown" else "Ketik Manual",
             index=0 if st.session_state[mode_key] == "dropdown" else 1,
-            horizontal=True,
-            key=f"{key_prefix}_radio"
+            horizontal=True, key=f"{key_prefix}_radio"
         )
         st.session_state[mode_key] = mode
     else:
@@ -130,29 +111,18 @@ def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value=""):
         for k in kandidat_list:
             display = f"{k['nama']} | {k['email'] or '-'} | {k['last_stage']}"
             options[display] = k['nama']
-
         default_idx = 0
         if default_value:
             for i, (disp, nama) in enumerate(options.items()):
                 if nama == default_value:
                     default_idx = i
                     break
-
-        selected = st.selectbox(
-            "Nama Kandidat (dari DB Sourcing)",
-            list(options.keys()),
-            index=default_idx,
-            key=select_key
-        )
+        selected = st.selectbox("Nama Kandidat (dari DB Sourcing)", list(options.keys()),
+            index=default_idx, key=select_key)
         return options.get(selected, "")
-
     else:
-        return st.text_input(
-            "Nama Kandidat (Manual)",
-            value=default_value,
-            placeholder="Ketik nama kandidat manual",
-            key=manual_key
-        )
+        return st.text_input("Nama Kandidat (Manual)", value=default_value,
+            placeholder="Ketik nama kandidat manual", key=manual_key)
 
 
 @st.dialog("Request Hapus FPTK ke Admin")
@@ -163,7 +133,7 @@ def request_delete_fptk(db, fptk_id, kode_unik, posisi, pic_name):
     st.caption("Alasan wajib diisi minimal 10 karakter.")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Kirim Request", type="primary", use_container_width=True):
+        if st.button("Kirim Request", type="primary", use_container_width=True, key="btn_req_del_fptk"):
             if not reason or len(reason.strip()) < 10:
                 st.error("Alasan wajib diisi minimal 10 karakter!")
             else:
@@ -192,7 +162,7 @@ def request_delete_fptk(db, fptk_id, kode_unik, posisi, pic_name):
                     st.error(f"Error: {str(e)}")
                     db.rollback()
     with col2:
-        if st.button("Batal", use_container_width=True):
+        if st.button("Batal", use_container_width=True, key="btn_cancel_req_del_fptk"):
             st.rerun()
 
 
@@ -203,7 +173,7 @@ def confirm_delete_fptk(db, fptk_id, kode_unik, posisi):
     confirm_kode = st.text_input(f"Ketik kode unik **{kode_unik}** untuk konfirmasi:", key="confirm_del_fptk")
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("Ya, Hapus Permanen", type="primary", use_container_width=True):
+        if st.button("Ya, Hapus Permanen", type="primary", use_container_width=True, key="btn_confirm_del_fptk"):
             if confirm_kode.strip() == kode_unik:
                 try:
                     fptk = db.query(FPTK).filter(FPTK.id == fptk_id).first()
@@ -225,7 +195,7 @@ def confirm_delete_fptk(db, fptk_id, kode_unik, posisi):
             else:
                 st.error(f"Kode unik tidak cocok!")
     with col2:
-        if st.button("Batal", use_container_width=True):
+        if st.button("Batal", use_container_width=True, key="btn_cancel_confirm_del_fptk"):
             st.rerun()
 
 
@@ -380,6 +350,9 @@ def render_fptk_database(db, user, admin):
     if not df.empty:
         st.dataframe(df[available_cols], use_container_width=True, height=400)
 
+    # ============================================================
+    # BULK EDIT FPTK
+    # ============================================================
     st.markdown("---")
     st.markdown("### ✏️ Bulk Edit FPTK")
     st.caption("Pilih banyak FPTK sekaligus, lalu update field yang sama untuk semuanya.")
@@ -409,8 +382,25 @@ def render_fptk_database(db, user, admin):
     if not bulk_fptk:
         st.info("Tidak ada FPTK yang bisa di-bulk edit dengan filter ini.")
     else:
+        if "bulk_fptk_select_all" not in st.session_state:
+            st.session_state.bulk_fptk_select_all = False
+
+        col_sel1, col_sel2, col_sel3 = st.columns([1, 1, 3])
+        with col_sel1:
+            if st.button("✅ Pilih Semua", use_container_width=True, key="bulk_fptk_select_all_btn"):
+                st.session_state.bulk_fptk_select_all = True
+                st.rerun()
+        with col_sel2:
+            if st.button("❌ Batal Pilih", use_container_width=True, key="bulk_fptk_deselect_all_btn"):
+                st.session_state.bulk_fptk_select_all = False
+                st.rerun()
+        with col_sel3:
+            st.caption(f"💡 Pilih **{len(bulk_fptk)}** FPTK sekaligus atau klik manual per row")
+
+        default_pilih = st.session_state.bulk_fptk_select_all
+
         bulk_df = pd.DataFrame([{
-            "pilih": False, "id": f.id, "kode_unik": f.kode_unik, "posisi": f.posisi,
+            "pilih": default_pilih, "id": f.id, "kode_unik": f.kode_unik, "posisi": f.posisi,
             "pic_recruiter": f.pic_recruiter, "status": f.status, "level_fptk": f.level_fptk,
             "business_unit": f.business_unit, "divisi": f.divisi or "-", "department": f.department or "-",
         } for f in bulk_fptk])
@@ -496,22 +486,15 @@ def render_fptk_database(db, user, admin):
                 new_value = st.selectbox("Lokasi Onboarding", [""] + lokasi_onboarding_options, key="bulk_v2_onboard")
             elif field_to_update == "nama_kandidat":
                 st.markdown("**Nama Kandidat per FPTK**")
-                st.caption("Setiap FPTK punya kode unik berbeda, jadi nama kandidat di-set satu-satu. Dropdown di-filter by kode unik masing-masing FPTK.")
-
+                st.caption("Setiap FPTK punya kode unik berbeda, jadi nama kandidat di-set satu-satu.")
                 for fptk_id in selected_ids:
                     fptk_obj = db.query(FPTK).filter(FPTK.id == fptk_id).first()
                     if not fptk_obj:
                         continue
-
                     st.markdown(f"---")
                     st.markdown(f"**{fptk_obj.kode_unik}** | {fptk_obj.posisi[:50]}")
-
-                    val = render_kandidat_picker(
-                        db,
-                        fptk_obj.kode_unik,
-                        f"bulk_nama_{fptk_id}",
-                        default_value=fptk_obj.nama_kandidat or ""
-                    )
+                    val = render_kandidat_picker(db, fptk_obj.kode_unik, f"bulk_nama_{fptk_id}",
+                        default_value=fptk_obj.nama_kandidat or "")
                     kandidat_values_map[fptk_id] = val
             else:
                 new_value = st.text_area("Nilai Baru", key="bulk_v2_text")
@@ -525,7 +508,6 @@ def render_fptk_database(db, user, admin):
                             fptk_obj = db.query(FPTK).filter(FPTK.id == fptk_id).first()
                             if not fptk_obj:
                                 continue
-
                             if field_to_update == "nama_kandidat":
                                 if fptk_id in kandidat_values_map:
                                     fptk_obj.nama_kandidat = kandidat_values_map[fptk_id] or None
@@ -556,6 +538,7 @@ def render_fptk_database(db, user, admin):
                             updated_count += 1
 
                         db.commit()
+                        st.session_state.bulk_fptk_select_all = False
                         st.cache_data.clear()
                         st.success(f"✅ Berhasil update {updated_count} FPTK!")
                         time.sleep(0.5)
@@ -566,6 +549,7 @@ def render_fptk_database(db, user, admin):
 
             with col_cancel:
                 if st.button("❌ Batal", use_container_width=True, key="bulk_v2_cancel"):
+                    st.session_state.bulk_fptk_select_all = False
                     st.rerun()
 
     st.markdown("---")
@@ -730,14 +714,10 @@ def render_fptk_database(db, user, admin):
             with col1:
                 st.markdown("**Nama Kandidat**")
                 st.caption(f"Dropdown kandidat di-filter by kode unik FPTK: `{detail.kode_unik}`")
-
                 new_nama_kandidat = render_kandidat_picker(
-                    db,
-                    detail.kode_unik,
-                    f"edit_fptk_kandidat_{detail.id}",
+                    db, detail.kode_unik, f"edit_fptk_kandidat_{detail.id}",
                     default_value=detail.nama_kandidat or ""
                 )
-
                 new_user_manager = st.text_input("User (Manager)", value=detail.user_manager or "")
             with col2:
                 new_remark = st.text_area("Remark", value=detail.remark or "")
@@ -850,10 +830,27 @@ def render_transfer_fptk_form(db, user):
 
     st.markdown(f"**Ditemukan {len(fptk_list)} FPTK**")
 
+    if "bulk_transfer_fptk_select_all" not in st.session_state:
+        st.session_state.bulk_transfer_fptk_select_all = False
+
+    col_sel1, col_sel2, col_sel3 = st.columns([1, 1, 3])
+    with col_sel1:
+        if st.button("✅ Pilih Semua", use_container_width=True, key="bulk_transfer_fptk_select_all_btn"):
+            st.session_state.bulk_transfer_fptk_select_all = True
+            st.rerun()
+    with col_sel2:
+        if st.button("❌ Batal Pilih", use_container_width=True, key="bulk_transfer_fptk_deselect_all_btn"):
+            st.session_state.bulk_transfer_fptk_select_all = False
+            st.rerun()
+    with col_sel3:
+        st.caption(f"💡 Pilih **{len(fptk_list)}** FPTK sekaligus atau klik manual per row")
+
+    default_pilih = st.session_state.bulk_transfer_fptk_select_all
+
     display_data = []
     for f in fptk_list:
         display_data.append({
-            "pilih": False, "id": f.id, "kode_unik": f.kode_unik, "posisi": f.posisi,
+            "pilih": default_pilih, "id": f.id, "kode_unik": f.kode_unik, "posisi": f.posisi,
             "pic_recruiter": f.pic_recruiter, "status": f.status,
             "level_fptk": f.level_fptk, "business_unit": f.business_unit or "-",
         })
@@ -944,6 +941,7 @@ def render_transfer_fptk_form(db, user):
                         errors.append(f"ID {fptk_id}: {str(e)}")
                         db.rollback()
 
+                st.session_state.bulk_transfer_fptk_select_all = False
                 st.success(f"✅ Berhasil transfer: {success_count} FPTK")
                 if error_count > 0:
                     st.warning(f"⚠️ Gagal: {error_count} FPTK")
@@ -958,13 +956,11 @@ def render_transfer_fptk_form(db, user):
 
 def render_transfer_fptk_history(db):
     col1, col2 = st.columns(2)
-
     with col1:
         pic_options = ["Semua"] + sorted(set([
             p[0] for p in db.query(FPTK.pic_recruiter).distinct().all() if p[0]
         ]))
         pic_filter = st.selectbox("Filter PIC", pic_options, key="transfer_hist_pic")
-
     with col2:
         search = st.text_input("Cari (Kode Unik / Posisi / Alasan)", placeholder="Ketik keyword...", key="transfer_hist_search")
 
