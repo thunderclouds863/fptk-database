@@ -10,12 +10,8 @@ from datetime import datetime, timedelta
 from core.session_manager import get_session_manager, check_idle_timeout, touch_session
 from core.database import SessionLocal, init_db
 from core.auth import (
-    login_user,
-    is_admin,
-    init_default_users,
-    verify_password,
-    hash_password,
-    init_master_dropdown
+    login_user, is_admin, init_default_users, verify_password,
+    hash_password, init_master_dropdown
 )
 from core.models import User
 
@@ -54,67 +50,27 @@ session_mgr = get_session_manager()
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = session_mgr.user_id
-
 if "username" not in st.session_state:
     st.session_state.username = session_mgr.username
-
 if "role" not in st.session_state:
     st.session_state.role = session_mgr.role
-
 if "user_display" not in st.session_state:
     st.session_state.user_display = session_mgr.user_display
-
 if "page" not in st.session_state:
     st.session_state.page = "dashboard"
-
-if "filter_stack" not in st.session_state:
-    st.session_state.filter_stack = []
-
-if "detail_id" not in st.session_state:
-    st.session_state.detail_id = None
-
-if "edit_id" not in st.session_state:
-    st.session_state.edit_id = None
-
 if "last_fptk_load" not in st.session_state:
     st.session_state.last_fptk_load = datetime.now()
-
 if "last_sourcing_load" not in st.session_state:
     st.session_state.last_sourcing_load = datetime.now()
-
-if "sort_column" not in st.session_state:
-    st.session_state.sort_column = None
-
-if "sort_ascending" not in st.session_state:
-    st.session_state.sort_ascending = True
-
-if "date_filter_start" not in st.session_state:
-    st.session_state.date_filter_start = None
-
-if "date_filter_end" not in st.session_state:
-    st.session_state.date_filter_end = None
-
-if "status_filter" not in st.session_state:
-    st.session_state.status_filter = []
-
-if "search_keyword" not in st.session_state:
-    st.session_state.search_keyword = ""
-
-if "filter_applied" not in st.session_state:
-    st.session_state.filter_applied = False
-
 if "last_activity" not in st.session_state:
     st.session_state.last_activity = None
 
 
 if st.session_state.user_id and not session_mgr.is_logged_in:
     session_mgr.login(
-        st.session_state.user_id,
-        st.session_state.username,
-        st.session_state.role,
-        st.session_state.user_display
+        st.session_state.user_id, st.session_state.username,
+        st.session_state.role, st.session_state.user_display
     )
-
 elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.user_id = session_mgr.user_id
     st.session_state.username = session_mgr.username
@@ -151,248 +107,97 @@ if not st.session_state.user_id:
     st.markdown(
         """
         <style>
-
         .stApp {
-            background:
-                radial-gradient(
-                    ellipse at 50% 20%,
-                    #151b29 0%,
-                    #0d1119 45%,
-                    #080b10 100%
-                );
+            background: radial-gradient(ellipse at 50% 20%, #151b29 0%, #0d1119 45%, #080b10 100%);
             min-height: 100vh;
         }
-
-        header {
-            visibility: hidden;
-        }
-
-        .block-container {
-            padding-top: 30px !important;
-            padding-bottom: 50px !important;
-        }
-
+        header { visibility: hidden; }
+        .block-container { padding-top: 30px !important; padding-bottom: 50px !important; }
         .cimory-logo-container {
-            width: 100vw !important;
-            max-width: 100vw !important;
-            position: relative !important;
-            left: 50% !important;
+            width: 100vw !important; max-width: 100vw !important;
+            position: relative !important; left: 50% !important;
             transform: translateX(-50%) !important;
-            display: flex !important;
-            justify-content: center !important;
+            display: flex !important; justify-content: center !important;
             align-items: center !important;
-            margin-top: 10px !important;
-            margin-bottom: 55px !important;
-            padding: 0 !important;
-            box-sizing: border-box !important;
+            margin-top: 10px !important; margin-bottom: 55px !important;
+            padding: 0 !important; box-sizing: border-box !important;
             text-align: center !important;
         }
-
         .cimory-logo {
-            width: 260px !important;
-            max-width: 260px !important;
-            height: auto !important;
-            display: block !important;
-            margin: 0 auto !important;
-            padding: 0 !important;
+            width: 260px !important; max-width: 260px !important;
+            height: auto !important; display: block !important;
+            margin: 0 auto !important; padding: 0 !important;
             object-fit: contain !important;
         }
-
         div[data-testid="stForm"] {
             width: 700px !important;
             max-width: calc(100vw - 40px) !important;
-            margin-left: auto !important;
-            margin-right: auto !important;
+            margin-left: auto !important; margin-right: auto !important;
             padding: 42px 42px 38px 42px !important;
-            background:
-                linear-gradient(
-                    145deg,
-                    rgba(20, 24, 34, 0.90),
-                    rgba(12, 15, 22, 0.90)
-                ) !important;
-            border:
-                1px solid
-                rgba(125, 140, 170, 0.28) !important;
+            background: linear-gradient(145deg, rgba(20, 24, 34, 0.90), rgba(12, 15, 22, 0.90)) !important;
+            border: 1px solid rgba(125, 140, 170, 0.28) !important;
             border-radius: 20px !important;
-            box-shadow:
-                0 25px 70px
-                rgba(0, 0, 0, 0.45) !important;
+            box-shadow: 0 25px 70px rgba(0, 0, 0, 0.45) !important;
             backdrop-filter: blur(15px);
             -webkit-backdrop-filter: blur(15px);
             box-sizing: border-box !important;
         }
-
         .login-title {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            color: #f5f7fb;
-            font-size: 38px;
-            font-weight: 700;
-            line-height: 1;
-            margin-bottom: 35px;
-            letter-spacing: -1px;
+            display: flex; align-items: center; gap: 12px;
+            color: #f5f7fb; font-size: 38px; font-weight: 700;
+            line-height: 1; margin-bottom: 35px; letter-spacing: -1px;
         }
-
         .login-icon {
-            font-size: 30px !important;
-            line-height: 1 !important;
-            width: 38px;
-            height: 38px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            font-size: 30px !important; line-height: 1 !important;
+            width: 38px; height: 38px;
+            display: flex; align-items: center; justify-content: center;
         }
-
         div[data-testid="stTextInput"] label {
-            color: #f1f3f7 !important;
-            font-size: 16px !important;
-            font-weight: 600 !important;
-            margin-bottom: 8px !important;
+            color: #f1f3f7 !important; font-size: 16px !important;
+            font-weight: 600 !important; margin-bottom: 8px !important;
         }
-
         div[data-baseweb="input"] {
             height: 58px !important;
-            background:
-                linear-gradient(
-                    145deg,
-                    #242731,
-                    #1e212b
-                ) !important;
-            border:
-                1px solid
-                rgba(150, 160, 180, 0.20) !important;
+            background: linear-gradient(145deg, #242731, #1e212b) !important;
+            border: 1px solid rgba(150, 160, 180, 0.20) !important;
             border-radius: 12px !important;
-            transition:
-                border 0.2s ease,
-                box-shadow 0.2s ease;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
         }
-
         div[data-baseweb="input"]:focus-within {
-            border:
-                1px solid
-                rgba(255, 255, 255, 0.38) !important;
-            box-shadow:
-                0 0 0 2px
-                rgba(255, 255, 255, 0.04) !important;
+            border: 1px solid rgba(255, 255, 255, 0.38) !important;
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04) !important;
         }
-
         div[data-baseweb="input"] input {
-            height: 56px !important;
-            color: #f5f5f7 !important;
-            font-size: 16px !important;
-            font-weight: 400 !important;
+            height: 56px !important; color: #f5f5f7 !important;
+            font-size: 16px !important; font-weight: 400 !important;
         }
-
-        div[data-baseweb="input"] input::placeholder {
-            color: #a0a3ad !important;
-            opacity: 1 !important;
-        }
-
-        div[data-baseweb="input"] button {
-            color: #f4f5f8 !important;
-        }
-
-        div[data-testid="stTextInput"] {
-            margin-bottom: 20px;
-        }
-
-        div[data-testid="stFormSubmitButton"] {
-            margin-top: 8px !important;
-        }
-
+        div[data-baseweb="input"] input::placeholder { color: #a0a3ad !important; opacity: 1 !important; }
+        div[data-baseweb="input"] button { color: #f4f5f8 !important; }
+        div[data-testid="stTextInput"] { margin-bottom: 20px; }
+        div[data-testid="stFormSubmitButton"] { margin-top: 8px !important; }
         div[data-testid="stFormSubmitButton"] button {
-            width: 100% !important;
-            height: 62px !important;
-            border: none !important;
-            border-radius: 13px !important;
-            background:
-                linear-gradient(
-                    90deg,
-                    #ff3d48,
-                    #ff4d54
-                ) !important;
-            color: white !important;
-            font-size: 18px !important;
+            width: 100% !important; height: 62px !important;
+            border: none !important; border-radius: 13px !important;
+            background: linear-gradient(90deg, #ff3d48, #ff4d54) !important;
+            color: white !important; font-size: 18px !important;
             font-weight: 700 !important;
-            transition:
-                transform 0.15s ease,
-                box-shadow 0.15s ease;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
         }
-
         div[data-testid="stFormSubmitButton"] button:hover {
-            background:
-                linear-gradient(
-                    90deg,
-                    #ff4751,
-                    #ff5960
-                ) !important;
+            background: linear-gradient(90deg, #ff4751, #ff5960) !important;
             transform: translateY(-1px);
-            box-shadow:
-                0 10px 25px
-                rgba(255, 60, 70, 0.25);
+            box-shadow: 0 10px 25px rgba(255, 60, 70, 0.25);
         }
-
-        div[data-testid="stFormSubmitButton"] button:active {
-            transform: translateY(0);
-        }
-
         @media (max-width: 768px) {
-
-            .block-container {
-                padding-left: 15px !important;
-                padding-right: 15px !important;
-                padding-top: 20px !important;
-            }
-
-            .cimory-logo-container {
-                width: 100vw !important;
-                max-width: 100vw !important;
-                left: 50% !important;
-                transform: translateX(-50%) !important;
-                margin-top: 10px !important;
-                margin-bottom: 35px !important;
-            }
-
-            .cimory-logo {
-                width: 220px !important;
-                max-width: 220px !important;
-            }
-
+            .block-container { padding-left: 15px !important; padding-right: 15px !important; padding-top: 20px !important; }
+            .cimory-logo { width: 220px !important; max-width: 220px !important; }
             div[data-testid="stForm"] {
-                width: auto !important;
-                max-width: calc(100vw - 30px) !important;
-                padding:
-                    30px 22px 28px 22px !important;
+                width: auto !important; max-width: calc(100vw - 30px) !important;
+                padding: 30px 22px 28px 22px !important;
                 border-radius: 17px !important;
             }
-
-            .login-title {
-                font-size: 32px;
-                gap: 10px;
-            }
-
-            .login-icon {
-                font-size: 26px !important;
-                width: 34px;
-                height: 34px;
-            }
-
-            div[data-baseweb="input"] {
-                height: 56px !important;
-            }
-
-            div[data-baseweb="input"] input {
-                height: 54px !important;
-                font-size: 15px !important;
-            }
-
-            div[data-testid="stFormSubmitButton"] button {
-                height: 56px !important;
-            }
-
+            .login-title { font-size: 32px; gap: 10px; }
         }
-
         </style>
         """,
         unsafe_allow_html=True
@@ -400,81 +205,33 @@ if not st.session_state.user_id:
 
     if logo_base64:
         st.markdown(
-            f"""
-            <div class="cimory-logo-container">
-                <img
-                    src="data:image/png;base64,{logo_base64}"
-                    class="cimory-logo"
-                    alt="Cimory Logo"
-                >
-            </div>
-            """,
+            f'<div class="cimory-logo-container"><img src="data:image/png;base64,{logo_base64}" class="cimory-logo" alt="Cimory Logo"></div>',
             unsafe_allow_html=True
         )
 
     with st.form("login_form"):
-
         st.markdown(
-            """
-            <div class="login-title">
-                <span class="login-icon">🔐</span>
-                <span>Login</span>
-            </div>
-            """,
+            '<div class="login-title"><span class="login-icon">🔐</span><span>Login</span></div>',
             unsafe_allow_html=True
         )
 
-        username = st.text_input(
-            "Username",
-            placeholder="Masukkan username"
-        )
-
-        password = st.text_input(
-            "Password",
-            type="password",
-            placeholder="Masukkan password"
-        )
-
-        submitted = st.form_submit_button(
-            "Login  →",
-            use_container_width=True
-        )
+        username = st.text_input("Username", placeholder="Masukkan username")
+        password = st.text_input("Password", type="password", placeholder="Masukkan password")
+        submitted = st.form_submit_button("Login  →", use_container_width=True)
 
         if submitted:
-
             if not username or not password:
-
-                st.error(
-                    "Username dan password wajib diisi!"
-                )
-
+                st.error("Username dan password wajib diisi!")
             else:
-
                 db = get_cached_db()
-
                 try:
-
-                    user = login_user(
-                        db,
-                        username,
-                        password
-                    )
-
+                    user = login_user(db, username, password)
                     if user:
-
-                        session_mgr.login(
-                            user.id,
-                            user.username,
-                            user.role,
-                            user.display_name or user.username
-                        )
+                        session_mgr.login(user.id, user.username, user.role, user.display_name or user.username)
                         st.session_state.user_id = user.id
                         st.session_state.username = user.username
                         st.session_state.role = user.role
-                        st.session_state.user_display = (
-                            user.display_name
-                            or user.username
-                        )
+                        st.session_state.user_display = user.display_name or user.username
                         st.session_state.last_activity = datetime.now()
                         st.session_state.page = "dashboard"
 
@@ -485,37 +242,20 @@ if not st.session_state.user_id:
                         if "pages_dict_role" in st.session_state:
                             del st.session_state.pages_dict_role
 
-                        st.success(
-                            f"Selamat datang, "
-                            f"{st.session_state.user_display}!"
-                        )
-
+                        st.success(f"Selamat datang, {st.session_state.user_display}!")
                         time.sleep(0.3)
-
                         st.rerun()
-
                     else:
-
-                        st.error(
-                            "Username atau password salah!"
-                        )
-
+                        st.error("Username atau password salah!")
                 finally:
-
                     db.close()
 
     st.stop()
 
 
 with st.sidebar:
-
-    st.markdown(
-        f"### 👤 {st.session_state.user_display}"
-    )
-
-    st.caption(
-        f"Role: {st.session_state.role}"
-    )
+    st.markdown(f"### 👤 {st.session_state.user_display}")
+    st.caption(f"Role: {st.session_state.role}")
 
     if session_mgr.is_logged_in:
         remaining = session_mgr.get_idle_remaining_seconds()
@@ -532,7 +272,6 @@ with st.sidebar:
     current_role = st.session_state.get("role", "user")
 
     if "pages_dict" not in st.session_state or st.session_state.get("pages_dict_role") != current_role:
-
         base_pages = {
             "📊 Dashboard": "dashboard",
             "📤 Upload & Compile FPTK": "upload_compile",
@@ -540,13 +279,9 @@ with st.sidebar:
             "📝 Update Progres Recruitment": "update_progres",
             "👤 Sourcing Input": "sourcing_input",
             "👩🏻‍💻 Sourcing View": "sourcing_view",
-            "📎 Lampiran CV": "cv_attachments",
-            "🔄 Transfer Kandidat": "candidate_transfer",
             "🏢 DB Kode Posisi": "db_kode_posisi",
             "🔍 Funnel Report": "funnel_report",
-            "📊 Monitoring Sourcing": "monitoring_sourcing",
-            "📎 Upload Evidence": "upload_evidence",
-            "📩 Transfer FPTK": "transfer_fptk",
+            "📊 Monitoring & Evidence": "monitoring_sourcing",
         }
 
         db = get_cached_db()
@@ -558,7 +293,6 @@ with st.sidebar:
         st.session_state["user_is_admin"] = user_is_admin
 
         if user_is_admin:
-            base_pages["🔄 Update Cycle"] = "upload_cycle"
             base_pages["👥 User Management"] = "user_management"
             base_pages["📩 Request"] = "admin_delete_requests"
 
@@ -568,12 +302,10 @@ with st.sidebar:
     pages = st.session_state.pages_dict
 
     st.markdown("### 📋 Navigasi")
-
     current_page = st.session_state.get("page", "dashboard")
 
     for label, page_key in pages.items():
         is_active = (page_key == current_page)
-
         if is_active:
             btn_type = "primary"
             btn_label = f"▶ {label}"
@@ -581,27 +313,16 @@ with st.sidebar:
             btn_type = "secondary"
             btn_label = f"   {label}"
 
-        if st.button(
-            btn_label,
-            key=f"nav_btn_{page_key}",
-            use_container_width=True,
-            type=btn_type,
-        ):
+        if st.button(btn_label, key=f"nav_btn_{page_key}", use_container_width=True, type=btn_type):
             st.session_state.page = page_key
             st.rerun()
 
     st.markdown("---")
-
     st.markdown("### ⚡ Cache Control")
 
     def get_cache_functions():
         try:
-            from pages.dashboard import (
-                load_fptk_data,
-                load_sourcing_data,
-                calculate_metrics,
-                get_upload_cycle_progress,
-            )
+            from pages.dashboard import load_fptk_data, load_sourcing_data, calculate_metrics, get_upload_cycle_progress
             from core.utils import get_filter_options_from_db
             return {
                 'load_fptk_data': load_fptk_data,
@@ -623,28 +344,13 @@ with st.sidebar:
         get_upload_cycle_progress = cache_funcs['get_upload_cycle_progress']
         get_filter_options_from_db = cache_funcs['get_filter_options_from_db']
 
-        last_fptk = st.session_state.get('last_fptk_load', datetime.now())
-        last_sourcing = st.session_state.get('last_sourcing_load', datetime.now())
-
-        st.caption(f"🕐 FPTK: {last_fptk.strftime('%H:%M:%S')}")
-        st.caption(f"🕐 Sourcing: {last_sourcing.strftime('%H:%M:%S')}")
-
-        time_diff = (datetime.now() - last_fptk).seconds
-        remaining = max(0, 300 - time_diff)
-        if remaining > 0:
-            st.caption(f"⏳ Auto refresh in {remaining//60}m {remaining%60}s")
-        else:
-            st.caption("🔄 Auto refreshing...")
-
-        st.markdown("---")
-
         col1, col2 = st.columns(2)
         with col1:
             if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
                 st.cache_data.clear()
                 st.session_state.last_fptk_load = datetime.now()
                 st.session_state.last_sourcing_load = datetime.now()
-                st.success("All cache cleared! Reloading...")
+                st.success("All cache cleared!")
                 time.sleep(0.5)
                 st.rerun()
 
@@ -654,142 +360,47 @@ with st.sidebar:
                 load_sourcing_data.clear()
                 calculate_metrics.clear()
                 get_upload_cycle_progress.clear()
-                st.success("Data cache cleared! Reloading...")
+                st.success("Data cache cleared!")
                 time.sleep(0.5)
                 st.rerun()
 
-        with st.expander("🔧 Advanced Cache Control", expanded=False):
-            if st.button("🧹 Clear FPTK Cache", use_container_width=True):
-                load_fptk_data.clear()
-                calculate_metrics.clear()
-                st.session_state.last_fptk_load = datetime.now()
-                st.success("FPTK cache cleared!")
-                st.rerun()
-
-            if st.button("🧹 Clear Sourcing Cache", use_container_width=True):
-                load_sourcing_data.clear()
-                st.session_state.last_sourcing_load = datetime.now()
-                st.success("Sourcing cache cleared!")
-                st.rerun()
-
-            if st.button("🧹 Clear Filter Options", use_container_width=True):
-                get_filter_options_from_db.clear()
-                st.success("Filter options cache cleared!")
-                time.sleep(0.5)
-                st.rerun()
-
-            if st.button("🧹 Clear All Cache", use_container_width=True):
-                st.cache_data.clear()
-                st.session_state.last_fptk_load = datetime.now()
-                st.session_state.last_sourcing_load = datetime.now()
-                st.success("All cache cleared!")
-                st.rerun()
-
-        st.markdown("---")
-    else:
-        st.caption("Cache functions not available")
-        st.markdown("---")
+    st.markdown("---")
 
     with st.expander("🔑 Ganti Password"):
-
         with st.form("change_password"):
-
             db = get_cached_db()
-
             try:
-
-                user = (
-                    db.query(User)
-                    .filter(
-                        User.id
-                        == st.session_state.user_id
-                    )
-                    .first()
-                )
-
-                old = st.text_input(
-                    "Password Lama",
-                    type="password"
-                )
-
-                new = st.text_input(
-                    "Password Baru (min 6 karakter)",
-                    type="password"
-                )
-
-                confirm = st.text_input(
-                    "Konfirmasi",
-                    type="password"
-                )
-
-                update_password = (
-                    st.form_submit_button(
-                        "Update Password"
-                    )
-                )
+                user = db.query(User).filter(User.id == st.session_state.user_id).first()
+                old = st.text_input("Password Lama", type="password")
+                new = st.text_input("Password Baru (min 6 karakter)", type="password")
+                confirm = st.text_input("Konfirmasi", type="password")
+                update_password = st.form_submit_button("Update Password")
 
                 if update_password:
-
-                    if (
-                        new
-                        and new == confirm
-                        and len(new) >= 6
-                    ):
-
-                        if (
-                            user
-                            and verify_password(
-                                old,
-                                user.password_hash
-                            )
-                        ):
-
-                            user.password_hash = (
-                                hash_password(new)
-                            )
-
+                    if new and new == confirm and len(new) >= 6:
+                        if user and verify_password(old, user.password_hash):
+                            user.password_hash = hash_password(new)
                             db.commit()
-
-                            st.success(
-                                "Password berhasil diubah!"
-                            )
-
+                            st.success("Password berhasil diubah!")
                         else:
-
-                            st.error(
-                                "Password lama salah!"
-                            )
-
+                            st.error("Password lama salah!")
                     else:
-
-                        st.error(
-                            "Password baru minimal 6 "
-                            "karakter dan harus sama!"
-                        )
-
+                        st.error("Password baru minimal 6 karakter dan harus sama!")
             finally:
-
                 db.close()
 
     st.markdown("---")
 
-    if st.button(
-        "🚪 Logout",
-        use_container_width=True
-    ):
-
+    if st.button("🚪 Logout", use_container_width=True):
         session_mgr.logout()
         st.session_state.clear()
-
         st.rerun()
 
 
 if st.session_state.user_id and not session_mgr.is_logged_in:
     session_mgr.login(
-        st.session_state.user_id,
-        st.session_state.username,
-        st.session_state.role,
-        st.session_state.user_display
+        st.session_state.user_id, st.session_state.username,
+        st.session_state.role, st.session_state.user_display
     )
 elif not st.session_state.user_id and session_mgr.is_logged_in:
     st.session_state.user_id = session_mgr.user_id
@@ -824,27 +435,23 @@ elif page == "sourcing_view":
     sourcing_view = importlib.import_module("pages.04_sourcing_view")
     sourcing_view.show_sourcing_view()
 
-elif page == "cv_attachments":
+elif page == "sourcing_input":
     try:
-        cv_attachments = importlib.import_module("pages.cv_attachments")
-        cv_attachments.show_cv_attachments()
+        sourcing_input = importlib.import_module("pages.09_sourcing_input")
+        sourcing_input.show_sourcing_input()
     except ModuleNotFoundError:
-        st.error("❌ File pages/cv_attachments.py tidak ditemukan!")
+        st.error("File pages/09_sourcing_input.py tidak ditemukan!")
 
-elif page == "candidate_transfer":
+elif page == "monitoring_sourcing":
     try:
-        candidate_transfer = importlib.import_module("pages.candidate_transfer")
-        candidate_transfer.show_candidate_transfer()
+        monitoring_sourcing = importlib.import_module("pages.monitoring_sourcing")
+        monitoring_sourcing.show_monitoring_sourcing()
     except ModuleNotFoundError:
-        st.error("File pages/candidate_transfer.py tidak ditemukan!")
+        st.error("File pages/monitoring_sourcing.py tidak ditemukan!")
 
 elif page == "db_kode_posisi":
     db_kode_posisi = importlib.import_module("pages.05_db_kode_posisi")
     db_kode_posisi.show_db_kode_posisi()
-
-elif page == "upload_cycle":
-    upload_cycle = importlib.import_module("pages.06_upload_cycle")
-    upload_cycle.show_upload_cycle()
 
 elif page == "user_management":
     user_management = importlib.import_module("pages.07_user_management")
@@ -857,40 +464,12 @@ elif page == "admin_delete_requests":
     except ModuleNotFoundError:
         st.error("File pages/10_admin_delete_requests.py tidak ditemukan!")
 
-elif page == "sourcing_input":
-    try:
-        sourcing_input = importlib.import_module("pages.09_sourcing_input")
-        sourcing_input.show_sourcing_input()
-    except ModuleNotFoundError:
-        st.error("File pages/09_sourcing_input.py tidak ditemukan!")
-
 elif page == "funnel_report":
     try:
         funnel_report = importlib.import_module("pages.funnel_report")
         funnel_report.show_funnel_report()
     except ModuleNotFoundError:
         st.error("File pages/funnel_report.py tidak ditemukan!")
-
-elif page == "monitoring_sourcing":
-    try:
-        monitoring_sourcing = importlib.import_module("pages.monitoring_sourcing")
-        monitoring_sourcing.show_monitoring_sourcing()
-    except ModuleNotFoundError:
-        st.error("File pages/monitoring_sourcing.py tidak ditemukan!")
-
-elif page == "upload_evidence":
-    try:
-        upload_evidence = importlib.import_module("pages.upload_evidence")
-        upload_evidence.show_upload_evidence()
-    except ModuleNotFoundError:
-        st.error("File pages/upload_evidence.py tidak ditemukan!")
-
-elif page == "transfer_fptk":
-    try:
-        transfer_fptk = importlib.import_module("pages.transfer_fptk")
-        transfer_fptk.show_transfer_fptk()
-    except ModuleNotFoundError:
-        st.error("File pages/transfer_fptk.py tidak ditemukan!")
 
 
 st.markdown("---")
@@ -902,13 +481,11 @@ if st.button("📊 Export All Data", use_container_width=True):
         try:
             from core.export_excel import export_database_to_excel
             filepath = export_database_to_excel(db)
-
             with open(filepath, "rb") as f:
                 file_data = f.read()
 
             st.download_button(
-                label="📥 Download Excel",
-                data=file_data,
+                label="📥 Download Excel", data=file_data,
                 file_name=os.path.basename(filepath),
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                 use_container_width=True
@@ -919,14 +496,8 @@ if st.button("📊 Export All Data", use_container_width=True):
 
 with st.expander("📋 Export Sheet Spesifik"):
     sheet_options = [
-        "Blacklist Candidate",
-        "DB Kode Posisi",
-        "FPTK",
-        "DB Sourcing",
-        "Grafik MPP",
-        "Recruiter Performance",
-        "Master Dropdown",
-        "Evidence"
+        "Blacklist Candidate", "DB Kode Posisi", "FPTK", "DB Sourcing",
+        "Grafik MPP", "Recruiter Performance", "Master Dropdown", "Evidence"
     ]
     selected_sheet = st.selectbox("Pilih Sheet", sheet_options)
 
@@ -936,7 +507,6 @@ with st.expander("📋 Export Sheet Spesifik"):
             try:
                 from core.export_excel import export_single_sheet
                 df = export_single_sheet(db, selected_sheet)
-
                 from io import BytesIO
                 output = BytesIO()
                 with pd.ExcelWriter(output, engine='openpyxl') as writer:
