@@ -3,17 +3,20 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 from core.database import get_db
-from core.models import DBSourcing, FPTK, MasterDropdown
-from core.auth import get_current_user, is_it, is_editor
+from core.models import DBSourcing, FPTK, MasterDropdown, CVAttachment
+from core.auth import get_current_user, is_it, is_editor, is_admin
 from core.utils import (
     safe_int, safe_float, parse_phone, is_valid_email,
     find_duplicate_candidates, get_last_pipeline_stage
 )
 from core.model_rekrutmen import auto_detect_model_rekrutmen, get_model_options
+import base64
 import time
 import re
 
 COPILOT_AGENT_URL = "https://m365.cloud.microsoft/chat/?titleId=T_e0524666-839c-757c-7ef5-d5e72311417d&source=embedded-builder"
+MAX_CV_SIZE_MB = 10
+ALLOWED_CV_EXT = ["pdf", "doc", "docx", "jpg", "jpeg", "png", "xlsx", "xlsm", "ppt", "pptx", "txt"]
 
 
 @st.cache_data(ttl=3600)
@@ -43,55 +46,41 @@ def get_sourcing_options():
 @st.cache_data(ttl=3600)
 def get_pipeline_stages():
     return [
-        {"field": "sourcing_freelance", "label": "Sourcing Freelance", "desc": "Sourcing oleh freelance"},
-        {"field": "sourcing_hr", "label": "Sourcing HR", "desc": "Sourcing oleh HR internal"},
-        {"field": "shortlist_cv", "label": "Shortlist CV", "desc": "CV sudah di-shortlist"},
-        {"field": "psikotes", "label": "Psikotes", "desc": "Tes psikotes"},
-        {"field": "hr_interview", "label": "HR Interview", "desc": "Interview dengan HR"},
-        {"field": "technical_test_case_study", "label": "Technical Test / Case Study", "desc": "Tes teknis / case study"},
-        {"field": "market_visit", "label": "Market Visit", "desc": "Kunjungan ke pasar / outlet"},
-        {"field": "user_interview", "label": "User Interview", "desc": "Interview dengan user"},
-        {"field": "panel_interview", "label": "Panel Interview", "desc": "Interview panel"},
-        {"field": "reference_check", "label": "Reference Check", "desc": "Cek referensi"},
-        {"field": "mcu", "label": "MCU", "desc": "Medical Check Up"},
-        {"field": "offering", "label": "Offering", "desc": "Penawaran"},
-        {"field": "day1", "label": "Day 1", "desc": "Hari pertama kerja"}
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
+        {"field": "sourcing_hr", "label": "Sourcing HR"},
+        {"field": "shortlist_cv", "label": "Shortlist CV"},
+        {"field": "psikotes", "label": "Psikotes"},
+        {"field": "hr_interview", "label": "HR Interview"},
+        {"field": "technical_test_case_study", "label": "Technical Test / Case Study"},
+        {"field": "market_visit", "label": "Market Visit"},
+        {"field": "user_interview", "label": "User Interview"},
+        {"field": "panel_interview", "label": "Panel Interview"},
+        {"field": "reference_check", "label": "Reference Check"},
+        {"field": "mcu", "label": "MCU"},
+        {"field": "offering", "label": "Offering"},
+        {"field": "day1", "label": "Day 1"}
     ]
 
 
 UNIV_TIER_MAP = {
-    "Universitas Indonesia": "Top 3 PTN",
-    "Universitas Gadjah Mada": "Top 3 PTN",
-    "Institut Teknologi Bandung": "Top 3 PTN",
-    "Universitas Airlangga": "Top 10 PTN",
-    "IPB University": "Top 10 PTN",
-    "Institut Teknologi Sepuluh Nopember": "Top 10 PTN",
-    "Universitas Padjadjaran": "Top 10 PTN",
-    "Universitas Diponegoro": "Top 10 PTN",
-    "Universitas Brawijaya": "Top 10 PTN",
-    "Universitas Hasanuddin": "Top 20 PTN",
-    "Universitas Sebelas Maret": "Top 20 PTN",
-    "Universitas Sumatera Utara": "Top 20 PTN",
-    "Universitas Pendidikan Indonesia": "Top 20 PTN",
-    "Universitas Negeri Yogyakarta": "Top 20 PTN",
-    "Universitas Negeri Padang": "Top 20 PTN",
-    "Universitas Negeri Malang": "Top 20 PTN",
-    "Universitas Syiah Kuala": "Top 20 PTN",
-    "Universitas Andalas": "Top 20 PTN",
-    "Universitas Udayana": "Top 20 PTN",
-    "Universitas Negeri Semarang": "Top 20 PTN",
-    "Bina Nusantara University": "Top 10 PTS",
-    "Telkom University": "Top 10 PTS",
+    "Universitas Indonesia": "Top 3 PTN", "Universitas Gadjah Mada": "Top 3 PTN",
+    "Institut Teknologi Bandung": "Top 3 PTN", "Universitas Airlangga": "Top 10 PTN",
+    "IPB University": "Top 10 PTN", "Institut Teknologi Sepuluh Nopember": "Top 10 PTN",
+    "Universitas Padjadjaran": "Top 10 PTN", "Universitas Diponegoro": "Top 10 PTN",
+    "Universitas Brawijaya": "Top 10 PTN", "Universitas Hasanuddin": "Top 20 PTN",
+    "Universitas Sebelas Maret": "Top 20 PTN", "Universitas Sumatera Utara": "Top 20 PTN",
+    "Universitas Pendidikan Indonesia": "Top 20 PTN", "Universitas Negeri Yogyakarta": "Top 20 PTN",
+    "Universitas Negeri Padang": "Top 20 PTN", "Universitas Negeri Malang": "Top 20 PTN",
+    "Universitas Syiah Kuala": "Top 20 PTN", "Universitas Andalas": "Top 20 PTN",
+    "Universitas Udayana": "Top 20 PTN", "Universitas Negeri Semarang": "Top 20 PTN",
+    "Bina Nusantara University": "Top 10 PTS", "Telkom University": "Top 10 PTS",
     "Institut Teknologi Nasional Bandung": "Top 10 PTS",
     "Universitas Muhammadiyah Yogyakarta": "Top 10 PTS",
     "Universitas Katolik Indonesia Atma Jaya": "Top 10 PTS",
-    "Universitas Islam Indonesia": "Top 10 PTS",
-    "Universitas Kristen Petra": "Top 10 PTS",
-    "Universitas Trisakti": "Top 10 PTS",
-    "Universitas Pelita Harapan": "Top 10 PTS",
+    "Universitas Islam Indonesia": "Top 10 PTS", "Universitas Kristen Petra": "Top 10 PTS",
+    "Universitas Trisakti": "Top 10 PTS", "Universitas Pelita Harapan": "Top 10 PTS",
     "Swiss German University": "Top 10 PTS",
 }
-
 
 UNIV_ALIASES = {
     "Universitas Indonesia": ["universitas indonesia", "university of indonesia", "ui"],
@@ -127,22 +116,20 @@ UNIV_ALIASES = {
 }
 
 JURUSAN_ALIASES = {
-    "Manajemen": ["manajemen", "management"],
-    "Akuntansi": ["akuntansi", "accounting"],
+    "Manajemen": ["manajemen", "management"], "Akuntansi": ["akuntansi", "accounting"],
     "Teknik Industri": ["teknik industri", "industrial engineering"],
     "Teknik Informatika": ["teknik informatika", "informatics", "computer science", "ilmu komputer"],
     "Sistem Informasi": ["sistem informasi", "information system"],
     "Psikologi": ["psikologi", "psychology"],
     "Ilmu Komunikasi": ["ilmu komunikasi", "communication science", "komunikasi"],
-    "Hukum": ["hukum", "law"],
-    "Ekonomi": ["ekonomi", "economics"],
+    "Hukum": ["hukum", "law"], "Ekonomi": ["ekonomi", "economics"],
 }
 
-GENERIC_UNIV_WORDS = {"universitas", "university", "univ", "sekolah", "school"}
+GENERIC_UNIV_WORDS = {"universitas", "university", "univ", "sekolah", "school", "institut", "institute", "stie", "stmik", "sti", "politeknik", "akademi"}
 GENERIC_JURUSAN_WORDS = {"jurusan", "major", "program studi", "prodi", "department"}
 
 
-def _clean_text(s: str) -> str:
+def _clean_text(s):
     if not s:
         return ""
     s = s.lower()
@@ -151,100 +138,73 @@ def _clean_text(s: str) -> str:
     return s
 
 
-def normalize_univ(raw_val: str):
+def normalize_univ(raw_val):
+    """
+    Return tuple (canonical_name, other_name).
+    - Kalau match UNIV_ALIASES -> (canonical, "")
+    - Kalau gak match -> ("Lainnya", pretty_name)
+    """
     if not raw_val or not str(raw_val).strip():
         return "", ""
-    raw_clean = _clean_text(str(raw_val))
+    raw_str = str(raw_val).strip()
+    raw_clean = _clean_text(raw_str)
     for canonical, aliases in UNIV_ALIASES.items():
         for alias in aliases:
             if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
                 return canonical, ""
-    pretty = " ".join([w.capitalize() for w in str(raw_val).split()])
+    pretty = " ".join([w.capitalize() for w in raw_str.split()])
     return "Lainnya", pretty
 
 
-def get_university_tier(univ_name: str) -> str:
+def get_university_tier(univ_name):
     if not univ_name:
         return ""
     return UNIV_TIER_MAP.get(univ_name, "Lainnya")
 
 
-def normalize_jurusan(raw_val: str):
+def normalize_jurusan(raw_val):
     if not raw_val or not str(raw_val).strip():
         return "", ""
-    raw_clean = _clean_text(str(raw_val))
+    raw_str = str(raw_val).strip()
+    raw_clean = _clean_text(raw_str)
     for canonical, aliases in JURUSAN_ALIASES.items():
         for alias in aliases:
             if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
                 return canonical, ""
-    pretty = " ".join([w.capitalize() for w in str(raw_val).split()])
+    pretty = " ".join([w.capitalize() for w in raw_str.split()])
     return "Lainnya", pretty
 
 
 KNOWN_LABELS = [
-    "Jenjang Pendidikan",
-    "Nama Universitas/Sekolah",
-    "Nama Universitas/sekolah",
-    "Nama Universitas",
-    "Nama Sekolah",
-    "University Tier",
-    "Ipk Tier",
-    "IPK Tier",
-    "Nomor Hp",
-    "Nomor HP",
-    "Pernah Di Fmcg?",
-    "Pernah di FMCG?",
-    "Pernah Di FMCG",
-    "Pernah di Fmcg",
-    "Last Position",
-    "Last Tenure",
-    "Last Company",
-    "Total Tenure",
-    "Tahun Lulus",
-    "Kode Unik",
-    "Posisi FPTK",
-    "Sumber",
-    "Jurusan",
-    "Domisili",
-    "Email",
-    "Nama",
-    "Ipk",
-    "IPK",
-    "HP",
+    "Jenjang Pendidikan", "Nama Universitas/Sekolah", "Nama Universitas/sekolah", "Nama Universitas",
+    "Nama Sekolah", "University Tier", "Ipk Tier", "IPK Tier", "Nomor Hp", "Nomor HP",
+    "Pernah Di Fmcg?", "Pernah di FMCG?", "Pernah Di FMCG", "Pernah di Fmcg",
+    "Last Position", "Last Tenure", "Last Company", "Total Tenure", "Tahun Lulus",
+    "Kode Unik", "Posisi FPTK", "Sumber", "Jurusan", "Domisili", "Email", "Nama", "Ipk", "IPK", "HP",
 ]
 
 
-def preprocess_cv_text(raw_text: str) -> str:
+def preprocess_cv_text(raw_text):
     if not raw_text:
         return raw_text
     if raw_text.count('\n') > 3:
         return raw_text
-
     text = raw_text
     labels_sorted = sorted(KNOWN_LABELS, key=len, reverse=True)
-
     for label in labels_sorted:
-        pattern = re.compile(
-            r'(?i)(?<!^)\s*(' + re.escape(label) + r'\s*:)',
-            re.IGNORECASE
-        )
+        pattern = re.compile(r'(?i)(?<!^)\s*(' + re.escape(label) + r'\s*:)', re.IGNORECASE)
         text = pattern.sub(r'\n\1', text)
-
     text = text.lstrip('\n')
     text = re.sub(r'[ \t]+', ' ', text)
     return text
 
 
-def parse_cv_text(raw_text: str) -> dict:
+def parse_cv_text(raw_text):
     parsed = {
-        'nama': '', 'email': '', 'hp': '',
-        'univ': '', 'univ_lain': '',
-        'jurusan': '', 'jurusan_lain': '',
-        'ipk': '', 'tahun_lulus': '', 'domisili': '',
-        'last_position': '', 'last_company': '',
-        'last_tenure': '', 'total_tenure': '',
-        'sumber': '', 'posisi': '', 'kode_unik': '',
-        'jenjang': '', 'fmcg': '',
+        'nama': '', 'email': '', 'hp': '', 'univ': '', 'univ_lain': '',
+        'jurusan': '', 'jurusan_lain': '', 'ipk': '', 'tahun_lulus': '', 'domisili': '',
+        'last_position': '', 'last_company': '', 'last_tenure': '', 'total_tenure': '',
+        'sumber': '', 'posisi': '', 'kode_unik': '', 'jenjang': '', 'fmcg': '',
         'university_tier': ''
     }
 
@@ -277,9 +237,6 @@ def parse_cv_text(raw_text: str) -> dict:
             parsed['tahun_lulus'] = y
             break
 
-    univ_label_seen = False
-    jurusan_label_seen = False
-
     for line in lines:
         line = line.strip()
         if ':' in line:
@@ -287,28 +244,10 @@ def parse_cv_text(raw_text: str) -> dict:
             key = key.strip().lower()
             val = val.strip()
 
-            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
-                univ_label_seen = True
-            if any(k in key for k in ['jurusan', 'major']):
-                jurusan_label_seen = True
-
-            if any(k in key for k in ['jurusan', 'major']):
-                if not val:
-                    parsed['jurusan'] = "Lainnya"
-                    parsed['jurusan_lain'] = ""
-                    continue
-
-            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
-                if not val:
-                    parsed['univ'] = "Lainnya"
-                    parsed['univ_lain'] = ""
-                    parsed['university_tier'] = "Lainnya"
-                    continue
-
             if not val:
                 continue
 
-            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah']):
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah', 'kampus', 'institut', 'politeknik']):
                 univ_dd, univ_lain = normalize_univ(val)
                 parsed['univ'] = univ_dd
                 parsed['univ_lain'] = univ_lain
@@ -403,28 +342,6 @@ def parse_cv_text(raw_text: str) -> dict:
             elif 'tidak' in tl or 'no' in tl:
                 parsed['fmcg'] = 'Tidak'
 
-    if not parsed['univ'] and not univ_label_seen:
-        univ_dd, univ_lain = normalize_univ(raw_text)
-        if univ_dd and univ_dd != "Lainnya":
-            parsed['univ'] = univ_dd
-            parsed['university_tier'] = get_university_tier(univ_dd)
-        elif univ_dd == "Lainnya" and univ_lain:
-            ul_clean = univ_lain.strip().lower()
-            if ul_clean not in GENERIC_UNIV_WORDS:
-                parsed['univ'] = "Lainnya"
-                parsed['univ_lain'] = univ_lain
-                parsed['university_tier'] = "Lainnya"
-
-    if not parsed['jurusan'] and not jurusan_label_seen:
-        jur_dd, jur_lain = normalize_jurusan(raw_text)
-        if jur_dd and jur_dd != "Lainnya":
-            parsed['jurusan'] = jur_dd
-        elif jur_dd == "Lainnya" and jur_lain:
-            jl_clean = jur_lain.strip().lower()
-            if jl_clean not in GENERIC_JURUSAN_WORDS:
-                parsed['jurusan'] = "Lainnya"
-                parsed['jurusan_lain'] = jur_lain
-
     return parsed
 
 
@@ -451,7 +368,6 @@ def show_duplicate_warning_dialog(db, nama, email, hp):
                     st.markdown(f"**PIC:** {dup['rekruter'] or '-'}")
                     st.markdown(f"**Email:** {dup['email'] or '-'}")
                     st.markdown(f"**No HP:** {dup['nomor_hp'] or '-'}")
-
                 with col2:
                     last = dup.get("last_stage")
                     if last:
@@ -462,15 +378,11 @@ def show_duplicate_warning_dialog(db, nama, email, hp):
                         st.info("Belum masuk tahap pipeline apapun.")
 
         st.markdown("---")
-        st.markdown("### Pilihan Aksi:")
-
         col1, col2 = st.columns(2)
-
         with col1:
             if st.button("✅ Lanjut Input (Duplicate)", use_container_width=True, key="dup_continue"):
                 st.session_state["duplicate_action"] = "continue"
                 st.rerun()
-
         with col2:
             if st.button("🔄 Transfer Kandidat Lama", use_container_width=True, key="dup_transfer"):
                 st.session_state["duplicate_action"] = "transfer"
@@ -484,9 +396,38 @@ def show_duplicate_warning_dialog(db, nama, email, hp):
     _dialog()
 
 
+def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_files, user):
+    saved = 0
+    errors = []
+    for f in uploaded_files:
+        try:
+            file_bytes = f.getvalue()
+            size_mb = len(file_bytes) / (1024 * 1024)
+            if size_mb > MAX_CV_SIZE_MB:
+                errors.append(f"{f.name}: melebihi {MAX_CV_SIZE_MB} MB")
+                continue
+            file_b64 = base64.b64encode(file_bytes).decode('utf-8')
+            new_cv = CVAttachment(
+                sourcing_id=sourcing_id, kode_unik=kode_unik,
+                nama_kandidat=nama_kandidat, file_name=f.name,
+                file_data=file_b64, file_size=len(file_bytes),
+                file_type=f.type or "application/octet-stream",
+                uploaded_by=user.id,
+                uploaded_by_name=user.display_name or user.username,
+                created_at=datetime.now()
+            )
+            db.add(new_cv)
+            db.commit()
+            saved += 1
+        except Exception as e:
+            errors.append(f"{f.name}: {str(e)}")
+            db.rollback()
+    return saved, errors
+
+
 def show_sourcing_input():
     st.title("👤 Input Sourcing / CV")
-    st.markdown("Input kandidat baru ke DB Sourcing")
+    st.markdown("Input kandidat baru & kelola lampiran CV")
 
     db = next(get_db())
     if not is_editor(db):
@@ -497,13 +438,15 @@ def show_sourcing_input():
         st.warning("Silakan login.")
         return
 
+    admin = is_admin(db)
+
     with st.spinner("📋 Memuat data..."):
         master_options = get_master_options_sourcing(db)
         sourcing_options = get_sourcing_options()
         pipeline_stages = get_pipeline_stages()
 
         fptk_list = db.query(FPTK).filter(FPTK.status == 'OP').order_by(FPTK.kode_unik).all()
-        fptk_options = [(f.kode_unik, f.posisi, f.pic_recruiter) for f in fptk_list]
+        fptk_options = [(f.kode_unik, f.posisi, f.pic_recruiter, f.level_number) for f in fptk_list]
 
     pic_options = master_options['pic_options']
     pipeline_options = sourcing_options['pipeline_options']
@@ -513,6 +456,16 @@ def show_sourcing_input():
     if 'show_parsed_form' not in st.session_state:
         st.session_state.show_parsed_form = False
 
+    tab1, tab2 = st.tabs(["📝 Input Kandidat Baru", "📎 Manage CV"])
+
+    with tab1:
+        render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_options, pipeline_options, pipeline_stages)
+
+    with tab2:
+        render_manage_cv_tab(db, user, admin)
+
+
+def render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_options, pipeline_options, pipeline_stages):
     st.markdown("---")
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
@@ -525,21 +478,21 @@ def show_sourcing_input():
 
     st.markdown("---")
 
-    tab1, tab2, tab3 = st.tabs(["📝 Manual Input", "📋 Paste Text", "📦 Batch CV"])
+    sub1, sub2, sub3 = st.tabs(["📝 Manual Input", "📋 Paste Text", "📦 Batch CV"])
 
-    with tab1:
+    with sub1:
         st.subheader("Manual Input Kandidat")
         show_manual_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options)
 
-    with tab2:
+    with sub2:
         st.subheader("Paste Text CV")
         st.caption("Paste hasil copy dari Jobstreet / LinkedIn / Copilot Agent")
 
-        raw_text = st.text_area("Paste teks CV di sini", height=150)
+        raw_text = st.text_area("Paste teks CV di sini", height=150, key="paste_cv_raw")
 
         col1, col2 = st.columns([1, 4])
         with col1:
-            parse_btn = st.button("🔍 Parse & Tampilkan di Form", use_container_width=True, type="primary")
+            parse_btn = st.button("🔍 Parse & Tampilkan di Form", use_container_width=True, type="primary", key="btn_parse_paste")
 
         if parse_btn and raw_text:
             with st.spinner("Memproses..."):
@@ -559,24 +512,21 @@ def show_sourcing_input():
             st.caption("Data dari hasil parse sudah diisi otomatis. Silakan edit jika diperlukan.")
 
             show_sourcing_form(
-                db=db, user=user,
-                pic_options=pic_options,
-                fptk_options=fptk_options,
-                sourcing_options=sourcing_options,
-                pipeline_options=pipeline_options,
+                db=db, user=user, pic_options=pic_options,
+                fptk_options=fptk_options, sourcing_options=sourcing_options,
+                pipeline_options=pipeline_options, pipeline_stages=pipeline_stages,
                 initial_data=st.session_state.parsed_cv_data,
-                form_key="form_parse_edit",
-                is_parse_mode=True
+                form_key="form_parse_edit", is_parse_mode=True
             )
 
-    with tab3:
+    with sub3:
         st.subheader("Batch Paste CV (Banyak Kandidat)")
         st.caption("Paste hasil dari Copilot Agent atau multiple CV. Pisahkan dengan separator.")
 
-        separator = st.text_input("Separator kandidat", value="=== CV ===")
-        batch_text = st.text_area("Paste batch CV di sini", height=300)
+        separator = st.text_input("Separator kandidat", value="=== CV ===", key="batch_separator")
+        batch_text = st.text_area("Paste batch CV di sini", height=300, key="batch_text")
 
-        if batch_text and st.button("🚀 Proses Batch", type="primary"):
+        if batch_text and st.button("🚀 Proses Batch", type="primary", key="btn_process_batch"):
             candidates = [c.strip() for c in batch_text.split(separator) if c.strip()]
             st.info(f"📋 Ditemukan {len(candidates)} kandidat")
             st.session_state.batch_candidates = candidates
@@ -596,15 +546,11 @@ def show_sourcing_input():
 
                 if parsed.get('nama'):
                     show_sourcing_form(
-                        db=db, user=user,
-                        pic_options=pic_options,
-                        fptk_options=fptk_options,
-                        sourcing_options=sourcing_options,
-                        pipeline_options=pipeline_options,
-                        initial_data=parsed,
-                        form_key=f"form_batch_{idx}",
-                        is_parse_mode=True,
-                        batch_mode=True
+                        db=db, user=user, pic_options=pic_options,
+                        fptk_options=fptk_options, sourcing_options=sourcing_options,
+                        pipeline_options=pipeline_options, pipeline_stages=pipeline_stages,
+                        initial_data=parsed, form_key=f"form_batch_{idx}",
+                        is_parse_mode=True, batch_mode=True
                     )
                 else:
                     st.warning(f"⚠️ Kandidat {idx+1} tidak terdeteksi datanya")
@@ -617,8 +563,169 @@ def show_sourcing_input():
                 st.session_state.batch_index = 0
 
 
+def render_manage_cv_tab(db, user, admin):
+    st.markdown("### 📎 Manage Lampiran CV")
+    st.caption("Upload CV untuk kandidat yang sudah ada, lihat, atau hapus.")
+
+    with st.sidebar:
+        st.markdown("### 🔍 Filter CV")
+        search_cv = st.text_input("Cari (Nama / Kode Unik / File)", placeholder="Ketik keyword...", key="search_cv")
+        uploaded_by_filter = st.text_input("Filter Upload By", placeholder="Nama uploader...", key="uploader_filter")
+
+        if st.button("🔄 Reset Filter", use_container_width=True, key="reset_cv_filter"):
+            st.rerun()
+
+    sub1, sub2 = st.tabs(["📤 Upload CV untuk Kandidat", "📂 Daftar & Lihat CV"])
+
+    with sub1:
+        st.subheader("Upload CV")
+
+        query = db.query(DBSourcing).order_by(DBSourcing.sourcing_date.desc())
+        if not admin:
+            query = query.filter(DBSourcing.rekruter == user.pic_recruiter)
+
+        all_candidates = query.limit(1000).all()
+
+        if not all_candidates:
+            st.warning("Belum ada kandidat di DB Sourcing.")
+        else:
+            cand_options = {}
+            for c in all_candidates:
+                display = f"{c.kode_unik} | {c.nama} | {c.posisi or '-'}"
+                cand_options[display] = c.id
+
+            selected_display = st.selectbox("Pilih Kandidat", list(cand_options.keys()), key="cv_upload_cand")
+            selected_id = cand_options.get(selected_display)
+
+            if selected_id:
+                candidate = db.query(DBSourcing).filter(DBSourcing.id == selected_id).first()
+                if candidate:
+                    st.info(f"📋 **{candidate.nama}** | Kode Unik: {candidate.kode_unik}")
+
+                    existing_cvs = db.query(CVAttachment).filter(
+                        CVAttachment.sourcing_id == selected_id
+                    ).all()
+
+                    if existing_cvs:
+                        st.markdown(f"**{len(existing_cvs)} CV sudah terlampir**")
+
+                    uploaded_files = st.file_uploader(
+                        "Pilih file CV", type=ALLOWED_CV_EXT,
+                        accept_multiple_files=True, key="cv_uploader_manage"
+                    )
+
+                    if uploaded_files and st.button(f"📤 Upload {len(uploaded_files)} File", type="primary", key="btn_upload_cv_manage"):
+                        saved, errors = save_cv_attachments(
+                            db, selected_id, candidate.kode_unik, candidate.nama,
+                            uploaded_files, user
+                        )
+                        st.success(f"✅ Berhasil upload {saved} file!")
+                        if errors:
+                            st.warning(f"⚠️ Error: {len(errors)} file")
+                            with st.expander("Detail Error"):
+                                for err in errors:
+                                    st.text(err)
+                        st.balloons()
+                        time.sleep(1)
+                        st.rerun()
+
+    with sub2:
+        st.subheader("Daftar CV")
+
+        query = db.query(CVAttachment).order_by(CVAttachment.created_at.desc())
+
+        if search_cv:
+            s = search_cv.strip()
+            query = query.filter(
+                (CVAttachment.nama_kandidat.ilike(f"%{s}%")) |
+                (CVAttachment.kode_unik.ilike(f"%{s}%")) |
+                (CVAttachment.file_name.ilike(f"%{s}%"))
+            )
+
+        if uploaded_by_filter:
+            query = query.filter(CVAttachment.uploaded_by_name.ilike(f"%{uploaded_by_filter}%"))
+
+        total = query.count()
+
+        col1, col2 = st.columns(2)
+        col1.metric("Total CV", total)
+
+        if total > 0:
+            df_all = pd.read_sql(query.statement, db.bind)
+            total_size = df_all['file_size'].sum() if 'file_size' in df_all else 0
+            col2.metric("Total Size", f"{total_size / (1024*1024):.2f} MB")
+
+        if total == 0:
+            st.info("Belum ada CV yang diupload.")
+            return
+
+        cv_list = query.limit(200).all()
+
+        data = []
+        for cv in cv_list:
+            data.append({
+                "ID": cv.id, "Nama Kandidat": cv.nama_kandidat, "Kode Unik": cv.kode_unik,
+                "File": cv.file_name, "Size (KB)": round((cv.file_size or 0) / 1024, 1),
+                "Upload By": cv.uploaded_by_name or "-",
+                "Tgl Upload": cv.created_at.strftime("%d/%m/%Y %H:%M") if cv.created_at else "-",
+            })
+
+        df = pd.DataFrame(data)
+        st.dataframe(df, use_container_width=True, height=400, hide_index=True)
+
+        st.markdown("---")
+        st.markdown("### 📂 Lihat & Download")
+
+        select_options = {}
+        for cv in cv_list:
+            display = f"#{cv.id} | {cv.nama_kandidat} | {cv.file_name}"
+            select_options[display] = cv.id
+
+        selected_display = st.selectbox("Pilih CV", list(select_options.keys()), key="cv_view_select")
+        selected_cv_id = select_options.get(selected_display)
+
+        if selected_cv_id:
+            cv_detail = db.query(CVAttachment).filter(CVAttachment.id == selected_cv_id).first()
+            if cv_detail:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown(f"**Kandidat:** {cv_detail.nama_kandidat}")
+                    st.markdown(f"**Kode Unik:** {cv_detail.kode_unik}")
+                    st.markdown(f"**File:** {cv_detail.file_name}")
+                    st.markdown(f"**Size:** {(cv_detail.file_size or 0) / 1024:.1f} KB")
+                    st.markdown(f"**Upload By:** {cv_detail.uploaded_by_name or '-'}")
+
+                with col2:
+                    try:
+                        file_bytes = base64.b64decode(cv_detail.file_data)
+                        st.download_button(
+                            "⬇️ Download CV", file_bytes, cv_detail.file_name,
+                            mime=cv_detail.file_type or "application/octet-stream",
+                            key=f"dl_cv_mgr_{cv_detail.id}", use_container_width=True
+                        )
+                        file_lower = cv_detail.file_name.lower()
+                        if file_lower.endswith(('.jpg', '.jpeg', '.png')):
+                            st.image(file_bytes, caption=cv_detail.file_name, use_container_width=True)
+                    except Exception as e:
+                        st.error(f"Error: {str(e)}")
+
+                if admin:
+                    st.markdown("---")
+                    if st.button("🗑️ Hapus CV Ini", type="secondary", key=f"del_cv_mgr_{cv_detail.id}"):
+                        try:
+                            db.delete(cv_detail)
+                            db.commit()
+                            st.success("CV berhasil dihapus!")
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {str(e)}")
+                            db.rollback()
+
+
 def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options,
-                       initial_data=None, form_key="sourcing_form", is_parse_mode=False, batch_mode=False):
+                       pipeline_stages, initial_data=None, form_key="sourcing_form",
+                       is_parse_mode=False, batch_mode=False):
 
     sumber_options = sourcing_options['sumber_options']
     jenjang_options = sourcing_options['jenjang_options']
@@ -650,12 +757,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     univ_original = univ
     if univ_original and univ_original not in univ_options:
         univ = "Lainnya"
-        if not univ_lain_init and univ_original.strip().lower() not in GENERIC_UNIV_WORDS:
+        if not univ_lain_init:
             univ_lain_init = univ_original
     elif univ_original == "Lainnya":
         univ = "Lainnya"
-        if univ_lain_init and univ_lain_init.strip().lower() in GENERIC_UNIV_WORDS:
-            univ_lain_init = ""
     elif univ_original in univ_options and univ_original != "":
         univ = univ_original
         univ_lain_init = ""
@@ -666,12 +771,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     jurusan_original = jurusan
     if jurusan_original and jurusan_original not in jurusan_options:
         jurusan = "Lainnya"
-        if not jurusan_lain_init and jurusan_original.strip().lower() not in GENERIC_JURUSAN_WORDS:
+        if not jurusan_lain_init:
             jurusan_lain_init = jurusan_original
     elif jurusan_original == "Lainnya":
         jurusan = "Lainnya"
-        if jurusan_lain_init and jurusan_lain_init.strip().lower() in GENERIC_JURUSAN_WORDS:
-            jurusan_lain_init = ""
     elif jurusan_original in jurusan_options and jurusan_original != "":
         jurusan = jurusan_original
         jurusan_lain_init = ""
@@ -682,15 +785,17 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     fptk_display = []
     fptk_map = {}
     fptk_posisi_map = {}
-    for kode, pos, pic in fptk_options:
+    fptk_level_map = {}
+    for kode, pos, pic, lvl in fptk_options:
         display = f"{kode} - {pos[:50]}"
         fptk_display.append(display)
         fptk_map[display] = kode
         fptk_posisi_map[display] = pos
+        fptk_level_map[display] = lvl
 
     default_fptk_index = 0
     if kode_unik or posisi:
-        for idx, (kode, pos, pic) in enumerate(fptk_options):
+        for idx, (kode, pos, pic, lvl) in enumerate(fptk_options):
             if kode_unik and kode == kode_unik:
                 default_fptk_index = idx
                 break
@@ -713,34 +818,40 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 selected_fptk = st.selectbox(
                     "Pilih FPTK (Kode Unik - Posisi)",
                     fptk_display,
-                    index=min(default_fptk_index, len(fptk_display) - 1)
+                    index=min(default_fptk_index, len(fptk_display) - 1),
+                    key=f"{form_key}_fptk_select"
                 )
                 kode_unik_input = fptk_map.get(selected_fptk, '')
                 posisi_input = fptk_posisi_map.get(selected_fptk, '')
+                level_input = fptk_level_map.get(selected_fptk, None)
                 st.text_input("Kode Unik (auto)", value=kode_unik_input, disabled=True)
                 st.text_input("Posisi (auto)", value=posisi_input, disabled=True)
             else:
                 st.warning("⚠️ Tidak ada FPTK OP yang tersedia. Buat FPTK dulu.")
                 kode_unik_input = ''
                 posisi_input = ''
+                level_input = None
                 selected_fptk = None
 
-            pic_recruiter_input = st.selectbox("PIC Recruiter *", [""] + pic_options)
+            pic_recruiter_input = st.selectbox("PIC Recruiter *", [""] + pic_options, key=f"{form_key}_pic")
             hp_input = st.text_input("No HP", value=hp)
             email_input = st.text_input("Email", value=email)
 
             sumber_input = st.selectbox("Sumber *", [""] + sumber_options,
-                                       index=([""] + sumber_options).index(sumber) if sumber in sumber_options else 0)
+                                       index=([""] + sumber_options).index(sumber) if sumber in sumber_options else 0,
+                                       key=f"{form_key}_sumber")
 
-            auto_model = auto_detect_model_rekrutmen(posisi_input if posisi_input else posisi)
+            auto_model = auto_detect_model_rekrutmen(posisi_input, level_input)
             model_default_idx = model_options_local.index(auto_model) if auto_model in model_options_local else 0
+            st.caption(f"ℹ️ Model auto-detect dari posisi FPTK: **{auto_model or 'Belum terdeteksi'}**")
             model_rekrutmen_input = st.selectbox("Model Rekrutmen", model_options_local, index=model_default_idx, key=f"{form_key}_model")
 
             domisili_input = st.text_input("Domisili", value=domisili)
 
         with col2:
             jenjang_input = st.selectbox("Jenjang", [""] + jenjang_options,
-                                        index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0)
+                                        index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0,
+                                        key=f"{form_key}_jenjang")
 
             default_univ_index = 0
             if univ in univ_options:
@@ -748,17 +859,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             elif univ:
                 default_univ_index = ([""] + univ_options).index("Lainnya")
 
-            univ_input = st.selectbox(
-                "Universitas", [""] + univ_options,
-                index=default_univ_index,
-                key=f"{form_key}_univ"
-            )
+            univ_input = st.selectbox("Universitas", [""] + univ_options, index=default_univ_index, key=f"{form_key}_univ")
 
             if univ_input == "Lainnya":
-                univ_lain = st.text_input(
-                    "Univ Lainnya *",
-                    value=univ_lain_init
-                )
+                univ_lain = st.text_input("Univ Lainnya *", value=univ_lain_init, key=f"{form_key}_univ_lain")
             else:
                 univ_lain = ""
 
@@ -771,17 +875,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             elif jurusan:
                 default_jur_index = ([""] + jurusan_options).index("Lainnya")
 
-            jurusan_input = st.selectbox(
-                "Jurusan", [""] + jurusan_options,
-                index=default_jur_index,
-                key=f"{form_key}_jurusan"
-            )
+            jurusan_input = st.selectbox("Jurusan", [""] + jurusan_options, index=default_jur_index, key=f"{form_key}_jurusan")
 
             if jurusan_input == "Lainnya":
-                jurusan_lain = st.text_input(
-                    "Jurusan Lainnya *",
-                    value=jurusan_lain_init
-                )
+                jurusan_lain = st.text_input("Jurusan Lainnya *", value=jurusan_lain_init, key=f"{form_key}_jurusan_lain")
             else:
                 jurusan_lain = ""
 
@@ -795,10 +892,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             if default_tahun is not None and (default_tahun < 1990 or default_tahun > 2030):
                 default_tahun = None
 
-            tahun_lulus_input = st.number_input("Tahun Lulus", min_value=1990, max_value=2030, step=1,
-                                                value=default_tahun)
+            tahun_lulus_input = st.number_input("Tahun Lulus", min_value=1990, max_value=2030, step=1, value=default_tahun)
             fmcg_input = st.selectbox("Pernah di FMCG?", [""] + fmcg_options,
-                                     index=([""] + fmcg_options).index(fmcg) if fmcg in fmcg_options else 0)
+                                     index=([""] + fmcg_options).index(fmcg) if fmcg in fmcg_options else 0,
+                                     key=f"{form_key}_fmcg")
 
         st.markdown("---")
         st.markdown("### 💼 Riwayat Pekerjaan")
@@ -811,8 +908,15 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             total_tenure_input = st.text_input("Total Tenure", value=total_tenure)
 
         st.markdown("---")
-        st.markdown("### 📊 Pipeline (Status awal)")
+        st.markdown("### 📎 Lampiran CV")
+        st.caption(f"Max {MAX_CV_SIZE_MB} MB per file. Format: {', '.join(ALLOWED_CV_EXT)}. Bisa multiple.")
+        cv_files_input = st.file_uploader(
+            "Upload CV (opsional)", type=ALLOWED_CV_EXT,
+            accept_multiple_files=True, key=f"{form_key}_cv_uploader"
+        )
 
+        st.markdown("---")
+        st.markdown("### 📊 Pipeline (Status awal)")
         pipeline_inputs = {}
 
         with st.expander("Sourcing Freelance", expanded=False):
@@ -1050,13 +1154,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             for err in errors:
                 st.error(f"❌ {err}")
         else:
-            duplicates = find_duplicate_candidates(
-                db,
-                nama_input,
-                email=email_input,
-                nomor_hp=hp_input
-            )
-
+            duplicates = find_duplicate_candidates(db, nama_input, email=email_input, nomor_hp=hp_input)
             dup_action = st.session_state.get("duplicate_action", None)
 
             if duplicates and dup_action is None:
@@ -1070,7 +1168,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
             if duplicates and dup_action == "transfer":
                 st.session_state["duplicate_action"] = None
-                st.info("🔄 Silakan pilih FPTK tujuan di halaman **Transfer Kandidat**.")
+                st.info("🔄 Silakan pilih FPTK tujuan di halaman **Sourcing View → tab Transfer Kandidat**.")
                 st.stop()
 
             st.session_state["duplicate_action"] = None
@@ -1085,11 +1183,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
                 tier_final = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
 
-                model_kategori = ""
-                if model_rekrutmen_input:
-                    from core.model_rekrutmen import get_model_description
-                    model_kategori = get_model_description(model_rekrutmen_input)
-
                 new = DBSourcing(
                     no=next_no,
                     nama=nama_input,
@@ -1098,7 +1191,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                     rekruter=pic_recruiter_input,
                     sumber_sourcing=sumber_input,
                     model_rekrutmen=model_rekrutmen_input if model_rekrutmen_input else None,
-                    model_rekrutmen_kategori=model_kategori if model_kategori else None,
                     domisili=domisili_input,
                     jenjang_pendidikan=jenjang_input,
                     nama_universitas_top10=univ_input if univ_input != "Lainnya" else "",
@@ -1128,7 +1220,22 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
                 db.add(new)
                 db.commit()
+                db.refresh(new)
+
                 st.success(f"✅ '{nama_input}' berhasil disimpan! Tier: {tier_final}")
+
+                if cv_files_input:
+                    saved, cv_errors = save_cv_attachments(
+                        db, new.id, kode_unik_input, nama_input,
+                        cv_files_input, user
+                    )
+                    if saved > 0:
+                        st.info(f"📎 {saved} CV berhasil diupload!")
+                    if cv_errors:
+                        st.warning(f"⚠️ {len(cv_errors)} CV gagal:")
+                        for err in cv_errors:
+                            st.text(err)
+
                 st.balloons()
 
                 if is_parse_mode:
@@ -1152,14 +1259,26 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
 
 def show_manual_form(db, user, pic_options, fptk_options, sourcing_options, pipeline_options):
+    pipeline_stages = [
+        {"field": "sourcing_freelance", "label": "Sourcing Freelance"},
+        {"field": "sourcing_hr", "label": "Sourcing HR"},
+        {"field": "shortlist_cv", "label": "Shortlist CV"},
+        {"field": "psikotes", "label": "Psikotes"},
+        {"field": "hr_interview", "label": "HR Interview"},
+        {"field": "technical_test_case_study", "label": "Technical Test / Case Study"},
+        {"field": "market_visit", "label": "Market Visit"},
+        {"field": "user_interview", "label": "User Interview"},
+        {"field": "panel_interview", "label": "Panel Interview"},
+        {"field": "reference_check", "label": "Reference Check"},
+        {"field": "mcu", "label": "MCU"},
+        {"field": "offering", "label": "Offering"},
+        {"field": "day1", "label": "Day 1"}
+    ]
+
     show_sourcing_form(
-        db=db, user=user,
-        pic_options=pic_options,
-        fptk_options=fptk_options,
-        sourcing_options=sourcing_options,
-        pipeline_options=pipeline_options,
-        initial_data=None,
-        form_key="form_manual",
-        is_parse_mode=False,
-        batch_mode=False
+        db=db, user=user, pic_options=pic_options,
+        fptk_options=fptk_options, sourcing_options=sourcing_options,
+        pipeline_options=pipeline_options, pipeline_stages=pipeline_stages,
+        initial_data=None, form_key="form_manual",
+        is_parse_mode=False, batch_mode=False
     )
