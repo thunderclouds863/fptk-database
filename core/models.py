@@ -329,6 +329,7 @@ class UploadTemplate(Base):
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
+    template_type = Column(String(20), default="FPTK", index=True)
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
