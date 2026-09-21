@@ -370,6 +370,7 @@ class FPTKDeleteRequest(Base):
 
     fptk = relationship("FPTK", backref="delete_requests")
 
+
 class SourcingDeleteRequest(Base):
     __tablename__ = "sourcing_delete_requests"
     __table_args__ = {"extend_existing": True}
