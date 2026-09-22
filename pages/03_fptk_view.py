@@ -10,7 +10,7 @@ from core.models import (
 from core.auth import get_current_user, is_admin, is_it, is_editor
 from core.utils import (
     get_filter_options_from_db, calculate_detail_sla, calculate_sla_days,
-    get_last_pipeline_stage
+    get_last_pipeline_stage, transfer_kandidat_to_fptk
 )
 from datetime import datetime, timedelta
 import re
@@ -71,6 +71,7 @@ def update_all_sla_bulk(db):
 
 
 def get_kandidat_options_for_fptk(db, kode_unik):
+    """Kandidat yang ada di kode_unik ini."""
     if not kode_unik:
         return []
     kandidat_list = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).all()
@@ -79,50 +80,196 @@ def get_kandidat_options_for_fptk(db, kode_unik):
         last = get_last_pipeline_stage(k)
         result.append({
             "id": k.id, "nama": k.nama, "email": k.email, "hp": k.nomor_hp,
-            "posisi": k.posisi, "last_stage": last["stage_label"] if last else "Belum ada stage",
+            "posisi": k.posisi, "kode_unik": k.kode_unik,
+            "last_stage": last["stage_label"] if last else "Belum ada stage",
         })
     return result
 
 
-def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value=""):
+def get_all_kandidat_from_other_kode(db, current_kode_unik):
+    """Kandidat dari kode_unik lain (untuk mode Transfer)."""
+    kandidat_list = db.query(DBSourcing).filter(
+        DBSourcing.kode_unik != current_kode_unik
+    ).order_by(DBSourcing.kode_unik, DBSourcing.nama).limit(500).all()
+
+    result = []
+    for k in kandidat_list:
+        last = get_last_pipeline_stage(k)
+        result.append({
+            "id": k.id, "nama": k.nama, "email": k.email, "hp": k.nomor_hp,
+            "posisi": k.posisi, "kode_unik": k.kode_unik, "rekruter": k.rekruter,
+            "last_stage": last["stage_label"] if last else "Belum ada stage",
+        })
+    return result
+
+
+def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value="", user=None):
+    """
+    Render picker nama kandidat dengan 3 mode:
+    1. Pilih dari DB Sourcing (kandidat di kode_unik ini)
+    2. Ketik Manual
+    3. Transfer dari Kode Unik Lain
+    """
     kandidat_list = get_kandidat_options_for_fptk(db, kode_unik_input)
+
     mode_key = f"{key_prefix}_mode"
     select_key = f"{key_prefix}_select"
     manual_key = f"{key_prefix}_manual"
+    transfer_key = f"{key_prefix}_transfer"
+    reason_key = f"{key_prefix}_reason"
 
     if mode_key not in st.session_state:
-        st.session_state[mode_key] = "dropdown" if kandidat_list else "manual"
+        if kandidat_list:
+            st.session_state[mode_key] = "dropdown"
+        elif default_value:
+            st.session_state[mode_key] = "manual"
+        else:
+            st.session_state[mode_key] = "manual"
+
+    mode_options = ["dropdown", "manual", "transfer"]
+    mode_labels = {
+        "dropdown": "📋 Pilih dari DB Sourcing (kandidat di kode unik ini)",
+        "manual": "✏️ Ketik Manual",
+        "transfer": "🔄 Transfer dari Kode Unik Lain"
+    }
 
     if kandidat_list:
         mode = st.radio(
-            "Mode Input Nama Kandidat", ["dropdown", "manual"],
-            format_func=lambda x: "Pilih dari DB Sourcing" if x == "dropdown" else "Ketik Manual",
-            index=0 if st.session_state[mode_key] == "dropdown" else 1,
-            horizontal=True, key=f"{key_prefix}_radio"
+            "Mode Input Nama Kandidat",
+            mode_options,
+            format_func=lambda x: mode_labels[x],
+            index=mode_options.index(st.session_state[mode_key]) if st.session_state[mode_key] in mode_options else 1,
+            horizontal=False,
+            key=f"{key_prefix}_radio"
         )
-        st.session_state[mode_key] = mode
     else:
-        st.caption(f"ℹ️ Belum ada kandidat di DB Sourcing untuk kode unik `{kode_unik_input}`. Silakan ketik manual.")
-        st.session_state[mode_key] = "manual"
-        mode = "manual"
+        st.caption(f"ℹ️ Belum ada kandidat di DB Sourcing untuk kode unik `{kode_unik_input}`.")
+        mode_options_filtered = ["manual", "transfer"]
+        mode = st.radio(
+            "Mode Input Nama Kandidat",
+            mode_options_filtered,
+            format_func=lambda x: mode_labels[x],
+            index=mode_options_filtered.index(st.session_state[mode_key]) if st.session_state[mode_key] in mode_options_filtered else 0,
+            horizontal=False,
+            key=f"{key_prefix}_radio"
+        )
 
+    st.session_state[mode_key] = mode
+
+    # ============================================================
+    # MODE 1: DROPDOWN
+    # ============================================================
     if mode == "dropdown" and kandidat_list:
         options = {}
         for k in kandidat_list:
             display = f"{k['nama']} | {k['email'] or '-'} | {k['last_stage']}"
             options[display] = k['nama']
+
         default_idx = 0
         if default_value:
             for i, (disp, nama) in enumerate(options.items()):
                 if nama == default_value:
                     default_idx = i
                     break
-        selected = st.selectbox("Nama Kandidat (dari DB Sourcing)", list(options.keys()),
-            index=default_idx, key=select_key)
+
+        selected = st.selectbox(
+            "Nama Kandidat (dari DB Sourcing)",
+            list(options.keys()),
+            index=default_idx,
+            key=select_key
+        )
         return options.get(selected, "")
-    else:
-        return st.text_input("Nama Kandidat (Manual)", value=default_value,
-            placeholder="Ketik nama kandidat manual", key=manual_key)
+
+    # ============================================================
+    # MODE 2: MANUAL
+    # ============================================================
+    elif mode == "manual":
+        return st.text_input(
+            "Nama Kandidat (Manual)",
+            value=default_value,
+            placeholder="Ketik nama kandidat manual",
+            key=manual_key
+        )
+
+    # ============================================================
+    # MODE 3: TRANSFER DARI KODE UNIK LAIN
+    # ============================================================
+    elif mode == "transfer":
+        st.markdown("**Transfer Kandidat dari Kode Unik Lain**")
+        st.caption("Kandidat akan di-duplikat ke kode unik FPTK ini + dicatat di history transfer.")
+
+        if default_value:
+            st.warning(f"⚠️ FPTK ini sudah punya kandidat: **{default_value}**. Hapus dulu (set ke manual kosong) kalau mau transfer kandidat baru.")
+            st.info("Kalau tetap transfer, kandidat lama akan diganti (overwrite).")
+
+        all_kandidat = get_all_kandidat_from_other_kode(db, kode_unik_input)
+
+        if not all_kandidat:
+            st.warning("Tidak ada kandidat di DB Sourcing dari kode unik lain.")
+            return ""
+
+        search_transfer = st.text_input(
+            "🔎 Cari Kandidat (Nama / Kode Unik)",
+            placeholder="Ketik keyword...",
+            key=f"{key_prefix}_search_transfer"
+        )
+
+        filtered_kandidat = all_kandidat
+        if search_transfer:
+            s = search_transfer.strip().lower()
+            filtered_kandidat = [
+                k for k in all_kandidat
+                if s in (k['nama'] or "").lower() or s in (k['kode_unik'] or "").lower()
+            ]
+
+        if not filtered_kandidat:
+            st.info("Tidak ada kandidat yang cocok.")
+            return ""
+
+        options_transfer = {}
+        for k in filtered_kandidat:
+            display = f"{k['kode_unik']} | {k['nama']} | {k['posisi'][:30] if k['posisi'] else '-'} | {k['last_stage']}"
+            options_transfer[display] = k['id']
+
+        selected_transfer = st.selectbox(
+            "Pilih Kandidat dari Kode Unik Lain",
+            list(options_transfer.keys()),
+            key=transfer_key
+        )
+
+        selected_id = options_transfer.get(selected_transfer)
+
+        if selected_id:
+            kandidat_detail = next((k for k in filtered_kandidat if k['id'] == selected_id), None)
+            if kandidat_detail:
+                with st.expander("📋 Preview Kandidat", expanded=True):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        st.markdown(f"**Nama:** {kandidat_detail['nama']}")
+                        st.markdown(f"**Kode Unik Asal:** {kandidat_detail['kode_unik']}")
+                        st.markdown(f"**Email:** {kandidat_detail['email'] or '-'}")
+                    with col2:
+                        st.markdown(f"**Posisi:** {kandidat_detail['posisi'] or '-'}")
+                        st.markdown(f"**PIC:** {kandidat_detail.get('rekruter', '-')}")
+                        st.markdown(f"**Tahap Terakhir:** {kandidat_detail['last_stage']}")
+
+        reason_transfer = st.text_area(
+            "Alasan Transfer *",
+            placeholder="Contoh: Kandidat cocok untuk FPTK ini, recycle kandidat, dll. (min 10 karakter)",
+            height=100,
+            key=reason_key
+        )
+
+        # Simpan info di session state untuk diproses saat submit form
+        st.session_state[f"{key_prefix}_transfer_data"] = {
+            "sourcing_id": selected_id,
+            "reason": reason_transfer.strip() if reason_transfer else "",
+            "nama": kandidat_detail['nama'] if selected_id and kandidat_detail else "",
+        }
+
+        if selected_id and kandidat_detail:
+            return kandidat_detail['nama']
+        return ""
 
 
 @st.dialog("Request Hapus FPTK ke Admin")
@@ -434,10 +581,9 @@ def render_fptk_database(db, user, admin):
                 "pic_recruiter": "PIC Recruiter", "filter_kategorisasi_fptk": "Filter Kategorisasi FPTK",
                 "vacancy": "Vacancy", "offering_date": "Offering Date", "fptk_cancel_date": "FPTK Cancel Date",
                 "jumlah_sla": "Jumlah SLA", "deadline_sla": "Deadline SLA", "detail_sla": "Detail SLA",
-                "nama_kandidat": "Nama Kandidat", "estimasi_join": "Estimasi Join",
-                "kebutuhan_laptop": "Kebutuhan Laptop", "lokasi_onboarding": "Lokasi Onboarding",
-                "user_manager": "User (Manager)", "indirect_user": "Indirect User",
-                "lokasi_kerja": "Lokasi Kerja", "lokasi_hr": "Lokasi HR",
+                "estimasi_join": "Estimasi Join", "kebutuhan_laptop": "Kebutuhan Laptop",
+                "lokasi_onboarding": "Lokasi Onboarding", "user_manager": "User (Manager)",
+                "indirect_user": "Indirect User", "lokasi_kerja": "Lokasi Kerja", "lokasi_hr": "Lokasi HR",
                 "status_karyawan": "Status Karyawan", "kode_bu": "Kode BU",
                 "fptk_availability": "FPTK Availability", "remark": "Remark",
             }
@@ -446,7 +592,6 @@ def render_fptk_database(db, user, admin):
                 format_func=lambda x: all_bulk_fields[x], key="bulk_field_select_v2")
 
             new_value = None
-            kandidat_values_map = {}
 
             if field_to_update == "level_fptk":
                 new_value = st.selectbox("Level FPTK", LEVEL_OPTIONS, key="bulk_v2_level")
@@ -484,18 +629,6 @@ def render_fptk_database(db, user, admin):
                 new_value = st.selectbox("Alasan", [""] + alasan_options, key="bulk_v2_alasan")
             elif field_to_update == "lokasi_onboarding":
                 new_value = st.selectbox("Lokasi Onboarding", [""] + lokasi_onboarding_options, key="bulk_v2_onboard")
-            elif field_to_update == "nama_kandidat":
-                st.markdown("**Nama Kandidat per FPTK**")
-                st.caption("Setiap FPTK punya kode unik berbeda, jadi nama kandidat di-set satu-satu.")
-                for fptk_id in selected_ids:
-                    fptk_obj = db.query(FPTK).filter(FPTK.id == fptk_id).first()
-                    if not fptk_obj:
-                        continue
-                    st.markdown(f"---")
-                    st.markdown(f"**{fptk_obj.kode_unik}** | {fptk_obj.posisi[:50]}")
-                    val = render_kandidat_picker(db, fptk_obj.kode_unik, f"bulk_nama_{fptk_id}",
-                        default_value=fptk_obj.nama_kandidat or "")
-                    kandidat_values_map[fptk_id] = val
             else:
                 new_value = st.text_area("Nilai Baru", key="bulk_v2_text")
 
@@ -508,11 +641,7 @@ def render_fptk_database(db, user, admin):
                             fptk_obj = db.query(FPTK).filter(FPTK.id == fptk_id).first()
                             if not fptk_obj:
                                 continue
-                            if field_to_update == "nama_kandidat":
-                                if fptk_id in kandidat_values_map:
-                                    fptk_obj.nama_kandidat = kandidat_values_map[fptk_id] or None
-                            else:
-                                setattr(fptk_obj, field_to_update, new_value)
+                            setattr(fptk_obj, field_to_update, new_value)
 
                             if field_to_update == "level_fptk":
                                 match = re.search(r'(\d+)', str(new_value))
@@ -713,11 +842,16 @@ def render_fptk_database(db, user, admin):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown("**Nama Kandidat**")
-                st.caption(f"Dropdown kandidat di-filter by kode unik FPTK: `{detail.kode_unik}`")
+                st.caption(f"Kode Unik FPTK: `{detail.kode_unik}` — dropdown mode Pilih/Manual/Transfer")
+
                 new_nama_kandidat = render_kandidat_picker(
-                    db, detail.kode_unik, f"edit_fptk_kandidat_{detail.id}",
-                    default_value=detail.nama_kandidat or ""
+                    db,
+                    detail.kode_unik,
+                    f"edit_fptk_kandidat_{detail.id}",
+                    default_value=detail.nama_kandidat or "",
+                    user=user
                 )
+
                 new_user_manager = st.text_input("User (Manager)", value=detail.user_manager or "")
             with col2:
                 new_remark = st.text_area("Remark", value=detail.remark or "")
@@ -726,6 +860,52 @@ def render_fptk_database(db, user, admin):
 
         if submitted:
             try:
+                # ============================================================
+                # CEK MODE TRANSFER
+                # ============================================================
+                transfer_data = st.session_state.get(f"edit_fptk_kandidat_{detail.id}_transfer_data", None)
+                is_transfer_mode = False
+
+                if new_nama_kandidat and detail.nama_kandidat and new_nama_kandidat != detail.nama_kandidat:
+                    st.warning(f"⚠️ FPTK ini sudah punya kandidat **{detail.nama_kandidat}**.")
+                    st.info("Kalau mau ganti kandidat, hapus dulu (set ke kosong) atau pilih mode Transfer.")
+                    st.stop()
+
+                # Cek apakah lagi pakai mode transfer
+                if transfer_data and transfer_data.get("sourcing_id"):
+                    is_transfer_mode = True
+
+                if is_transfer_mode:
+                    if not transfer_data.get("reason") or len(transfer_data.get("reason", "")) < 10:
+                        st.error("❌ Alasan Transfer wajib diisi minimal 10 karakter!")
+                        st.stop()
+
+                    if detail.nama_kandidat:
+                        st.error(f"❌ FPTK ini sudah punya kandidat: **{detail.nama_kandidat}**. Hapus dulu (set ke manual kosong) baru transfer kandidat baru.")
+                        st.stop()
+
+                    result = transfer_kandidat_to_fptk(
+                        db,
+                        transfer_data["sourcing_id"],
+                        detail.kode_unik,
+                        transfer_data["reason"],
+                        user.id,
+                        user.display_name or user.username
+                    )
+
+                    if not result["success"]:
+                        st.error(f"❌ Gagal transfer: {result.get('error', 'Unknown error')}")
+                        st.stop()
+
+                    new_nama_kandidat = result["nama"]
+                    st.success(f"✅ Kandidat **{result['nama']}** berhasil ditransfer!")
+                    st.info(f"📋 Dari: {result['old_kode_unik']} → Ke: {result['new_kode_unik']}")
+
+                    st.session_state[f"edit_fptk_kandidat_{detail.id}_transfer_data"] = None
+
+                # ============================================================
+                # LOGIC UPDATE FPTK
+                # ============================================================
                 if new_level_number <= 3:
                     sla_days = 30
                 elif new_level_number == 4:
@@ -771,6 +951,7 @@ def render_fptk_database(db, user, admin):
                 db.commit()
                 st.cache_data.clear()
                 st.success(f"✅ FPTK berhasil diupdate!")
+                time.sleep(0.5)
                 st.rerun()
             except Exception as e:
                 st.error(f"❌ Error: {str(e)}")
@@ -882,8 +1063,7 @@ def render_transfer_fptk_form(db, user):
     st.markdown("### Transfer Ke PIC Tujuan")
 
     target_users = db.query(User).filter(
-        User.role.in_(['user', 'admin']),
-        User.pic_recruiter.isnot(None)
+        User.role.in_(['user', 'admin']), User.pic_recruiter.isnot(None)
     ).all()
 
     target_options = {}
