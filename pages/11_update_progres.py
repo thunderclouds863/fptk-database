@@ -97,8 +97,8 @@ def generate_progress_recruitment_excel(df):
 
     headers = [
         'No', 'Tanggal FPTK', 'Posisi', 'Level',
-        'Business Unit', 'Kategori sheet', 'SLA Target Pemenuhan',
-        'PIC TA', 'Jumlah Permintaan', 'Status Rekrutmen', 'Recruitment Update'
+        'Business Unit', 'Filter Kategorisasi', 'SLA Target Pemenuhan',
+        'PIC TA', 'Vacancy', 'Status', 'Recruitment Update'
     ]
 
     for col_idx, header in enumerate(headers, start=1):
