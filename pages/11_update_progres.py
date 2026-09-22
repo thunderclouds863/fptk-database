@@ -912,10 +912,10 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
             'Posisi': fptk.posisi,
             'Level': fptk.level_fptk,
             'Business Unit': fptk.business_unit,
-            'Kategori sheet': fptk.filter_kategorisasi_fptk or fptk.category_fptk or "",
+            'Filter Kategorisasi': fptk.filter_kategorisasi_fptk or fptk.category_fptk or "",
             'SLA Target Pemenuhan': fptk.deadline_sla,
             'PIC TA': fptk.pic_recruiter,
-            'Jumlah Permintaan': fptk.vacancy or 1,
+            'Vacancy': fptk.vacancy or 1,
             'Status Rekrutmen': fptk.status,
             'Recruitment Update': progress_text,
         })
