@@ -71,7 +71,6 @@ def update_all_sla_bulk(db):
 
 
 def get_kandidat_options_for_fptk(db, kode_unik):
-    """Kandidat yang ada di kode_unik ini."""
     if not kode_unik:
         return []
     kandidat_list = db.query(DBSourcing).filter(DBSourcing.kode_unik == kode_unik).all()
@@ -87,7 +86,6 @@ def get_kandidat_options_for_fptk(db, kode_unik):
 
 
 def get_all_kandidat_from_other_kode(db, current_kode_unik):
-    """Kandidat dari kode_unik lain (untuk mode Transfer)."""
     kandidat_list = db.query(DBSourcing).filter(
         DBSourcing.kode_unik != current_kode_unik
     ).order_by(DBSourcing.kode_unik, DBSourcing.nama).limit(500).all()
@@ -103,20 +101,23 @@ def get_all_kandidat_from_other_kode(db, current_kode_unik):
     return result
 
 
-def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value="", user=None):
+def render_kandidat_picker_outside_form(db, kode_unik_input, key_prefix, default_value="", user=None):
     """
-    Render picker nama kandidat dengan 3 mode:
-    1. Pilih dari DB Sourcing (kandidat di kode_unik ini)
-    2. Ketik Manual
-    3. Transfer dari Kode Unik Lain
+    Picker di LUAR form — interaktif.
+    Return dict:
+    {
+        "nama": str,           # nama kandidat yang dipilih/diketik
+        "mode": str,           # "dropdown" / "manual" / "transfer"
+        "transfer_id": int,    # ID sourcing kalau mode transfer
+        "transfer_reason": str # alasan transfer
+    }
     """
     kandidat_list = get_kandidat_options_for_fptk(db, kode_unik_input)
 
     mode_key = f"{key_prefix}_mode"
-    select_key = f"{key_prefix}_select"
-    manual_key = f"{key_prefix}_manual"
-    transfer_key = f"{key_prefix}_transfer"
-    reason_key = f"{key_prefix}_reason"
+    value_key = f"{key_prefix}_value"
+    transfer_id_key = f"{key_prefix}_transfer_id"
+    transfer_reason_key = f"{key_prefix}_transfer_reason"
 
     if mode_key not in st.session_state:
         if kandidat_list:
@@ -126,7 +127,6 @@ def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value="", us
         else:
             st.session_state[mode_key] = "manual"
 
-    mode_options = ["dropdown", "manual", "transfer"]
     mode_labels = {
         "dropdown": "📋 Pilih dari DB Sourcing (kandidat di kode unik ini)",
         "manual": "✏️ Ketik Manual",
@@ -134,27 +134,32 @@ def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value="", us
     }
 
     if kandidat_list:
-        mode = st.radio(
-            "Mode Input Nama Kandidat",
-            mode_options,
-            format_func=lambda x: mode_labels[x],
-            index=mode_options.index(st.session_state[mode_key]) if st.session_state[mode_key] in mode_options else 1,
-            horizontal=False,
-            key=f"{key_prefix}_radio"
-        )
+        mode_options = ["dropdown", "manual", "transfer"]
     else:
         st.caption(f"ℹ️ Belum ada kandidat di DB Sourcing untuk kode unik `{kode_unik_input}`.")
-        mode_options_filtered = ["manual", "transfer"]
-        mode = st.radio(
-            "Mode Input Nama Kandidat",
-            mode_options_filtered,
-            format_func=lambda x: mode_labels[x],
-            index=mode_options_filtered.index(st.session_state[mode_key]) if st.session_state[mode_key] in mode_options_filtered else 0,
-            horizontal=False,
-            key=f"{key_prefix}_radio"
-        )
+        mode_options = ["manual", "transfer"]
 
+    current_mode = st.session_state.get(mode_key, "manual")
+    if current_mode not in mode_options:
+        current_mode = mode_options[0]
+        st.session_state[mode_key] = current_mode
+
+    mode = st.radio(
+        "Mode Input Nama Kandidat",
+        mode_options,
+        format_func=lambda x: mode_labels[x],
+        index=mode_options.index(current_mode),
+        horizontal=False,
+        key=f"{key_prefix}_radio"
+    )
     st.session_state[mode_key] = mode
+
+    result = {
+        "nama": "",
+        "mode": mode,
+        "transfer_id": None,
+        "transfer_reason": ""
+    }
 
     # ============================================================
     # MODE 1: DROPDOWN
@@ -176,37 +181,37 @@ def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value="", us
             "Nama Kandidat (dari DB Sourcing)",
             list(options.keys()),
             index=default_idx,
-            key=select_key
+            key=f"{key_prefix}_select"
         )
-        return options.get(selected, "")
+        result["nama"] = options.get(selected, "")
 
     # ============================================================
     # MODE 2: MANUAL
     # ============================================================
     elif mode == "manual":
-        return st.text_input(
+        manual_val = st.text_input(
             "Nama Kandidat (Manual)",
             value=default_value,
             placeholder="Ketik nama kandidat manual",
-            key=manual_key
+            key=f"{key_prefix}_manual"
         )
+        result["nama"] = manual_val
 
     # ============================================================
-    # MODE 3: TRANSFER DARI KODE UNIK LAIN
+    # MODE 3: TRANSFER
     # ============================================================
     elif mode == "transfer":
         st.markdown("**Transfer Kandidat dari Kode Unik Lain**")
         st.caption("Kandidat akan di-duplikat ke kode unik FPTK ini + dicatat di history transfer.")
 
         if default_value:
-            st.warning(f"⚠️ FPTK ini sudah punya kandidat: **{default_value}**. Hapus dulu (set ke manual kosong) kalau mau transfer kandidat baru.")
-            st.info("Kalau tetap transfer, kandidat lama akan diganti (overwrite).")
+            st.warning(f"⚠️ FPTK ini sudah punya kandidat: **{default_value}**. Kosongin dulu field manual biar bisa transfer.")
 
         all_kandidat = get_all_kandidat_from_other_kode(db, kode_unik_input)
 
         if not all_kandidat:
             st.warning("Tidak ada kandidat di DB Sourcing dari kode unik lain.")
-            return ""
+            return result
 
         search_transfer = st.text_input(
             "🔎 Cari Kandidat (Nama / Kode Unik)",
@@ -224,17 +229,17 @@ def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value="", us
 
         if not filtered_kandidat:
             st.info("Tidak ada kandidat yang cocok.")
-            return ""
+            return result
 
         options_transfer = {}
         for k in filtered_kandidat:
-            display = f"{k['kode_unik']} | {k['nama']} | {k['posisi'][:30] if k['posisi'] else '-'} | {k['last_stage']}"
+            display = f"{k['kode_unik']} | {k['nama']} | {(k['posisi'] or '')[:30]} | {k['last_stage']}"
             options_transfer[display] = k['id']
 
         selected_transfer = st.selectbox(
             "Pilih Kandidat dari Kode Unik Lain",
             list(options_transfer.keys()),
-            key=transfer_key
+            key=f"{key_prefix}_transfer_select"
         )
 
         selected_id = options_transfer.get(selected_transfer)
@@ -253,23 +258,23 @@ def render_kandidat_picker(db, kode_unik_input, key_prefix, default_value="", us
                         st.markdown(f"**PIC:** {kandidat_detail.get('rekruter', '-')}")
                         st.markdown(f"**Tahap Terakhir:** {kandidat_detail['last_stage']}")
 
+                result["nama"] = kandidat_detail['nama']
+                result["transfer_id"] = selected_id
+
         reason_transfer = st.text_area(
             "Alasan Transfer *",
             placeholder="Contoh: Kandidat cocok untuk FPTK ini, recycle kandidat, dll. (min 10 karakter)",
             height=100,
-            key=reason_key
+            key=f"{key_prefix}_reason"
         )
+        result["transfer_reason"] = reason_transfer.strip() if reason_transfer else ""
 
-        # Simpan info di session state untuk diproses saat submit form
-        st.session_state[f"{key_prefix}_transfer_data"] = {
-            "sourcing_id": selected_id,
-            "reason": reason_transfer.strip() if reason_transfer else "",
-            "nama": kandidat_detail['nama'] if selected_id and kandidat_detail else "",
-        }
+    # Simpan di session state biar bisa dibaca saat submit
+    st.session_state[value_key] = result["nama"]
+    st.session_state[transfer_id_key] = result["transfer_id"]
+    st.session_state[transfer_reason_key] = result["transfer_reason"]
 
-        if selected_id and kandidat_detail:
-            return kandidat_detail['nama']
-        return ""
+    return result
 
 
 @st.dialog("Request Hapus FPTK ke Admin")
@@ -787,175 +792,184 @@ def render_fptk_database(db, user, admin):
 
     if not can_edit:
         st.warning("⚠️ Anda hanya bisa mengedit data FPTK milik PIC Anda sendiri.")
-    else:
+        return
+
+    st.markdown("---")
+    st.markdown("### ✏️ Edit Data FPTK")
+
+    # ============================================================
+    # NAMA KANDIDAT PICKER — DI LUAR FORM (INTERAKTIF)
+    # ============================================================
+    st.markdown("#### 👤 Nama Kandidat")
+    st.caption(f"Kode Unik FPTK: `{detail.kode_unik}` — pilih mode di bawah")
+
+    picker_result = render_kandidat_picker_outside_form(
+        db,
+        detail.kode_unik,
+        f"edit_fptk_kandidat_{detail.id}",
+        default_value=detail.nama_kandidat or "",
+        user=user
+    )
+
+    st.markdown("---")
+
+    # ============================================================
+    # FORM EDIT FPTK — DI DALAM FORM
+    # ============================================================
+    with st.form("edit_fptk_form"):
+        st.markdown("#### Data Utama")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            if admin:
+                new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "")
+            else:
+                new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "", disabled=True)
+            new_posisi = st.text_input("Posisi", value=detail.posisi or "")
+            new_pic_recruiter = st.selectbox("PIC Recruiter", pic_options_all,
+                index=pic_options_all.index(detail.pic_recruiter) if detail.pic_recruiter in pic_options_all else 0)
+            new_kode_pic = st.text_input("Kode PIC", value=detail.kode_pic or "")
+        with col2:
+            new_business_unit = st.selectbox("Business Unit", [""] + bu_options,
+                index=(bu_options.index(detail.business_unit) + 1) if detail.business_unit in bu_options else 0)
+            new_direktorat = st.selectbox("Direktorat", [""] + direktorat_options,
+                index=(direktorat_options.index(detail.direktorat) + 1) if detail.direktorat in direktorat_options else 0)
+            new_divisi = st.text_input("Divisi", value=detail.divisi or "")
+            new_department = st.text_input("Department", value=detail.department or "")
+        with col3:
+            new_status = st.selectbox("Status", status_options,
+                index=status_options.index(detail.status) if detail.status in status_options else 0)
+            default_level = detail.level_fptk or "1A"
+            new_level_fptk = st.selectbox("Level FPTK", LEVEL_OPTIONS,
+                index=LEVEL_OPTIONS.index(default_level) if default_level in LEVEL_OPTIONS else 0)
+            if new_level_fptk:
+                match = re.search(r'(\d+)', new_level_fptk)
+                new_level_number = int(match.group(1)) if match else 1
+            else:
+                new_level_number = detail.level_number or 1
+            st.text_input("Level Number (auto)", value=str(new_level_number), disabled=True)
+            new_vacancy = st.number_input("Vacancy", min_value=1, value=detail.vacancy or 1)
+
         st.markdown("---")
-        st.markdown("### ✏️ Edit Data FPTK")
+        st.markdown("#### Tanggal")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            new_fptk_date_real = st.date_input("FPTK Date Real",
+                value=detail.fptk_date_real if detail.fptk_date_real else datetime.now().date())
+        with col2:
+            new_offering_date = st.date_input("Offering Date", value=detail.offering_date if detail.offering_date else None)
+        with col3:
+            new_fptk_cancel_date = st.date_input("FPTK Cancel Date",
+                value=detail.fptk_cancel_date if detail.fptk_cancel_date else None)
 
-        with st.form("edit_fptk_form"):
-            st.markdown("#### Data Utama")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                if admin:
-                    new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "")
-                else:
-                    new_kode_unik = st.text_input("Kode Unik", value=detail.kode_unik or "", disabled=True)
-                new_posisi = st.text_input("Posisi", value=detail.posisi or "")
-                new_pic_recruiter = st.selectbox("PIC Recruiter", pic_options_all,
-                    index=pic_options_all.index(detail.pic_recruiter) if detail.pic_recruiter in pic_options_all else 0)
-                new_kode_pic = st.text_input("Kode PIC", value=detail.kode_pic or "")
-            with col2:
-                new_business_unit = st.selectbox("Business Unit", [""] + bu_options,
-                    index=(bu_options.index(detail.business_unit) + 1) if detail.business_unit in bu_options else 0)
-                new_direktorat = st.selectbox("Direktorat", [""] + direktorat_options,
-                    index=(direktorat_options.index(detail.direktorat) + 1) if detail.direktorat in direktorat_options else 0)
-                new_divisi = st.text_input("Divisi", value=detail.divisi or "")
-                new_department = st.text_input("Department", value=detail.department or "")
-            with col3:
-                new_status = st.selectbox("Status", status_options,
-                    index=status_options.index(detail.status) if detail.status in status_options else 0)
-                default_level = detail.level_fptk or "1A"
-                new_level_fptk = st.selectbox("Level FPTK", LEVEL_OPTIONS,
-                    index=LEVEL_OPTIONS.index(default_level) if default_level in LEVEL_OPTIONS else 0)
-                if new_level_fptk:
-                    match = re.search(r'(\d+)', new_level_fptk)
-                    new_level_number = int(match.group(1)) if match else 1
-                else:
-                    new_level_number = detail.level_number or 1
-                st.text_input("Level Number (auto)", value=str(new_level_number), disabled=True)
-                new_vacancy = st.number_input("Vacancy", min_value=1, value=detail.vacancy or 1)
+        st.markdown("---")
+        st.markdown("#### Data Tambahan")
 
-            st.markdown("---")
-            st.markdown("#### Tanggal")
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                new_fptk_date_real = st.date_input("FPTK Date Real",
-                    value=detail.fptk_date_real if detail.fptk_date_real else datetime.now().date())
-            with col2:
-                new_offering_date = st.date_input("Offering Date", value=detail.offering_date if detail.offering_date else None)
-            with col3:
-                new_fptk_cancel_date = st.date_input("FPTK Cancel Date",
-                    value=detail.fptk_cancel_date if detail.fptk_cancel_date else None)
+        col1, col2 = st.columns(2)
+        with col1:
+            new_user_manager = st.text_input("User (Manager)", value=detail.user_manager or "")
+        with col2:
+            new_remark = st.text_area("Remark", value=detail.remark or "")
 
-            st.markdown("---")
-            st.markdown("#### Data Tambahan")
+        submitted = st.form_submit_button("💾 Update FPTK", type="primary")
 
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Nama Kandidat**")
-                st.caption(f"Kode Unik FPTK: `{detail.kode_unik}` — dropdown mode Pilih/Manual/Transfer")
+    if submitted:
+        try:
+            # ============================================================
+            # BACA NILAI PICKER DARI SESSION STATE
+            # ============================================================
+            picker_value = st.session_state.get(f"edit_fptk_kandidat_{detail.id}_value", "")
+            picker_mode = st.session_state.get(f"edit_fptk_kandidat_{detail.id}_mode", "manual")
+            transfer_id = st.session_state.get(f"edit_fptk_kandidat_{detail.id}_transfer_id", None)
+            transfer_reason = st.session_state.get(f"edit_fptk_kandidat_{detail.id}_transfer_reason", "")
 
-                new_nama_kandidat = render_kandidat_picker(
-                    db,
-                    detail.kode_unik,
-                    f"edit_fptk_kandidat_{detail.id}",
-                    default_value=detail.nama_kandidat or "",
-                    user=user
-                )
+            new_nama_kandidat = picker_value
 
-                new_user_manager = st.text_input("User (Manager)", value=detail.user_manager or "")
-            with col2:
-                new_remark = st.text_area("Remark", value=detail.remark or "")
-
-            submitted = st.form_submit_button("💾 Update FPTK", type="primary")
-
-        if submitted:
-            try:
-                # ============================================================
-                # CEK MODE TRANSFER
-                # ============================================================
-                transfer_data = st.session_state.get(f"edit_fptk_kandidat_{detail.id}_transfer_data", None)
-                is_transfer_mode = False
-
-                if new_nama_kandidat and detail.nama_kandidat and new_nama_kandidat != detail.nama_kandidat:
-                    st.warning(f"⚠️ FPTK ini sudah punya kandidat **{detail.nama_kandidat}**.")
-                    st.info("Kalau mau ganti kandidat, hapus dulu (set ke kosong) atau pilih mode Transfer.")
+            # ============================================================
+            # MODE TRANSFER — PROSES TRANSFER
+            # ============================================================
+            if picker_mode == "transfer" and transfer_id:
+                if not transfer_reason or len(transfer_reason) < 10:
+                    st.error("❌ Alasan Transfer wajib diisi minimal 10 karakter!")
                     st.stop()
 
-                # Cek apakah lagi pakai mode transfer
-                if transfer_data and transfer_data.get("sourcing_id"):
-                    is_transfer_mode = True
+                if detail.nama_kandidat:
+                    st.error(f"❌ FPTK ini sudah punya kandidat: **{detail.nama_kandidat}**. Kosongin field manual dulu baru transfer.")
+                    st.stop()
 
-                if is_transfer_mode:
-                    if not transfer_data.get("reason") or len(transfer_data.get("reason", "")) < 10:
-                        st.error("❌ Alasan Transfer wajib diisi minimal 10 karakter!")
-                        st.stop()
-
-                    if detail.nama_kandidat:
-                        st.error(f"❌ FPTK ini sudah punya kandidat: **{detail.nama_kandidat}**. Hapus dulu (set ke manual kosong) baru transfer kandidat baru.")
-                        st.stop()
-
-                    result = transfer_kandidat_to_fptk(
-                        db,
-                        transfer_data["sourcing_id"],
-                        detail.kode_unik,
-                        transfer_data["reason"],
-                        user.id,
-                        user.display_name or user.username
-                    )
-
-                    if not result["success"]:
-                        st.error(f"❌ Gagal transfer: {result.get('error', 'Unknown error')}")
-                        st.stop()
-
-                    new_nama_kandidat = result["nama"]
-                    st.success(f"✅ Kandidat **{result['nama']}** berhasil ditransfer!")
-                    st.info(f"📋 Dari: {result['old_kode_unik']} → Ke: {result['new_kode_unik']}")
-
-                    st.session_state[f"edit_fptk_kandidat_{detail.id}_transfer_data"] = None
-
-                # ============================================================
-                # LOGIC UPDATE FPTK
-                # ============================================================
-                if new_level_number <= 3:
-                    sla_days = 30
-                elif new_level_number == 4:
-                    sla_days = 45
-                else:
-                    sla_days = 60
-
-                if new_fptk_date_real and sla_days:
-                    new_deadline_sla_calc = new_fptk_date_real + timedelta(days=sla_days)
-                else:
-                    new_deadline_sla_calc = detail.deadline_sla
-
-                new_detail_sla_auto = calculate_detail_sla(
-                    status=new_status, deadline_sla=new_deadline_sla_calc, offering_date=new_offering_date
+                result = transfer_kandidat_to_fptk(
+                    db,
+                    transfer_id,
+                    detail.kode_unik,
+                    transfer_reason,
+                    user.id,
+                    user.display_name or user.username
                 )
 
-                if admin and new_kode_unik:
-                    detail.kode_unik = new_kode_unik
+                if not result["success"]:
+                    st.error(f"❌ Gagal transfer: {result.get('error', 'Unknown error')}")
+                    st.stop()
 
-                detail.posisi = new_posisi
-                detail.pic_recruiter = new_pic_recruiter
-                detail.kode_pic = new_kode_pic
-                detail.business_unit = new_business_unit
-                detail.direktorat = new_direktorat
-                detail.divisi = new_divisi
-                detail.department = new_department
-                detail.status = new_status
-                detail.level_fptk = new_level_fptk
-                detail.level_number = new_level_number
-                detail.vacancy = new_vacancy
-                detail.fptk_date_real = new_fptk_date_real
-                detail.offering_date = new_offering_date
-                detail.fptk_cancel_date = new_fptk_cancel_date
-                detail.nama_kandidat = new_nama_kandidat or None
-                detail.user_manager = new_user_manager
-                detail.remark = new_remark
-                detail.jumlah_sla = sla_days
-                detail.deadline_sla = new_deadline_sla_calc
-                detail.detail_sla = new_detail_sla_auto
-                detail.last_updated_at = datetime.now()
-                detail.last_compile_action = "MANUAL_EDIT"
+                new_nama_kandidat = result["nama"]
+                st.success(f"✅ Kandidat **{result['nama']}** berhasil ditransfer!")
+                st.info(f"📋 Dari: {result['old_kode_unik']} → Ke: {result['new_kode_unik']}")
 
-                db.commit()
-                st.cache_data.clear()
-                st.success(f"✅ FPTK berhasil diupdate!")
-                time.sleep(0.5)
-                st.rerun()
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-                db.rollback()
+                # Clear transfer state
+                st.session_state[f"edit_fptk_kandidat_{detail.id}_transfer_id"] = None
+                st.session_state[f"edit_fptk_kandidat_{detail.id}_transfer_reason"] = ""
+
+            # ============================================================
+            # LOGIC UPDATE FPTK
+            # ============================================================
+            if new_level_number <= 3:
+                sla_days = 30
+            elif new_level_number == 4:
+                sla_days = 45
+            else:
+                sla_days = 60
+
+            if new_fptk_date_real and sla_days:
+                new_deadline_sla_calc = new_fptk_date_real + timedelta(days=sla_days)
+            else:
+                new_deadline_sla_calc = detail.deadline_sla
+
+            new_detail_sla_auto = calculate_detail_sla(
+                status=new_status, deadline_sla=new_deadline_sla_calc, offering_date=new_offering_date
+            )
+
+            if admin and new_kode_unik:
+                detail.kode_unik = new_kode_unik
+
+            detail.posisi = new_posisi
+            detail.pic_recruiter = new_pic_recruiter
+            detail.kode_pic = new_kode_pic
+            detail.business_unit = new_business_unit
+            detail.direktorat = new_direktorat
+            detail.divisi = new_divisi
+            detail.department = new_department
+            detail.status = new_status
+            detail.level_fptk = new_level_fptk
+            detail.level_number = new_level_number
+            detail.vacancy = new_vacancy
+            detail.fptk_date_real = new_fptk_date_real
+            detail.offering_date = new_offering_date
+            detail.fptk_cancel_date = new_fptk_cancel_date
+            detail.nama_kandidat = new_nama_kandidat or None
+            detail.user_manager = new_user_manager
+            detail.remark = new_remark
+            detail.jumlah_sla = sla_days
+            detail.deadline_sla = new_deadline_sla_calc
+            detail.detail_sla = new_detail_sla_auto
+            detail.last_updated_at = datetime.now()
+            detail.last_compile_action = "MANUAL_EDIT"
+
+            db.commit()
+            st.cache_data.clear()
+            st.success(f"✅ FPTK berhasil diupdate!")
+            time.sleep(0.5)
+            st.rerun()
+        except Exception as e:
+            st.error(f"❌ Error: {str(e)}")
+            db.rollback()
 
 
 # ============================================================
