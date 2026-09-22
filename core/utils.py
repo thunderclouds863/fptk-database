@@ -1150,3 +1150,94 @@ def request_unblacklist(db, sourcing_id, kode_unik, nama, posisi, pic_name, reas
     except Exception as e:
         db.rollback()
         return {"success": False, "error": str(e)}
+
+def transfer_kandidat_to_fptk(db, source_sourcing_id, target_kode_unik, reason, user_id, user_name):
+    """
+    Transfer kandidat dari kode_unik lain ke FPTK ini (duplikat).
+    - Bikin record baru di DB Sourcing dengan kode_unik target
+    - Record di candidate_transfers
+    Return: {success, new_id, error}
+    """
+    from core.models import DBSourcing, CandidateTransfer
+
+    try:
+        old_candidate = db.query(DBSourcing).filter(DBSourcing.id == source_sourcing_id).first()
+        if not old_candidate:
+            return {"success": False, "error": "Kandidat asal tidak ditemukan"}
+
+        old_kode_unik = old_candidate.kode_unik
+        old_last_stage = get_last_pipeline_stage(old_candidate)
+
+        if old_kode_unik == target_kode_unik:
+            return {"success": False, "error": "Kandidat sudah ada di kode unik ini"}
+
+        existing = db.query(DBSourcing).filter(
+            DBSourcing.kode_unik == target_kode_unik,
+            DBSourcing.nama == old_candidate.nama
+        ).first()
+
+        if existing:
+            return {"success": False, "error": f"Kandidat {old_candidate.nama} sudah ada di kode unik {target_kode_unik}"}
+
+        new_candidate = DBSourcing(
+            no=old_candidate.no,
+            sourcing_date=datetime.now().date(),
+            kode_unik=target_kode_unik,
+            posisi=old_candidate.posisi,
+            model_rekrutmen=old_candidate.model_rekrutmen,
+            rekruter=old_candidate.rekruter,
+            sumber_sourcing=old_candidate.sumber_sourcing,
+            nama=old_candidate.nama,
+            nama_universitas_top10=old_candidate.nama_universitas_top10,
+            nama_universitas_lainnya=old_candidate.nama_universitas_lainnya,
+            jenjang_pendidikan=old_candidate.jenjang_pendidikan,
+            jurusan=old_candidate.jurusan,
+            jurusan_lainnya=getattr(old_candidate, 'jurusan_lainnya', None),
+            tahun_lulus=old_candidate.tahun_lulus,
+            ipk=old_candidate.ipk,
+            skor_bahasa_inggris=old_candidate.skor_bahasa_inggris,
+            university_tier=old_candidate.university_tier,
+            ipk_tier=old_candidate.ipk_tier,
+            nomor_hp=old_candidate.nomor_hp,
+            email=old_candidate.email,
+            domisili=old_candidate.domisili,
+            last_position=old_candidate.last_position,
+            last_tenure=old_candidate.last_tenure,
+            last_company=old_candidate.last_company,
+            total_tenure=old_candidate.total_tenure,
+            pernah_di_fmcg=old_candidate.pernah_di_fmcg,
+            notes=f"[TRANSFERRED from {old_kode_unik}] {reason or ''}",
+            source_user_id=user_id,
+            created_at=datetime.now(),
+            last_compile_action="TRANSFER_FROM_EDIT"
+        )
+
+        db.add(new_candidate)
+        db.flush()
+
+        transfer_history = CandidateTransfer(
+            sourcing_id=new_candidate.id,
+            old_kode_unik=old_kode_unik,
+            new_kode_unik=target_kode_unik,
+            nama=old_candidate.nama,
+            posisi=old_candidate.posisi,
+            old_pipeline_stage=old_last_stage["stage_label"] if old_last_stage else None,
+            new_pipeline_stage=None,
+            reason=reason,
+            transferred_by=user_id,
+            transferred_by_name=user_name
+        )
+        db.add(transfer_history)
+        db.commit()
+
+        return {
+            "success": True,
+            "new_id": new_candidate.id,
+            "old_kode_unik": old_kode_unik,
+            "new_kode_unik": target_kode_unik,
+            "nama": old_candidate.nama
+        }
+
+    except Exception as e:
+        db.rollback()
+        return {"success": False, "error": str(e)}
