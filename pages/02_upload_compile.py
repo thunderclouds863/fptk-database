@@ -352,8 +352,9 @@ def show_upload_compile():
                 st.success("✅ Template berhasil diperbarui")
                 st.rerun()
 
-    tab1, tab2, tab3 = st.tabs(["📤 Upload Excel (TIDAK TERSEDIA LAGI MAMPUSSS", "📝 Input Manual FPTK", "📧 Paste informasi FPTK dari HR Portal"])
-
+    tab1, tab2, tab3 = st.tabs(["📤 Upload Excel (TIDAK TERSEDIA LAGI)", "📝 Input Manual FPTK", "📧 Paste informasi FPTK dari HR Portal"])
+    with tab1:
+        st.subheader("FITUR SUDAH DITIADAKAN, GUNAKAN FITUR LAINNYA.")
     with tab2:
         st.subheader("📝 Input FPTK Manual")
         st.caption("Input satu per satu. PIC otomatis dari user yang login.")
