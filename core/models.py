@@ -309,14 +309,14 @@ class Evidence(Base):
     posisi = Column(String(255))
     tanggal = Column(Date, index=True)
     file_name = Column(String(255))
-    file_path = Column(String(500))
+    file_key = Column(String(500), index=True)
     file_size = Column(Integer)
+    file_type = Column(String(100))
     total_cv = Column(Integer, default=0)
     keterangan = Column(Text)
     pic_recruiter = Column(String(100), index=True)
     user_id = Column(Integer, ForeignKey("users.id"))
     created_at = Column(TIMESTAMP, server_default=func.now())
-    file_data = Column(Text, nullable=True)
 
 
 class UploadTemplate(Base):
