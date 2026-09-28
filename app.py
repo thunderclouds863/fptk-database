@@ -4,6 +4,7 @@ import importlib
 import time
 import base64
 import os
+import traceback
 import pandas as pd
 from datetime import datetime, timedelta
 
@@ -428,8 +429,12 @@ elif page == "update_progres":
     try:
         update_progres = importlib.import_module("pages.11_update_progres")
         update_progres.show_update_progres()
-    except ModuleNotFoundError:
-        st.error("File pages/11_update_progres.py tidak ditemukan!")
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
 
 elif page == "sourcing_view":
     sourcing_view = importlib.import_module("pages.04_sourcing_view")
@@ -439,15 +444,23 @@ elif page == "sourcing_input":
     try:
         sourcing_input = importlib.import_module("pages.09_sourcing_input")
         sourcing_input.show_sourcing_input()
-    except ModuleNotFoundError:
-        st.error("File pages/09_sourcing_input.py tidak ditemukan!")
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
 
 elif page == "monitoring_sourcing":
     try:
         monitoring_sourcing = importlib.import_module("pages.monitoring_sourcing")
         monitoring_sourcing.show_monitoring_sourcing()
-    except ModuleNotFoundError:
-        st.error("File pages/monitoring_sourcing.py tidak ditemukan!")
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
 
 elif page == "db_kode_posisi":
     db_kode_posisi = importlib.import_module("pages.05_db_kode_posisi")
@@ -461,15 +474,23 @@ elif page == "admin_delete_requests":
     try:
         admin_delete_requests = importlib.import_module("pages.10_admin_delete_requests")
         admin_delete_requests.show_admin_delete_requests()
-    except ModuleNotFoundError:
-        st.error("File pages/10_admin_delete_requests.py tidak ditemukan!")
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
 
 elif page == "funnel_report":
     try:
         funnel_report = importlib.import_module("pages.funnel_report")
         funnel_report.show_funnel_report()
-    except ModuleNotFoundError:
-        st.error("File pages/funnel_report.py tidak ditemukan!")
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
 
 
 st.markdown("---")
