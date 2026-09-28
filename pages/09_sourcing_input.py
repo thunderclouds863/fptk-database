@@ -10,7 +10,8 @@ from core.utils import (
     find_duplicate_candidates, get_last_pipeline_stage
 )
 from core.model_rekrutmen import auto_detect_model_rekrutmen, get_model_options
-import base64
+from core.r2_storage import get_r2
+import uuid
 import time
 import re
 
@@ -139,11 +140,6 @@ def _clean_text(s):
 
 
 def normalize_univ(raw_val):
-    """
-    Return tuple (canonical_name, other_name).
-    - Kalau match UNIV_ALIASES -> (canonical, "")
-    - Kalau gak match -> ("Lainnya", pretty_name)
-    """
     if not raw_val or not str(raw_val).strip():
         return "", ""
     raw_str = str(raw_val).strip()
@@ -397,20 +393,34 @@ def show_duplicate_warning_dialog(db, nama, email, hp):
 
 
 def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_files, user):
+    """Upload CV ke R2, simpan metadata ke DB."""
     saved = 0
     errors = []
+    r2 = get_r2()
     for f in uploaded_files:
+        r2_key = None
         try:
             file_bytes = f.getvalue()
             size_mb = len(file_bytes) / (1024 * 1024)
             if size_mb > MAX_CV_SIZE_MB:
                 errors.append(f"{f.name}: melebihi {MAX_CV_SIZE_MB} MB")
                 continue
-            file_b64 = base64.b64encode(file_bytes).decode('utf-8')
+
+            # Upload ke R2
+            ext = f.name.rsplit(".", 1)[-1].lower() if "." in f.name else "bin"
+            safe_kode = (kode_unik or "unknown").replace("/", "_").replace("\\", "_")
+            r2_key = f"cv/{safe_kode}/{uuid.uuid4().hex}.{ext}"
+
+            r2.upload_bytes(
+                file_bytes=file_bytes,
+                key=r2_key,
+                content_type=f.type or "application/octet-stream",
+            )
+
             new_cv = CVAttachment(
                 sourcing_id=sourcing_id, kode_unik=kode_unik,
                 nama_kandidat=nama_kandidat, file_name=f.name,
-                file_data=file_b64, file_size=len(file_bytes),
+                file_key=r2_key, file_size=len(file_bytes),
                 file_type=f.type or "application/octet-stream",
                 uploaded_by=user.id,
                 uploaded_by_name=user.display_name or user.username,
@@ -422,6 +432,12 @@ def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_file
         except Exception as e:
             errors.append(f"{f.name}: {str(e)}")
             db.rollback()
+            # Rollback: hapus dari R2 kalau DB gagal
+            if r2_key:
+                try:
+                    r2.delete(r2_key)
+                except Exception:
+                    pass
     return saved, errors
 
 
@@ -697,15 +713,22 @@ def render_manage_cv_tab(db, user, admin):
 
                 with col2:
                     try:
-                        file_bytes = base64.b64decode(cv_detail.file_data)
-                        st.download_button(
-                            "⬇️ Download CV", file_bytes, cv_detail.file_name,
-                            mime=cv_detail.file_type or "application/octet-stream",
-                            key=f"dl_cv_mgr_{cv_detail.id}", use_container_width=True
+                        r2 = get_r2()
+                        url = r2.get_presigned_url(cv_detail.file_key, expires_in=3600)
+
+                        st.markdown(
+                            f'<a href="{url}" target="_blank" style="text-decoration:none;">'
+                            f'<button style="width:100%;padding:10px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;font-size:16px;">⬇️ Download CV</button>'
+                            f'</a>',
+                            unsafe_allow_html=True
                         )
+
                         file_lower = cv_detail.file_name.lower()
                         if file_lower.endswith(('.jpg', '.jpeg', '.png')):
-                            st.image(file_bytes, caption=cv_detail.file_name, use_container_width=True)
+                            st.image(url, caption=cv_detail.file_name, use_container_width=True)
+                        elif file_lower.endswith('.pdf'):
+                            pdf_display = f'<iframe src="{url}" width="100%" height="600" type="application/pdf"></iframe>'
+                            st.markdown(pdf_display, unsafe_allow_html=True)
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
 
@@ -713,6 +736,11 @@ def render_manage_cv_tab(db, user, admin):
                     st.markdown("---")
                     if st.button("🗑️ Hapus CV Ini", type="secondary", key=f"del_cv_mgr_{cv_detail.id}"):
                         try:
+                            r2 = get_r2()
+                            try:
+                                r2.delete(cv_detail.file_key)
+                            except Exception:
+                                pass
                             db.delete(cv_detail)
                             db.commit()
                             st.success("CV berhasil dihapus!")

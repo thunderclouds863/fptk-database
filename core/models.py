@@ -8,6 +8,7 @@ from sqlalchemy.orm import relationship
 from core.database import Base
 
 
+# ====== USER & AUTH ======
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (
@@ -26,6 +27,7 @@ class User(Base):
     last_login = Column(TIMESTAMP)
 
 
+# ====== UPLOAD CYCLE ======
 class UploadCycle(Base):
     __tablename__ = "upload_cycles"
     __table_args__ = {"extend_existing": True}
@@ -63,6 +65,7 @@ class UploadLog(Base):
     uploaded_at = Column(TIMESTAMP, server_default=func.now())
 
 
+# ====== FPTK ======
 class FPTK(Base):
     __tablename__ = "fptk"
     __table_args__ = (
@@ -129,6 +132,7 @@ class FPTK(Base):
     is_sto = Column(Boolean, default=False)
 
 
+# ====== DB KODE POSISI ======
 class DBKodePosisi(Base):
     __tablename__ = "db_kode_posisi"
     __table_args__ = {'extend_existing': True}
@@ -145,10 +149,10 @@ class DBKodePosisi(Base):
     year = Column(Integer)
 
 
+# ====== DB SOURCING ======
 class DBSourcing(Base):
     __tablename__ = "db_sourcing"
     __table_args__ = {"extend_existing": True}
-
     id = Column(Integer, primary_key=True, index=True)
     no = Column(Integer)
     sourcing_date = Column(Date, nullable=False, index=True)
@@ -176,7 +180,6 @@ class DBSourcing(Base):
     last_company = Column(String(255))
     total_tenure = Column(String(50))
     pernah_di_fmcg = Column(String(3))
-
     sourcing_freelance = Column(String(3))
     tanggal_sourcing_freelance = Column(Date)
     sourcing_hr = Column(String(3))
@@ -222,12 +225,10 @@ class DBSourcing(Base):
     day1 = Column(String(3))
     detail_keterangan_day1 = Column(Text)
     tanggal_day1 = Column(Date)
-
     is_blacklisted = Column(Boolean, default=False, nullable=True)
     blacklisted_at = Column(DateTime, nullable=True)
     blacklisted_by = Column(Integer, nullable=True)
     blacklist_reason = Column(String(500), nullable=True)
-
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_updated_at = Column(TIMESTAMP)
     last_compile_action = Column(String(20))
@@ -237,6 +238,7 @@ class DBSourcing(Base):
     source_cycle_id = Column(Integer, ForeignKey("upload_cycles.id"))
 
 
+# ====== MASTER DROPDOWN ======
 class MasterDropdown(Base):
     __tablename__ = "master_dropdown"
     __table_args__ = {"extend_existing": True}
@@ -278,6 +280,7 @@ class MasterDropdown(Base):
     is_active = Column(Boolean, default=True)
 
 
+# ====== BLACKLIST ======
 class Blacklist(Base):
     __tablename__ = "blacklist"
     __table_args__ = {"extend_existing": True}
@@ -286,6 +289,7 @@ class Blacklist(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+# ====== AUDIT LOG ======
 class AuditLog(Base):
     __tablename__ = "audit_logs"
     __table_args__ = {"extend_existing": True}
@@ -301,6 +305,7 @@ class AuditLog(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+# ====== EVIDENCE (FILE → R2) ======
 class Evidence(Base):
     __tablename__ = "evidences"
     __table_args__ = {"extend_existing": True}
@@ -319,12 +324,14 @@ class Evidence(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+# ====== UPLOAD TEMPLATE (FILE → R2) ======
 class UploadTemplate(Base):
     __tablename__ = "upload_templates"
     __table_args__ = {"extend_existing": True}
     id = Column(Integer, primary_key=True, index=True)
     file_name = Column(String(255), nullable=False)
-    file_data = Column(Text, nullable=False)
+    file_key = Column(String(500), nullable=False)
+    file_type = Column(String(100))
     uploaded_by = Column(Integer, ForeignKey("users.id"))
     version = Column(Integer, default=1)
     is_active = Column(Boolean, default=True)
@@ -332,6 +339,7 @@ class UploadTemplate(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+# ====== TRANSFER HISTORY ======
 class TransferHistory(Base):
     __tablename__ = "transfer_history"
     __table_args__ = {"extend_existing": True}
@@ -350,6 +358,7 @@ class TransferHistory(Base):
     user = relationship("User", backref="transfers")
 
 
+# ====== FPTK DELETE REQUEST ======
 class FPTKDeleteRequest(Base):
     __tablename__ = "fptk_delete_requests"
     __table_args__ = {"extend_existing": True}
@@ -371,6 +380,7 @@ class FPTKDeleteRequest(Base):
     fptk = relationship("FPTK", backref="delete_requests")
 
 
+# ====== SOURCING DELETE REQUEST ======
 class SourcingDeleteRequest(Base):
     __tablename__ = "sourcing_delete_requests"
     __table_args__ = {"extend_existing": True}
@@ -391,6 +401,7 @@ class SourcingDeleteRequest(Base):
     admin_notes = Column(Text)
 
 
+# ====== BLACKLIST REQUEST ======
 class BlacklistRequest(Base):
     __tablename__ = "blacklist_requests"
     __table_args__ = {"extend_existing": True}
@@ -411,6 +422,7 @@ class BlacklistRequest(Base):
     admin_notes = Column(Text)
 
 
+# ====== CANDIDATE TRANSFER ======
 class CandidateTransfer(Base):
     __tablename__ = "candidate_transfers"
     __table_args__ = {"extend_existing": True}
@@ -428,6 +440,7 @@ class CandidateTransfer(Base):
     transferred_at = Column(TIMESTAMP, server_default=func.now())
 
 
+# ====== CV ATTACHMENT (FILE → R2) ======
 class CVAttachment(Base):
     __tablename__ = "cv_attachments"
     __table_args__ = {"extend_existing": True}
@@ -436,7 +449,7 @@ class CVAttachment(Base):
     kode_unik = Column(String(50), index=True)
     nama_kandidat = Column(String(255))
     file_name = Column(String(255), nullable=False)
-    file_data = Column(Text, nullable=False)
+    file_key = Column(String(500), nullable=False)
     file_size = Column(Integer)
     file_type = Column(String(100))
     uploaded_by = Column(Integer, ForeignKey("users.id"))
@@ -444,6 +457,7 @@ class CVAttachment(Base):
     created_at = Column(TIMESTAMP, server_default=func.now())
 
 
+# ====== RECRUITMENT PROGRESS ======
 class RecruitmentProgress(Base):
     __tablename__ = "recruitment_progress"
     __table_args__ = {"extend_existing": True}
