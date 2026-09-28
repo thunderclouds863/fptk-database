@@ -14,8 +14,8 @@ from core.utils import (
     get_last_pipeline_stage, transfer_candidate, transfer_candidates_bulk
 )
 from datetime import datetime
-import base64 as b64
 import time
+from core.r2_storage import get_r2
 
 
 @st.cache_data(ttl=3600)
@@ -673,6 +673,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
             st.caption("Upload CV di halaman **Sourcing Input** → tab **Manage CV**.")
         else:
             st.markdown(f"**{len(cv_list)} CV terlampir:**")
+            r2 = get_r2()
             for cv in cv_list:
                 col1, col2, col3 = st.columns([3, 1, 1])
                 with col1:
@@ -681,12 +682,15 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                     st.caption(f"Upload: {cv.created_at.strftime('%d/%m/%Y %H:%M')} oleh {cv.uploaded_by_name or '-'}")
                 with col2:
                     try:
-                        file_bytes = b64.b64decode(cv.file_data)
-                        st.download_button("⬇️ Download", file_bytes, cv.file_name,
-                            mime=cv.file_type or "application/octet-stream",
-                            key=f"dl_cv_src_{cv.id}", use_container_width=True)
-                    except Exception:
-                        st.caption("Error")
+                        url = r2.get_presigned_url(cv.file_key, expires_in=3600)
+                        st.markdown(
+                            f'<a href="{url}" target="_blank" style="text-decoration:none;">'
+                            f'<button style="width:100%;padding:6px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;">⬇️ Download</button>'
+                            f'</a>',
+                            unsafe_allow_html=True
+                        )
+                    except Exception as e:
+                        st.caption(f"Error: {e}")
                 with col3:
                     file_lower = cv.file_name.lower()
                     if file_lower.endswith(('.jpg', '.jpeg', '.png')):
@@ -696,11 +700,10 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
 
                 if st.session_state.get(f"show_cv_{cv.id}", False):
                     try:
-                        file_bytes = b64.b64decode(cv.file_data)
-                        st.image(file_bytes, caption=cv.file_name, use_container_width=True)
+                        url = r2.get_presigned_url(cv.file_key, expires_in=3600)
+                        st.image(url, caption=cv.file_name, use_container_width=True)
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
-
     with st.expander("📝 Catatan"):
         st.markdown(f"**Catatan:** {detail.notes or '-'}")
 

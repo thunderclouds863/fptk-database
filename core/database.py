@@ -2,47 +2,16 @@
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-from sqlalchemy.pool import NullPool
-from pathlib import Path
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-env_path = Path(__file__).parent.parent / ".env"
-load_dotenv(dotenv_path=env_path)
+load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+# Fallback ke hardcoded jika env tidak ada (untuk Streamlit Cloud)
 if not DATABASE_URL:
-    raise ValueError("DATABASE_URL tidak ditemukan! Buat file .env di root folder.")
+    DATABASE_URL = "postgresql://postgres.papyidtpfvgbkucowtjw:OpetSmoky6891_@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres"
 
-engine = create_engine(
-    DATABASE_URL,
-    pool_pre_ping=True,
-    poolclass=NullPool,
-    connect_args={
-        "connect_timeout": 10,
-        "options": "-c statement_timeout=30000"
-    }
-)
-
-SessionLocal = sessionmaker(
-    bind=engine,
-    autocommit=False,
-    autoflush=False,
-    expire_on_commit=False
-)
-
+engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
-
-
-def get_db():
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
-
-
-def init_db():
-    from core.models import Base as ModelsBase
-    ModelsBase.metadata.create_all(bind=engine)
-    print("Database tables initialized")

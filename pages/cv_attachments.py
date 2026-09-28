@@ -1,10 +1,11 @@
 # pages/cv_attachments.py
 import streamlit as st
 import pandas as pd
-import base64
+import uuid
 from core.database import get_db
 from core.models import DBSourcing, CVAttachment
 from core.auth import get_current_user, is_admin, is_it
+from core.r2_storage import get_r2
 from datetime import datetime
 import time
 
@@ -22,6 +23,13 @@ def format_file_size(size_bytes):
         return f"{size_bytes / 1024:.1f} KB"
     else:
         return f"{size_bytes / (1024 * 1024):.2f} MB"
+
+
+def build_cv_key(kode_unik: str, filename: str) -> str:
+    """Bikin key unik untuk file di R2"""
+    ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else "bin"
+    safe_kode = (kode_unik or "unknown").replace("/", "_").replace("\\", "_")
+    return f"cv/{safe_kode}/{uuid.uuid4().hex}.{ext}"
 
 
 def show_cv_attachments():
@@ -100,6 +108,7 @@ def show_upload_cv(db, user, admin):
 
     if existing_cvs:
         st.markdown(f"**Sudah ada {len(existing_cvs)} CV terlampir:**")
+        r2 = get_r2()
         for cv in existing_cvs:
             col1, col2, col3 = st.columns([3, 1, 1])
             with col1:
@@ -107,21 +116,25 @@ def show_upload_cv(db, user, admin):
                 st.caption(f"Upload: {cv.created_at.strftime('%d/%m/%Y %H:%M')} oleh {cv.uploaded_by_name or '-'}")
             with col2:
                 try:
-                    file_bytes = base64.b64decode(cv.file_data)
-                    st.download_button(
-                        "⬇️ Download",
-                        file_bytes,
-                        cv.file_name,
-                        mime=cv.file_type or "application/octet-stream",
-                        key=f"dl_existing_{cv.id}",
-                        use_container_width=True
+                    url = r2.get_presigned_url(cv.file_key, expires_in=3600)
+                    st.markdown(
+                        f'<a href="{url}" target="_blank" style="text-decoration:none;">'
+                        f'<button style="width:100%;padding:8px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;">⬇️ Download</button>'
+                        f'</a>',
+                        unsafe_allow_html=True
                     )
-                except Exception:
-                    st.caption("Error decode")
+                except Exception as e:
+                    st.caption(f"Error: {e}")
             with col3:
                 if admin:
                     if st.button("🗑️ Hapus", key=f"del_cv_{cv.id}", use_container_width=True):
                         try:
+                            # Hapus dari R2 dulu
+                            try:
+                                r2.delete(cv.file_key)
+                            except Exception:
+                                pass
+                            # Lalu dari DB
                             db.delete(cv)
                             db.commit()
                             st.success("CV dihapus!")
@@ -156,18 +169,28 @@ def show_upload_cv(db, user, admin):
         if valid_files and st.button(f"📤 Upload {len(valid_files)} File", type="primary"):
             success_count = 0
             error_count = 0
+            r2 = get_r2()
 
             for f in valid_files:
+                r2_key = None
                 try:
                     file_bytes = f.getvalue()
-                    file_b64 = base64.b64encode(file_bytes).decode('utf-8')
 
+                    # Upload ke R2
+                    r2_key = build_cv_key(candidate.kode_unik, f.name)
+                    r2.upload_bytes(
+                        file_bytes=file_bytes,
+                        key=r2_key,
+                        content_type=f.type or "application/octet-stream",
+                    )
+
+                    # Simpan ke DB
                     new_cv = CVAttachment(
                         sourcing_id=selected_id,
                         kode_unik=candidate.kode_unik,
                         nama_kandidat=candidate.nama,
                         file_name=f.name,
-                        file_data=file_b64,
+                        file_key=r2_key,
                         file_size=len(file_bytes),
                         file_type=f.type or "application/octet-stream",
                         uploaded_by=user.id,
@@ -180,6 +203,12 @@ def show_upload_cv(db, user, admin):
                 except Exception as e:
                     error_count += 1
                     db.rollback()
+                    # Rollback: hapus dari R2 kalau upload berhasil tapi DB gagal
+                    if r2_key:
+                        try:
+                            r2.delete(r2_key)
+                        except Exception:
+                            pass
                     st.error(f"❌ {f.name}: {str(e)}")
 
             st.success(f"✅ Berhasil upload {success_count} file!")
@@ -304,26 +333,28 @@ def show_list_cv(db, user, admin, it_mode):
     with col2:
         st.markdown("**Preview / Download:**")
 
-        try:
-            file_bytes = base64.b64decode(cv_detail.file_data)
+        r2 = get_r2()
 
-            st.download_button(
-                "⬇️ Download CV",
-                file_bytes,
-                cv_detail.file_name,
-                mime=cv_detail.file_type or "application/octet-stream",
-                key=f"dl_cv_{cv_detail.id}",
-                use_container_width=True
+        try:
+            # Generate presigned URL untuk download
+            url = r2.get_presigned_url(cv_detail.file_key, expires_in=3600)
+
+            st.markdown(
+                f'<a href="{url}" target="_blank" style="text-decoration:none;">'
+                f'<button style="width:100%;padding:10px;background:#4CAF50;color:white;border:none;border-radius:4px;cursor:pointer;font-size:16px;">⬇️ Download CV</button>'
+                f'</a>',
+                unsafe_allow_html=True
             )
 
             file_lower = cv_detail.file_name.lower()
 
+            # Preview gambar langsung pakai presigned URL (tidak perlu download ke memory)
             if file_lower.endswith(('.jpg', '.jpeg', '.png')):
-                st.image(file_bytes, caption=cv_detail.file_name, use_container_width=True)
+                st.image(url, caption=cv_detail.file_name, use_container_width=True)
             elif file_lower.endswith('.pdf'):
                 st.info("📄 PDF file - klik Download untuk membuka")
-                b64_pdf = base64.b64encode(file_bytes).decode('utf-8')
-                pdf_display = f'<iframe src="data:application/pdf;base64,{b64_pdf}" width="100%" height="600" type="application/pdf"></iframe>'
+                # PDF preview pakai presigned URL di iframe
+                pdf_display = f'<iframe src="{url}" width="100%" height="600" type="application/pdf"></iframe>'
                 st.markdown(pdf_display, unsafe_allow_html=True)
             else:
                 st.info(f"📄 File {cv_detail.file_type or 'unknown'} - klik Download untuk membuka")
@@ -335,6 +366,12 @@ def show_list_cv(db, user, admin, it_mode):
         st.markdown("---")
         if st.button("🗑️ Hapus CV Ini", type="secondary", key=f"del_view_cv_{cv_detail.id}"):
             try:
+                # Hapus dari R2 dulu
+                try:
+                    r2.delete(cv_detail.file_key)
+                except Exception:
+                    pass
+                # Lalu dari DB
                 db.delete(cv_detail)
                 db.commit()
                 st.success("CV berhasil dihapus!")
