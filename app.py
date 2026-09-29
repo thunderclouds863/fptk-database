@@ -3,7 +3,6 @@ import streamlit as st
 import importlib
 import time
 import base64
-import os
 import traceback
 import pandas as pd
 from datetime import datetime, timedelta
@@ -218,7 +217,7 @@ if not st.session_state.user_id:
 
         username = st.text_input("Username", placeholder="Masukkan username")
         password = st.text_input("Password", type="password", placeholder="Masukkan password")
-        submitted = st.form_submit_button("Login  →", use_container_width=True)
+        submitted = st.form_submit_button("Login  →", width='stretch')
 
         if submitted:
             if not username or not password:
@@ -314,7 +313,7 @@ with st.sidebar:
             btn_type = "secondary"
             btn_label = f"   {label}"
 
-        if st.button(btn_label, key=f"nav_btn_{page_key}", use_container_width=True, type=btn_type):
+        if st.button(btn_label, key=f"nav_btn_{page_key}", width='stretch', type=btn_type):
             st.session_state.page = page_key
             st.rerun()
 
@@ -347,7 +346,7 @@ with st.sidebar:
 
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🔄 Refresh All", use_container_width=True, type="primary"):
+            if st.button("🔄 Refresh All", width='stretch', type="primary"):
                 st.cache_data.clear()
                 st.session_state.last_fptk_load = datetime.now()
                 st.session_state.last_sourcing_load = datetime.now()
@@ -356,7 +355,7 @@ with st.sidebar:
                 st.rerun()
 
         with col2:
-            if st.button("🗑️ Clear Cache", use_container_width=True):
+            if st.button("🗑️ Clear Cache", width='stretch'):
                 load_fptk_data.clear()
                 load_sourcing_data.clear()
                 calculate_metrics.clear()
@@ -392,7 +391,7 @@ with st.sidebar:
 
     st.markdown("---")
 
-    if st.button("🚪 Logout", use_container_width=True):
+    if st.button("🚪 Logout", width='stretch'):
         session_mgr.logout()
         st.session_state.clear()
         st.rerun()
@@ -496,22 +495,26 @@ elif page == "funnel_report":
 st.markdown("---")
 st.markdown("### 📥 Export Data")
 
-if st.button("📊 Export All Data", use_container_width=True):
+if st.button("📊 Export All Data", width='stretch'):
     with st.spinner("Mengekspor data..."):
         db = get_cached_db()
         try:
             from core.export_excel import export_database_to_excel
-            filepath = export_database_to_excel(db)
-            with open(filepath, "rb") as f:
-                file_data = f.read()
+            buffer = export_database_to_excel(db)          # BytesIO
+            file_data = buffer.getvalue()                  # raw bytes
+            filename = f"fptk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
 
             st.download_button(
-                label="📥 Download Excel", data=file_data,
-                file_name=os.path.basename(filepath),
+                label="📥 Download Excel",
+                data=file_data,
+                file_name=filename,
                 mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
+                width='stretch',
             )
-            st.success(f"Export berhasil! File: {os.path.basename(filepath)}")
+            st.success(f"Export berhasil! File: {filename}")
+        except Exception as e:
+            st.error(f"Export gagal: {type(e).__name__}: {e}")
+            st.code(traceback.format_exc(), language="python")
         finally:
             db.close()
 
@@ -539,8 +542,11 @@ with st.expander("📋 Export Sheet Spesifik"):
                     data=output.getvalue(),
                     file_name=f"{selected_sheet}.xlsx",
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                    use_container_width=True
+                    width='stretch',
                 )
                 st.success(f"Export {selected_sheet} berhasil!")
+            except Exception as e:
+                st.error(f"Export gagal: {type(e).__name__}: {e}")
+                st.code(traceback.format_exc(), language="python")
             finally:
                 db.close()
