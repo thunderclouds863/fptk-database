@@ -1,308 +1,442 @@
 # core/export_excel.py
+"""
+Export database tables to a multi-sheet Excel workbook.
+"""
+
+import io
 import pandas as pd
-from sqlalchemy.orm import Session
-from datetime import datetime
-import os
+from datetime import datetime, date
+from decimal import Decimal
+
 from core.models import (
     User, UploadCycle, UploadStatus, UploadLog,
     FPTK, DBKodePosisi, DBSourcing, MasterDropdown,
-    Blacklist, AuditLog, Evidence
+    Blacklist, AuditLog, Evidence, UploadTemplate,
+    TransferHistory, FPTKDeleteRequest, SourcingDeleteRequest,
+    BlacklistRequest, CandidateTransfer, CVAttachment,
+    RecruitmentProgress,
 )
 
 
-def _build_grafik_mpp_df(db: Session) -> pd.DataFrame:
-    fptk_all = db.query(FPTK).all()
-    week_stats = {}
-    for item in fptk_all:
-        week = item.week_fptk_date
-        if week is not None:
-            if week not in week_stats:
-                week_stats[week] = {'diterima': 0, 'closed': 0, 'cancel': 0, 'op': 0}
-            week_stats[week]['diterima'] += 1
-            if item.status == 'Closed':
-                week_stats[week]['closed'] += 1
-            elif item.status == 'Cancel':
-                week_stats[week]['cancel'] += 1
-            elif item.status == 'OP':
-                week_stats[week]['op'] += 1
-
-    weeks = list(range(1, 54))
-
-    diterima_row = ['Jumlah FPTK Diterima']
-    cumulative = 0
-    for w in weeks:
-        count = week_stats.get(w, {}).get('diterima', 0)
-        cumulative += count
-        diterima_row.append(cumulative if cumulative > 0 else '')
-
-    diproses_row = ['Jumlah FPTK Diproses']
-    for w in weeks:
-        stats = week_stats.get(w, {})
-        val = stats.get('diterima', 0) - stats.get('closed', 0)
-        diproses_row.append(val if val > 0 else '')
-
-    pemenuhan_row = ['Pemenuhan (terima offer)']
-    cumulative = 0
-    for w in weeks:
-        count = week_stats.get(w, {}).get('closed', 0)
-        cumulative += count
-        pemenuhan_row.append(cumulative if cumulative > 0 else '')
-
-    sisa_row = ['Sisa FPTK']
-    for w in weeks:
-        stats = week_stats.get(w, {})
-        val = stats.get('diterima', 0) - stats.get('closed', 0)
-        sisa_row.append(val if val > 0 else '')
-
-    cancel_row = ['Cancel']
-    cumulative = 0
-    for w in weeks:
-        count = week_stats.get(w, {}).get('cancel', 0)
-        cumulative += count
-        cancel_row.append(cumulative if cumulative > 0 else '')
-
-    return pd.DataFrame([diterima_row, diproses_row, pemenuhan_row, sisa_row, cancel_row])
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _safe(value):
+    """Convert non-JSON/Excel-friendly values to serializable equivalents."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value
+    if isinstance(value, (dict, list)):
+        return str(value)
+    return value
 
 
-def _build_recruiter_performance_df(db: Session) -> pd.DataFrame:
-    recruiters = db.query(FPTK.pic_recruiter).distinct().all()
-    recruiter_list = [r[0] for r in recruiters if r[0] is not None]
-    perf_rows = []
-    for recruiter in recruiter_list:
-        op_count = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'OP').count()
-        closed_count = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Closed').count()
-        cancel_count = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Cancel').count()
-        closed_sla = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Closed',
-            FPTK.keterangan_lulus_sla.isnot(None)).count()
-        closed_no_sla = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'Closed',
-            FPTK.keterangan_tidak_lulus_sla.isnot(None)).count()
-        op_no_sla = db.query(FPTK).filter(FPTK.pic_recruiter == recruiter, FPTK.status == 'OP',
-            FPTK.keterangan_tidak_lulus_sla.isnot(None)).count()
-        perf_rows.append({
-            'Nama Recruiter': recruiter, 'Open': op_count, 'Closed': closed_count,
-            'Cancel': cancel_count, 'Total': op_count + closed_count + cancel_count,
-            'Closed Sesuai SLA': closed_sla, 'Closed Tidak Sesuai SLA': closed_no_sla,
-            'OP Lewat SLA': op_no_sla
-        })
-    return pd.DataFrame(perf_rows)
+def _rows_to_df(items, columns):
+    """Build a DataFrame from ORM objects given a list of (col_name, attr_name)."""
+    data = []
+    for item in items:
+        row = {}
+        for col, attr in columns:
+            row[col] = _safe(getattr(item, attr, None))
+        data.append(row)
+    return pd.DataFrame(data)
 
 
-def _build_blacklist_df(db: Session) -> pd.DataFrame:
-    blacklist_data = db.query(Blacklist).all()
-    rows = []
-    for idx, item in enumerate(blacklist_data, 1):
-        parts = item.key_value.split('|') if item.key_value else []
-        rows.append({
-            'No': idx, 'Last Update': item.created_at,
-            'Business Unit': parts[0] if len(parts) > 0 else '',
-            'Posisi': parts[1] if len(parts) > 1 else '',
-            'Lokasi': parts[2] if len(parts) > 2 else '',
-            'Nama Kandidat': parts[3] if len(parts) > 3 else '',
-            'Kategori': parts[4] if len(parts) > 4 else '',
-            'Alasan Tidak Proceed': parts[5] if len(parts) > 5 else '',
-            'PIC Rekruter': parts[6] if len(parts) > 6 else ''
-        })
-    return pd.DataFrame(rows)
+# ---------------------------------------------------------------------------
+# Sheet builders
+# ---------------------------------------------------------------------------
+def _build_users_df(db):
+    items = db.query(User).all()
+    cols = [
+        ('id', 'id'), ('username', 'username'), ('role', 'role'),
+        ('business_unit', 'business_unit'), ('kode_pic', 'kode_pic'),
+        ('pic_recruiter', 'pic_recruiter'), ('display_name', 'display_name'),
+        ('created_at', 'created_at'), ('last_login', 'last_login'),
+    ]
+    return _rows_to_df(items, cols)
 
 
-def _build_db_kode_posisi_df(db: Session) -> pd.DataFrame:
-    data = db.query(DBKodePosisi).all()
-    rows = []
-    for item in data:
-        rows.append({
-            'KODE_ANGKA': item.kode, 'POSISI_KEBUTUHAN_TA': item.position,
-            'LOKASI_ONBOARDING': item.location, 'BUSINESS UNIT': item.business_unit,
-            'DIVISI_SESUAI_SO': item.division_chris, 'DEPARTMENT': item.department_chris,
-            'USER (MANAGER)': item.user_manager, 'INDIRECT USER': item.indirect_user,
-            'DIREKTORAT': item.directorate, 'YEAR': item.year
-        })
-    return pd.DataFrame(rows)
+def _build_upload_cycles_df(db):
+    items = db.query(UploadCycle).all()
+    cols = [
+        ('id', 'id'), ('cycle_name', 'cycle_name'),
+        ('created_by', 'created_by'), ('created_at', 'created_at'),
+        ('started_at', 'started_at'), ('ended_at', 'ended_at'),
+    ]
+    return _rows_to_df(items, cols)
 
 
-def _build_fptk_df(db: Session) -> pd.DataFrame:
-    data = db.query(FPTK).all()
-    rows = []
-    for item in data:
-        rows.append({
-            'Kode PIC': item.kode_pic, 'FPTK Date (Real)': item.fptk_date_real,
-            'Kode Angka': item.kode_angka, 'FPTK Date (Kode)': item.fptk_date_kode,
-            'Kode Unik': item.kode_unik, 'Posisi': item.posisi,
-            'Business Unit': item.business_unit, 'Direktorat': item.direktorat,
-            'Divisi': item.divisi, 'Department': item.department,
-            'Level FPTK': item.level_fptk, 'Level Number': item.level_number,
-            'Alasan Permintaan FPTK': item.alasan_permintaan_fptk,
-            'Category FPTK': item.category_fptk, 'PIC Recruiter': item.pic_recruiter,
-            'Filter Kategorisasi FPTK': item.filter_kategorisasi_fptk,
-            'Vacancy': item.vacancy, 'Status': item.status,
-            'Week FPTK Date (Kode)': item.week_fptk_date,
-            'Month FPTK Date': item.month_fptk_date,
-            'FPTK Cancel Date': item.fptk_cancel_date,
-            'Week Cancel Date': item.week_cancel_date,
-            'Month Cancel Date': item.month_cancel_date,
-            'Offering Date': item.offering_date,
-            'Week Offering Date': item.week_offering_date,
-            'Month Offering': item.month_offering,
-            'Jumlah SLA': item.jumlah_sla, 'Deadline pemenuhan SLA': item.deadline_sla,
-            'Detail SLA': item.detail_sla,
-            'Keterangan Lulus SLA': item.keterangan_lulus_sla,
-            'Keterangan Tidak Lulus SLA': item.keterangan_tidak_lulus_sla,
-            'Keterangan Cancel': item.keterangan_cancel,
-            'Nama Kandidat': item.nama_kandidat, 'Estimasi Join': item.estimasi_join,
-            'Kebutuhan Laptop': item.kebutuhan_laptop,
-            'Lokasi Onboarding': item.lokasi_onboarding,
-            'Tanggal Upload ke Website': item.tanggal_upload_web,
-            'User (Manager)': item.user_manager, 'Indirect User': item.indirect_user,
-            'Lokasi Kerja': item.lokasi_kerja, 'Lokasi HR': item.lokasi_hr,
-            'Status Karyawan': item.status_karyawan, 'Kode BU': item.kode_bu,
-            'FPTK Availability': item.fptk_availability, 'Remark': item.remark,
-            'Created At': item.created_at, 'Last Updated At': item.last_updated_at,
-            'Last Compile Action': item.last_compile_action,
-            'Source File': item.source_file, 'is_sto': item.is_sto
-        })
-    return pd.DataFrame(rows)
+def _build_upload_status_df(db):
+    items = db.query(UploadStatus).all()
+    cols = [
+        ('id', 'id'), ('cycle_id', 'cycle_id'), ('user_id', 'user_id'),
+        ('status', 'status'), ('first_compile_at', 'first_compile_at'),
+        ('done_at', 'done_at'),
+    ]
+    return _rows_to_df(items, cols)
 
 
-def _build_db_sourcing_df(db: Session) -> pd.DataFrame:
-    data = db.query(DBSourcing).all()
-    rows = []
-    for idx, item in enumerate(data, 1):
-        ipk_val = None
-        if item.ipk is not None:
-            try:
-                ipk_val = float(item.ipk)
-            except Exception:
-                ipk_val = None
-        rows.append({
-            'No': idx, 'Kode Unik': item.kode_unik, 'Posisi': item.posisi,
-            'Model Rekrutmen': item.model_rekrutmen, 'Rekruter': item.rekruter,
-            'Sumber Sourcing': item.sumber_sourcing, 'Nama': item.nama,
-            'Nama Universitas/Sekolah (TOP 10)': item.nama_universitas_top10,
-            'Nama Universitas/Sekolah Lainnya': item.nama_universitas_lainnya,
-            'Jenjang Pendidikan': item.jenjang_pendidikan, 'Jurusan': item.jurusan,
-            'Jurusan Lainnya': item.jurusan_lainnya, 'Tahun Lulus': item.tahun_lulus,
-            'IPK': ipk_val, 'Skor Bahasa Inggris': item.skor_bahasa_inggris,
-            'University Tier': item.university_tier, 'IPK Tier': item.ipk_tier,
-            'Nomor HP': item.nomor_hp, 'Email': item.email, 'Domisili': item.domisili,
-            'Last Position': item.last_position, 'Last Tenure': item.last_tenure,
-            'Last Company': item.last_company, 'Total Tenure': item.total_tenure,
-            'Berpengalaman di industri FMCG': item.pernah_di_fmcg,
-            'Sourcing Freelance': item.sourcing_freelance,
-            'Tanggal Sourcing Freelance': item.tanggal_sourcing_freelance,
-            'Sourcing HR': item.sourcing_hr,
-            'Detail Keterangan Sourcing HR': item.detail_keterangan_sourcing_hr,
-            'Tanggal Sourcing': item.tanggal_sourcing, 'Shortlist CV': item.shortlist_cv,
-            'Detail Keterangan Shortlist CV': item.detail_keterangan_shortlist_cv,
-            'Tanggal Shortlist CV': item.tanggal_shortlist_cv,
-            'Psikotes': item.psikotes, 'Kode Psikotes': item.kode_psikotes,
-            'Detail Keterangan Psikotes': item.detail_keterangan_psikotes,
-            'Tanggal Psikotes / Cek psikotes': item.tanggal_psikotes,
-            'Nilai Logika': item.nilai_logika, 'Nilai IQ': item.nilai_iq,
-            'Nilai Daya Tangkap': item.nilai_daya_tangkap, 'Nilai RA': item.nilai_ra,
-            'DISC': item.disc, 'HR Interview': item.hr_interview,
-            'Detail Keterangan HR Interview': item.detail_keterangan_hr_interview,
-            'Tanggal HR Interview': item.tanggal_hr_interview,
-            'Technical Test/ Case Study': item.technical_test_case_study,
-            'Detail Keterangan Technical Test/ Case Study': item.detail_keterangan_technical_test,
-            'Tanggal Technical Test/ Case Study': item.tanggal_technical_test,
-            'Market Visit': item.market_visit, 'Detail Market Visit': item.detail_market_visit,
-            'Tanggal Market Visit': item.tanggal_market_visit,
-            'User Interview': item.user_interview,
-            'Detail Keterangan User Interview': item.detail_keterangan_user_interview,
-            'Tanggal User Interview': item.tanggal_user_interview,
-            'Panel Interview': item.panel_interview,
-            'Detail Keterangan Panel Interview': item.detail_keterangan_panel_interview,
-            'Tanggal Panel Interview': item.tanggal_panel_interview,
-            'Reference Check': item.reference_check,
-            'Detail Keterangan Reference Check': item.detail_keterangan_reference_check,
-            'Tanggal Reference Check': item.tanggal_reference_check,
-            'MCU': item.mcu, 'Detail Keterangan MCU': item.detail_keterangan_mcu,
-            'Tanggal MCU': item.tanggal_mcu, 'Offering': item.offering,
-            'Detail Keterangan Offering': item.detail_keterangan_offering,
-            'Tanggal Offering': item.tanggal_offering, 'Notes': item.notes,
-            'Day 1': item.day1, 'Detail Keterangan Day 1': item.detail_keterangan_day1,
-            'Tanggal Day 1': item.tanggal_day1, 'Sourcing Date': item.sourcing_date,
-            'Created At': item.created_at, 'Last Updated At': item.last_updated_at,
-            'Last Compile Action': item.last_compile_action, 'Source File': item.source_file
-        })
-    return pd.DataFrame(rows)
+def _build_upload_logs_df(db):
+    items = db.query(UploadLog).all()
+    cols = [
+        ('id', 'id'), ('cycle_id', 'cycle_id'), ('user_id', 'user_id'),
+        ('file_name', 'file_name'), ('file_size_bytes', 'file_size_bytes'),
+        ('file_hash', 'file_hash'), ('status', 'status'),
+        ('record_count', 'record_count'), ('error_details', 'error_details'),
+        ('uploaded_at', 'uploaded_at'),
+    ]
+    return _rows_to_df(items, cols)
 
 
-def _build_master_dropdown_df(db: Session) -> pd.DataFrame:
-    data = db.query(MasterDropdown).all()
-    rows = []
-    for item in data:
-        rows.append({
-            'kode_pic': item.kode_pic, 'bu': item.bu, 'alasan': item.alasan,
-            'category_fptk': item.category_fptk, 'pic_recruiter': item.pic_recruiter,
-            'filter_fptk': item.filter_fptk, 'status': item.status,
-            'lokasi_onboarding': item.lokasi_onboarding, 'detail_sla': item.detail_sla,
-            'keterangan_0': item.keterangan_0, 'keterangan_1': item.keterangan_1,
-            'keterangan_cancel': item.keterangan_cancel,
-            'nama_direktorat': item.nama_direktorat, 'model': item.model,
-            'sumber_sourcing': item.sumber_sourcing,
-            'jenjang_pendidikan': item.jenjang_pendidikan,
-            'nama_universitas_top10': item.nama_universitas_top10,
-            'jurusan': item.jurusan, 'university_tier': item.university_tier,
-            'ipk_tier': item.ipk_tier, 'divisi': item.divisi,
-            'department': item.department, 'is_active': item.is_active
-        })
-    return pd.DataFrame(rows)
+def _build_fptk_df(db):
+    items = db.query(FPTK).all()
+    cols = [
+        ('id', 'id'), ('kode_unik', 'kode_unik'), ('posisi', 'posisi'),
+        ('kode_pic', 'kode_pic'), ('fptk_date_real', 'fptk_date_real'),
+        ('fptk_date_kode', 'fptk_date_kode'), ('kode_angka', 'kode_angka'),
+        ('business_unit', 'business_unit'), ('direktorat', 'direktorat'),
+        ('divisi', 'divisi'), ('department', 'department'),
+        ('level_fptk', 'level_fptk'), ('level_number', 'level_number'),
+        ('alasan_permintaan_fptk', 'alasan_permintaan_fptk'),
+        ('category_fptk', 'category_fptk'), ('pic_recruiter', 'pic_recruiter'),
+        ('filter_kategorisasi_fptk', 'filter_kategorisasi_fptk'),
+        ('vacancy', 'vacancy'), ('status', 'status'),
+        ('week_fptk_date', 'week_fptk_date'),
+        ('month_fptk_date', 'month_fptk_date'),
+        ('fptk_cancel_date', 'fptk_cancel_date'),
+        ('week_cancel_date', 'week_cancel_date'),
+        ('month_cancel_date', 'month_cancel_date'),
+        ('offering_date', 'offering_date'),
+        ('week_offering_date', 'week_offering_date'),
+        ('month_offering', 'month_offering'),
+        ('jumlah_sla', 'jumlah_sla'), ('deadline_sla', 'deadline_sla'),
+        ('detail_sla', 'detail_sla'),
+        ('keterangan_lulus_sla', 'keterangan_lulus_sla'),
+        ('keterangan_tidak_lulus_sla', 'keterangan_tidak_lulus_sla'),
+        ('keterangan_cancel', 'keterangan_cancel'),
+        ('nama_kandidat', 'nama_kandidat'),
+        ('estimasi_join', 'estimasi_join'),
+        ('kebutuhan_laptop', 'kebutuhan_laptop'),
+        ('lokasi_onboarding', 'lokasi_onboarding'),
+        ('tanggal_upload_web', 'tanggal_upload_web'),
+        ('user_manager', 'user_manager'), ('indirect_user', 'indirect_user'),
+        ('lokasi_kerja', 'lokasi_kerja'), ('lokasi_hr', 'lokasi_hr'),
+        ('status_karyawan', 'status_karyawan'), ('kode_bu', 'kode_bu'),
+        ('fptk_availability', 'fptk_availability'), ('remark', 'remark'),
+        ('created_at', 'created_at'), ('last_updated_at', 'last_updated_at'),
+        ('last_compile_action', 'last_compile_action'),
+        ('source_file', 'source_file'),
+        ('source_file_hash', 'source_file_hash'),
+        ('source_user_id', 'source_user_id'),
+        ('source_cycle_id', 'source_cycle_id'), ('is_sto', 'is_sto'),
+    ]
+    return _rows_to_df(items, cols)
 
 
-def _build_evidence_df(db: Session) -> pd.DataFrame:
-    data = db.query(Evidence).all()
-    rows = []
-    for item in data:
-        rows.append({
-            'kode_unik': item.kode_unik, 'posisi': item.posisi,
-            'tanggal': item.tanggal, 'file_name': item.file_name,
-            'file_path': item.file_path, 'file_size': item.file_size,
-            'total_cv': item.total_cv, 'keterangan': getattr(item, 'keterangan', None),
-            'pic_recruiter': item.pic_recruiter, 'created_at': item.created_at
-        })
-    return pd.DataFrame(rows)
+def _build_db_kode_posisi_df(db):
+    items = db.query(DBKodePosisi).all()
+    cols = [
+        ('id', 'id'), ('kode', 'kode'), ('position', 'position'),
+        ('location', 'location'), ('business_unit', 'business_unit'),
+        ('division_chris', 'division_chris'),
+        ('department_chris', 'department_chris'),
+        ('user_manager', 'user_manager'), ('indirect_user', 'indirect_user'),
+        ('directorate', 'directorate'), ('year', 'year'),
+    ]
+    return _rows_to_df(items, cols)
 
 
-def export_database_to_excel(db: Session, filename: str = None) -> str:
-    if filename is None:
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"Master_Database_Export_{timestamp}.xlsx"
+def _build_db_sourcing_df(db):
+    items = db.query(DBSourcing).all()
+    cols = [
+        ('id', 'id'), ('no', 'no'), ('sourcing_date', 'sourcing_date'),
+        ('kode_unik', 'kode_unik'), ('posisi', 'posisi'),
+        ('model_rekrutmen', 'model_rekrutmen'), ('rekruter', 'rekruter'),
+        ('sumber_sourcing', 'sumber_sourcing'), ('nama', 'nama'),
+        ('nama_universitas_top10', 'nama_universitas_top10'),
+        ('nama_universitas_lainnya', 'nama_universitas_lainnya'),
+        ('jenjang_pendidikan', 'jenjang_pendidikan'),
+        ('jurusan', 'jurusan'), ('jurusan_lainnya', 'jurusan_lainnya'),
+        ('tahun_lulus', 'tahun_lulus'), ('ipk', 'ipk'),
+        ('skor_bahasa_inggris', 'skor_bahasa_inggris'),
+        ('university_tier', 'university_tier'), ('ipk_tier', 'ipk_tier'),
+        ('nomor_hp', 'nomor_hp'), ('email', 'email'),
+        ('domisili', 'domisili'), ('last_position', 'last_position'),
+        ('last_tenure', 'last_tenure'), ('last_company', 'last_company'),
+        ('total_tenure', 'total_tenure'),
+        ('pernah_di_fmcg', 'pernah_di_fmcg'),
+        ('sourcing_freelance', 'sourcing_freelance'),
+        ('tanggal_sourcing_freelance', 'tanggal_sourcing_freelance'),
+        ('sourcing_hr', 'sourcing_hr'),
+        ('detail_keterangan_sourcing_hr', 'detail_keterangan_sourcing_hr'),
+        ('tanggal_sourcing', 'tanggal_sourcing'),
+        ('shortlist_cv', 'shortlist_cv'),
+        ('detail_keterangan_shortlist_cv', 'detail_keterangan_shortlist_cv'),
+        ('tanggal_shortlist_cv', 'tanggal_shortlist_cv'),
+        ('psikotes', 'psikotes'), ('kode_psikotes', 'kode_psikotes'),
+        ('detail_keterangan_psikotes', 'detail_keterangan_psikotes'),
+        ('tanggal_psikotes', 'tanggal_psikotes'),
+        ('nilai_logika', 'nilai_logika'), ('nilai_iq', 'nilai_iq'),
+        ('nilai_daya_tangkap', 'nilai_daya_tangkap'),
+        ('nilai_ra', 'nilai_ra'), ('disc', 'disc'),
+        ('hr_interview', 'hr_interview'),
+        ('detail_keterangan_hr_interview', 'detail_keterangan_hr_interview'),
+        ('tanggal_hr_interview', 'tanggal_hr_interview'),
+        ('technical_test_case_study', 'technical_test_case_study'),
+        ('detail_keterangan_technical_test', 'detail_keterangan_technical_test'),
+        ('tanggal_technical_test', 'tanggal_technical_test'),
+        ('market_visit', 'market_visit'),
+        ('detail_market_visit', 'detail_market_visit'),
+        ('tanggal_market_visit', 'tanggal_market_visit'),
+        ('user_interview', 'user_interview'),
+        ('detail_keterangan_user_interview', 'detail_keterangan_user_interview'),
+        ('tanggal_user_interview', 'tanggal_user_interview'),
+        ('panel_interview', 'panel_interview'),
+        ('detail_keterangan_panel_interview', 'detail_keterangan_panel_interview'),
+        ('tanggal_panel_interview', 'tanggal_panel_interview'),
+        ('reference_check', 'reference_check'),
+        ('detail_keterangan_reference_check', 'detail_keterangan_reference_check'),
+        ('tanggal_reference_check', 'tanggal_reference_check'),
+        ('mcu', 'mcu'), ('detail_keterangan_mcu', 'detail_keterangan_mcu'),
+        ('tanggal_mcu', 'tanggal_mcu'),
+        ('offering', 'offering'),
+        ('detail_keterangan_offering', 'detail_keterangan_offering'),
+        ('tanggal_offering', 'tanggal_offering'),
+        ('notes', 'notes'), ('day1', 'day1'),
+        ('detail_keterangan_day1', 'detail_keterangan_day1'),
+        ('tanggal_day1', 'tanggal_day1'),
+        ('is_blacklisted', 'is_blacklisted'),
+        ('blacklisted_at', 'blacklisted_at'),
+        ('blacklisted_by', 'blacklisted_by'),
+        ('blacklist_reason', 'blacklist_reason'),
+        ('created_at', 'created_at'), ('last_updated_at', 'last_updated_at'),
+        ('last_compile_action', 'last_compile_action'),
+        ('source_file', 'source_file'),
+        ('source_file_hash', 'source_file_hash'),
+        ('source_user_id', 'source_user_id'),
+        ('source_cycle_id', 'source_cycle_id'),
+    ]
+    return _rows_to_df(items, cols)
 
-    export_dir = "exports"
-    if not os.path.exists(export_dir):
-        os.makedirs(export_dir)
 
-    filepath = os.path.join(export_dir, filename)
+def _build_master_dropdown_df(db):
+    items = db.query(MasterDropdown).all()
+    cols = [
+        ('id', 'id'), ('kode_pic', 'kode_pic'), ('bu', 'bu'),
+        ('alasan', 'alasan'), ('category_fptk', 'category_fptk'),
+        ('pic_recruiter', 'pic_recruiter'), ('filter_fptk', 'filter_fptk'),
+        ('status', 'status'), ('lokasi_onboarding', 'lokasi_onboarding'),
+        ('detail_sla', 'detail_sla'), ('keterangan_0', 'keterangan_0'),
+        ('keterangan_1', 'keterangan_1'),
+        ('keterangan_cancel', 'keterangan_cancel'),
+        ('nama_direktorat', 'nama_direktorat'), ('model', 'model'),
+        ('sumber_sourcing', 'sumber_sourcing'),
+        ('jenjang_pendidikan', 'jenjang_pendidikan'),
+        ('nama_universitas_top10', 'nama_universitas_top10'),
+        ('jurusan', 'jurusan'), ('university_tier', 'university_tier'),
+        ('ipk_tier', 'ipk_tier'), ('divisi', 'divisi'),
+        ('department', 'department'),
+        ('keterangan_tidak_lolos_sourcing_1', 'keterangan_tidak_lolos_sourcing_1'),
+        ('keterangan_tidak_lolos_sourcing_2', 'keterangan_tidak_lolos_sourcing_2'),
+        ('keterangan_tidak_lolos_psikotes', 'keterangan_tidak_lolos_psikotes'),
+        ('keterangan_tidak_lolos_hr_interview', 'keterangan_tidak_lolos_hr_interview'),
+        ('keterangan_tidak_lolos_user_panel', 'keterangan_tidak_lolos_user_panel'),
+        ('keterangan_tidak_lolos_technical_test', 'keterangan_tidak_lolos_technical_test'),
+        ('keterangan_tidak_lolos_market_visit', 'keterangan_tidak_lolos_market_visit'),
+        ('keterangan_tidak_lolos_reference_check', 'keterangan_tidak_lolos_reference_check'),
+        ('keterangan_tidak_menerima_offer', 'keterangan_tidak_menerima_offer'),
+        ('keterangan_tidak_lolos_mcu', 'keterangan_tidak_lolos_mcu'),
+        ('keterangan_tidak_hadir_day1', 'keterangan_tidak_hadir_day1'),
+        ('lokasi_pic_recruiter', 'lokasi_pic_recruiter'),
+        ('is_active', 'is_active'),
+    ]
+    return _rows_to_df(items, cols)
 
-    with pd.ExcelWriter(filepath, engine='openpyxl') as writer:
-        _build_blacklist_df(db).to_excel(writer, sheet_name='Blacklist Candidate', index=False)
-        _build_db_kode_posisi_df(db).to_excel(writer, sheet_name='DB Kode Posisi', index=False)
+
+def _build_blacklist_df(db):
+    items = db.query(Blacklist).all()
+    cols = [
+        ('id', 'id'), ('key_value', 'key_value'),
+        ('created_at', 'created_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_audit_logs_df(db):
+    items = db.query(AuditLog).all()
+    cols = [
+        ('id', 'id'), ('user_id', 'user_id'), ('action', 'action'),
+        ('table_name', 'table_name'), ('record_id', 'record_id'),
+        ('old_value', 'old_value'), ('new_value', 'new_value'),
+        ('ip_address', 'ip_address'), ('user_agent', 'user_agent'),
+        ('created_at', 'created_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_evidence_df(db):
+    """Build Evidence dataframe for export."""
+    items = db.query(Evidence).all()
+    cols = [
+        ('id', 'id'), ('kode_unik', 'kode_unik'), ('posisi', 'posisi'),
+        ('tanggal', 'tanggal'), ('file_name', 'file_name'),
+        ('file_key', 'file_key'),                     # ← FIXED (was file_path)
+        ('file_size', 'file_size'), ('file_type', 'file_type'),
+        ('total_cv', 'total_cv'), ('keterangan', 'keterangan'),
+        ('pic_recruiter', 'pic_recruiter'), ('user_id', 'user_id'),
+        ('created_at', 'created_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_upload_templates_df(db):
+    """Build UploadTemplate dataframe for export."""
+    items = db.query(UploadTemplate).all()
+    cols = [
+        ('id', 'id'), ('file_name', 'file_name'),
+        ('file_key', 'file_key'),                     # ← FIXED (was file_path)
+        ('file_type', 'file_type'), ('uploaded_by', 'uploaded_by'),
+        ('version', 'version'), ('is_active', 'is_active'),
+        ('template_type', 'template_type'),
+        ('created_at', 'created_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_transfer_history_df(db):
+    items = db.query(TransferHistory).all()
+    cols = [
+        ('id', 'id'), ('fptk_id', 'fptk_id'), ('kode_unik', 'kode_unik'),
+        ('posisi', 'posisi'), ('from_pic', 'from_pic'), ('to_pic', 'to_pic'),
+        ('reason', 'reason'), ('transferred_by', 'transferred_by'),
+        ('transferred_by_name', 'transferred_by_name'),
+        ('created_at', 'created_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_fptk_delete_requests_df(db):
+    items = db.query(FPTKDeleteRequest).all()
+    cols = [
+        ('id', 'id'), ('fptk_id', 'fptk_id'), ('kode_unik', 'kode_unik'),
+        ('posisi', 'posisi'), ('pic_recruiter', 'pic_recruiter'),
+        ('reason', 'reason'), ('status', 'status'),
+        ('requested_by', 'requested_by'),
+        ('requested_by_name', 'requested_by_name'),
+        ('requested_at', 'requested_at'), ('reviewed_by', 'reviewed_by'),
+        ('reviewed_by_name', 'reviewed_by_name'),
+        ('reviewed_at', 'reviewed_at'), ('admin_notes', 'admin_notes'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_sourcing_delete_requests_df(db):
+    items = db.query(SourcingDeleteRequest).all()
+    cols = [
+        ('id', 'id'), ('sourcing_id', 'sourcing_id'),
+        ('kode_unik', 'kode_unik'), ('nama', 'nama'), ('posisi', 'posisi'),
+        ('pic_recruiter', 'pic_recruiter'), ('reason', 'reason'),
+        ('status', 'status'), ('requested_by', 'requested_by'),
+        ('requested_by_name', 'requested_by_name'),
+        ('requested_at', 'requested_at'), ('reviewed_by', 'reviewed_by'),
+        ('reviewed_by_name', 'reviewed_by_name'),
+        ('reviewed_at', 'reviewed_at'), ('admin_notes', 'admin_notes'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_blacklist_requests_df(db):
+    items = db.query(BlacklistRequest).all()
+    cols = [
+        ('id', 'id'), ('sourcing_id', 'sourcing_id'),
+        ('kode_unik', 'kode_unik'), ('nama', 'nama'), ('posisi', 'posisi'),
+        ('action', 'action'), ('reason', 'reason'), ('status', 'status'),
+        ('requested_by', 'requested_by'),
+        ('requested_by_name', 'requested_by_name'),
+        ('requested_at', 'requested_at'), ('reviewed_by', 'reviewed_by'),
+        ('reviewed_by_name', 'reviewed_by_name'),
+        ('reviewed_at', 'reviewed_at'), ('admin_notes', 'admin_notes'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_candidate_transfers_df(db):
+    items = db.query(CandidateTransfer).all()
+    cols = [
+        ('id', 'id'), ('sourcing_id', 'sourcing_id'),
+        ('old_kode_unik', 'old_kode_unik'), ('new_kode_unik', 'new_kode_unik'),
+        ('nama', 'nama'), ('posisi', 'posisi'),
+        ('old_pipeline_stage', 'old_pipeline_stage'),
+        ('new_pipeline_stage', 'new_pipeline_stage'),
+        ('reason', 'reason'), ('transferred_by', 'transferred_by'),
+        ('transferred_by_name', 'transferred_by_name'),
+        ('transferred_at', 'transferred_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_cv_attachments_df(db):
+    """Build CVAttachment dataframe for export."""
+    items = db.query(CVAttachment).all()
+    cols = [
+        ('id', 'id'), ('sourcing_id', 'sourcing_id'),
+        ('kode_unik', 'kode_unik'), ('nama_kandidat', 'nama_kandidat'),
+        ('file_name', 'file_name'),
+        ('file_key', 'file_key'),                     # ← FIXED (was file_path)
+        ('file_size', 'file_size'), ('file_type', 'file_type'),
+        ('uploaded_by', 'uploaded_by'),
+        ('uploaded_by_name', 'uploaded_by_name'),
+        ('created_at', 'created_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+def _build_recruitment_progress_df(db):
+    items = db.query(RecruitmentProgress).all()
+    cols = [
+        ('id', 'id'), ('fptk_id', 'fptk_id'), ('kode_unik', 'kode_unik'),
+        ('posisi', 'posisi'), ('pic_recruiter', 'pic_recruiter'),
+        ('week_number', 'week_number'), ('year', 'year'),
+        ('week_label', 'week_label'),
+        ('progress_this_week', 'progress_this_week'),
+        ('next_action', 'next_action'), ('status', 'status'),
+        ('created_by', 'created_by'), ('created_by_name', 'created_by_name'),
+        ('created_at', 'created_at'), ('updated_at', 'updated_at'),
+    ]
+    return _rows_to_df(items, cols)
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+def export_database_to_excel(db):
+    """
+    Export every table to a separate sheet in a single Excel workbook.
+    Returns a BytesIO buffer ready to be passed to st.download_button.
+    """
+    buffer = io.BytesIO()
+
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        _build_users_df(db).to_excel(writer, sheet_name='Users', index=False)
+        _build_upload_cycles_df(db).to_excel(writer, sheet_name='UploadCycles', index=False)
+        _build_upload_status_df(db).to_excel(writer, sheet_name='UploadStatus', index=False)
+        _build_upload_logs_df(db).to_excel(writer, sheet_name='UploadLogs', index=False)
         _build_fptk_df(db).to_excel(writer, sheet_name='FPTK', index=False)
-        _build_db_sourcing_df(db).to_excel(writer, sheet_name='DB Sourcing', index=False)
-        _build_grafik_mpp_df(db).to_excel(writer, sheet_name='Grafik MPP', index=False)
-        _build_recruiter_performance_df(db).to_excel(writer, sheet_name='Recruiter Performance', index=False)
-        _build_master_dropdown_df(db).to_excel(writer, sheet_name='Master Dropdown', index=False)
+        _build_db_kode_posisi_df(db).to_excel(writer, sheet_name='DBKodePosisi', index=False)
+        _build_db_sourcing_df(db).to_excel(writer, sheet_name='DBSourcing', index=False)
+        _build_master_dropdown_df(db).to_excel(writer, sheet_name='MasterDropdown', index=False)
+        _build_blacklist_df(db).to_excel(writer, sheet_name='Blacklist', index=False)
+        _build_audit_logs_df(db).to_excel(writer, sheet_name='AuditLogs', index=False)
         _build_evidence_df(db).to_excel(writer, sheet_name='Evidence', index=False)
+        _build_upload_templates_df(db).to_excel(writer, sheet_name='UploadTemplates', index=False)
+        _build_transfer_history_df(db).to_excel(writer, sheet_name='TransferHistory', index=False)
+        _build_fptk_delete_requests_df(db).to_excel(writer, sheet_name='FPTKDeleteRequests', index=False)
+        _build_sourcing_delete_requests_df(db).to_excel(writer, sheet_name='SourcingDeleteRequests', index=False)
+        _build_blacklist_requests_df(db).to_excel(writer, sheet_name='BlacklistRequests', index=False)
+        _build_candidate_transfers_df(db).to_excel(writer, sheet_name='CandidateTransfers', index=False)
+        _build_cv_attachments_df(db).to_excel(writer, sheet_name='CVAttachments', index=False)
+        _build_recruitment_progress_df(db).to_excel(writer, sheet_name='RecruitmentProgress', index=False)
 
-    return filepath
-
-
-def export_single_sheet(db: Session, sheet_name: str) -> pd.DataFrame:
-    if sheet_name == "Blacklist Candidate":
-        return _build_blacklist_df(db)
-    elif sheet_name == "DB Kode Posisi":
-        return _build_db_kode_posisi_df(db)
-    elif sheet_name == "FPTK":
-        return _build_fptk_df(db)
-    elif sheet_name == "DB Sourcing":
-        return _build_db_sourcing_df(db)
-    elif sheet_name == "Grafik MPP":
-        return _build_grafik_mpp_df(db)
-    elif sheet_name == "Recruiter Performance":
-        return _build_recruiter_performance_df(db)
-    elif sheet_name == "Master Dropdown":
-        return _build_master_dropdown_df(db)
-    elif sheet_name == "Evidence":
-        return _build_evidence_df(db)
-    else:
-        return pd.DataFrame()
+    buffer.seek(0)
+    return buffer
