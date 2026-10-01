@@ -171,9 +171,77 @@ def upsert_progress(db, fptk, week_num, year, progress_text, next_action=""):
         return new_progress, "created"
 
 
-# ============================================================
-# TAB 1: UPDATE MANUAL
-# ============================================================
+def find_fptk_by_legacy_match(db, posisi, pic_recruiter, tanggal_fptk):
+    if not posisi or not pic_recruiter or not tanggal_fptk:
+        return None
+
+    posisi_clean = str(posisi).strip().lower()
+    pic_clean = str(pic_recruiter).strip().lower()
+
+    if isinstance(tanggal_fptk, str):
+        tanggal_clean = None
+        for fmt in ['%Y-%m-%d', '%d/%m/%Y', '%d-%m-%Y', '%Y/%m/%d']:
+            try:
+                tanggal_clean = datetime.strptime(tanggal_fptk.strip(), fmt).date()
+                break
+            except ValueError:
+                continue
+        if not tanggal_clean:
+            return None
+    elif isinstance(tanggal_fptk, (datetime, date)):
+        tanggal_clean = tanggal_fptk.date() if isinstance(tanggal_fptk, datetime) else tanggal_fptk
+    else:
+        return None
+
+    candidates = db.query(FPTK).filter(
+        FPTK.fptk_date_real == tanggal_clean
+    ).all()
+
+    for fptk in candidates:
+        if (fptk.posisi or "").strip().lower() == posisi_clean and \
+           (fptk.pic_recruiter or "").strip().lower() == pic_clean:
+            return fptk
+
+    return None
+
+
+def parse_progress_update_text(raw_text):
+    if not raw_text:
+        return "", ""
+
+    text = str(raw_text).strip().strip('"').strip("'")
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+
+    progress_this_week = ""
+    next_action = ""
+
+    progress_marker = "progress weekly:"
+    next_marker = "next action:"
+
+    text_lower = text.lower()
+
+    idx_progress = text_lower.find(progress_marker)
+    idx_next = text_lower.find(next_marker)
+
+    if idx_progress >= 0 and idx_next >= 0:
+        if idx_progress < idx_next:
+            progress_this_week = text[idx_progress + len(progress_marker):idx_next].strip()
+            next_action = text[idx_next + len(next_marker):].strip()
+        else:
+            next_action = text[idx_next + len(next_marker):idx_progress].strip()
+            progress_this_week = text[idx_progress + len(progress_marker):].strip()
+    elif idx_progress >= 0:
+        progress_this_week = text[idx_progress + len(progress_marker):].strip()
+    elif idx_next >= 0:
+        next_action = text[idx_next + len(next_marker):].strip()
+    else:
+        progress_this_week = text
+
+    progress_this_week = progress_this_week.strip().strip('"').strip("'")
+    next_action = next_action.strip().strip('"').strip("'")
+
+    return progress_this_week, next_action
+
 
 def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     query = db.query(FPTK).filter(FPTK.status == "OP")
@@ -396,17 +464,10 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
                             db.rollback()
 
 
-# ============================================================
-# TAB 2: UPLOAD EXCEL MASSAL
-# ============================================================
-
 def tab_upload_excel(db, user, admin, current_week, current_year):
     st.markdown("### 📤 Upload Excel Progress Massal")
     st.caption("Upload file Excel untuk import progress sekaligus banyak.")
 
-    # ============================================================
-    # ADMIN: TEMPLATE MANAGEMENT
-    # ============================================================
     if admin:
         with st.expander("⚙️ Admin - Kelola Template Excel Progress", expanded=False):
             st.markdown("#### 📋 Template Aktif")
@@ -445,7 +506,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             )
 
             if new_template_file:
-                # Validasi: cek header
                 try:
                     test_df = pd.read_excel(new_template_file, nrows=0)
                     cols_lower = [str(c).lower().strip() for c in test_df.columns]
@@ -456,12 +516,10 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                     if has_kode and has_progress:
                         st.success(f"✅ Template valid! Kolom: {', '.join(test_df.columns.tolist())}")
 
-                        # Preview 5 baris pertama
                         preview_df = pd.read_excel(new_template_file, nrows=5)
                         st.markdown("**Preview 5 baris pertama:**")
                         st.dataframe(preview_df, use_container_width=True)
 
-                        # Reset file pointer
                         new_template_file.seek(0)
 
                         col_btn1, col_btn2 = st.columns(2)
@@ -506,9 +564,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             else:
                 st.info("Belum ada history template.")
 
-    # ============================================================
-    # USER: DOWNLOAD TEMPLATE + PETUNJUK
-    # ============================================================
     st.markdown("---")
     st.markdown("#### 📥 Download Template")
     st.caption("Download template untuk memudahkan pengisian progress recruitment.")
@@ -534,9 +589,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
     else:
         st.warning("⚠️ Belum ada template. Hubungi Admin.")
 
-    # ============================================================
-    # PETUNJUK
-    # ============================================================
     with st.expander("📋 Petunjuk Penggunaan Template", expanded=False):
         st.markdown("""
         ### 🎯 Cara Menggunakan Template
@@ -568,9 +620,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
         - Bisa upload multiple kandidat sekaligus
         """)
 
-    # ============================================================
-    # UPLOAD FILE
-    # ============================================================
     st.markdown("---")
     st.markdown("#### 📤 Upload File Excel")
 
@@ -614,9 +663,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             st.markdown("**Preview 5 rows:**")
             st.dataframe(df.head(5), use_container_width=True)
 
-            # ============================================================
-            # AUTO-DETECT KOLOM
-            # ============================================================
             kolom_kode = None
             kolom_progress = None
             kolom_next_action = None
@@ -632,7 +678,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                 if "next" in cl and "action" in cl:
                     kolom_next_action = col
 
-            # Cek apakah dari template (semua kolom ketemu)
             from_template = (kolom_kode is not None and kolom_progress is not None)
 
             st.markdown("---")
@@ -807,10 +852,6 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                 st.code(traceback.format_exc())
 
 
-# ============================================================
-# TAB 3: EXPORT EXCEL
-# ============================================================
-
 def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
     st.markdown("### 📥 Export Excel Update Progress Recruitment")
     st.caption("Download data progress recruitment dalam format Excel yang siap dipakai.")
@@ -967,9 +1008,313 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
             )
 
 
-# ============================================================
-# MAIN FUNCTION
-# ============================================================
+def tab_backup_import(db, user, admin, current_week, current_year):
+    st.markdown("### 🔄 Backup Import (Legacy Excel)")
+    st.caption("Import progress dari file Excel lama yang **belum ada Kode Unik**.")
+    st.info(
+        "📌 **Cara kerja matching:** Posisi + PIC Recruiter + Tanggal FPTK\n\n"
+        "📌 **Data yang diambil dari Excel:** Recruitment Update (Progress + Next Action)\n\n"
+        "📌 **Data yang diambil dari DB:** Level, Direktorat, BU, Filter, SLA, dll"
+    )
+
+    if not admin:
+        st.warning("⚠️ Fitur ini hanya untuk Admin.")
+        return
+
+    st.markdown("---")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        week_num = st.number_input(
+            "Week Number",
+            min_value=1, max_value=53,
+            value=current_week,
+            key="bkp_week"
+        )
+    with col2:
+        year = st.number_input(
+            "Year",
+            min_value=2024, max_value=2030,
+            value=current_year,
+            key="bkp_year"
+        )
+
+    uploaded = st.file_uploader(
+        "Upload file Excel legacy",
+        type=["xlsx", "xlsm"],
+        key="bkp_upload_file"
+    )
+
+    if not uploaded:
+        st.info("📁 Silakan upload file Excel legacy.")
+        return
+
+    try:
+        xls = pd.ExcelFile(uploaded)
+        sheet_names = xls.sheet_names
+
+        selected_sheet = st.selectbox(
+            "Pilih Sheet",
+            sheet_names,
+            index=0,
+            key="bkp_sheet"
+        )
+
+        df = pd.read_excel(uploaded, sheet_name=selected_sheet)
+
+        st.success(f"✅ File terbaca: {len(df)} rows, {len(df.columns)} kolom")
+        st.markdown("**Preview 5 rows:**")
+        st.dataframe(df.head(5), use_container_width=True, hide_index=True)
+
+        col_map = {}
+        for c in df.columns:
+            cl = str(c).lower().strip()
+            if cl == "posisi" or cl == "position":
+                col_map["posisi"] = c
+            elif "pic" in cl and ("ta" in cl or "recruiter" in cl or "rekruter" in cl):
+                col_map["pic"] = c
+            elif "tanggal" in cl and "fptk" in cl:
+                col_map["tanggal"] = c
+            elif cl == "level":
+                col_map["level"] = c
+            elif "business" in cl and "unit" in cl:
+                col_map["bu"] = c
+            elif "recruitment" in cl and "update" in cl:
+                col_map["progress"] = c
+
+        st.markdown("---")
+        st.markdown("#### 🔧 Mapping Kolom")
+
+        col_a, col_b, col_c = st.columns(3)
+        with col_a:
+            posisi_col = st.selectbox(
+                "Kolom **Posisi** *",
+                df.columns.tolist(),
+                index=df.columns.tolist().index(col_map["posisi"]) if "posisi" in col_map else 0,
+                key="bkp_map_posisi"
+            )
+        with col_b:
+            pic_col = st.selectbox(
+                "Kolom **PIC TA** *",
+                df.columns.tolist(),
+                index=df.columns.tolist().index(col_map["pic"]) if "pic" in col_map else 0,
+                key="bkp_map_pic"
+            )
+        with col_c:
+            tanggal_col = st.selectbox(
+                "Kolom **Tanggal FPTK** *",
+                df.columns.tolist(),
+                index=df.columns.tolist().index(col_map["tanggal"]) if "tanggal" in col_map else 0,
+                key="bkp_map_tanggal"
+            )
+
+        col_d, col_e = st.columns(2)
+        with col_d:
+            progress_col = st.selectbox(
+                "Kolom **Recruitment Update** *",
+                df.columns.tolist(),
+                index=df.columns.tolist().index(col_map["progress"]) if "progress" in col_map else 0,
+                key="bkp_map_progress"
+            )
+        with col_e:
+            level_col = st.selectbox(
+                "Kolom **Level** (buat preview, nggak di-save)",
+                ["(tidak ada)"] + df.columns.tolist(),
+                index=df.columns.tolist().index(col_map["level"]) + 1 if "level" in col_map else 0,
+                key="bkp_map_level"
+            )
+
+        st.markdown("---")
+        st.markdown("#### 👀 Preview Matching (10 baris pertama)")
+
+        preview_data = []
+        match_count = 0
+        no_match_count = 0
+
+        for idx, row in df.head(10).iterrows():
+            posisi_val = row.get(posisi_col, "")
+            pic_val = row.get(pic_col, "")
+            tanggal_val = row.get(tanggal_col, "")
+            level_excel = row.get(level_col, "") if level_col != "(tidak ada)" else ""
+
+            fptk = find_fptk_by_legacy_match(db, posisi_val, pic_val, tanggal_val)
+
+            if fptk:
+                match_count += 1
+                match_status = "✅ Match"
+                level_db = fptk.level_fptk or ""
+                direktorat_db = fptk.direktorat or ""
+                level_diff = "⚠️ Beda" if level_excel and level_db and str(level_excel).strip().upper() != str(level_db).strip().upper() else ""
+                kode_unik_match = fptk.kode_unik
+            else:
+                no_match_count += 1
+                match_status = "❌ No Match"
+                level_db = "-"
+                direktorat_db = "-"
+                level_diff = ""
+                kode_unik_match = "-"
+
+            preview_data.append({
+                "Status": match_status,
+                "Posisi": str(posisi_val)[:40],
+                "PIC": pic_val,
+                "Tanggal": str(tanggal_val),
+                "Kode Unik (DB)": kode_unik_match,
+                "Level Excel": level_excel,
+                "Level DB": level_db,
+                "Beda Level": level_diff,
+                "Direktorat DB": direktorat_db,
+            })
+
+        st.dataframe(pd.DataFrame(preview_data), use_container_width=True, hide_index=True)
+        st.caption(f"Match: {match_count} | No Match: {no_match_count}")
+
+        st.markdown("---")
+
+        if st.button("🔍 Scan Semua Row", use_container_width=True, key="bkp_btn_scan"):
+            total = len(df)
+            match_all = 0
+            no_match_all = 0
+            level_beda = 0
+            no_match_details = []
+
+            scan_bar = st.progress(0)
+            for idx, row in df.iterrows():
+                scan_bar.progress((idx + 1) / total)
+                posisi_val = row.get(posisi_col, "")
+                pic_val = row.get(pic_col, "")
+                tanggal_val = row.get(tanggal_col, "")
+                level_excel = row.get(level_col, "") if level_col != "(tidak ada)" else ""
+
+                fptk = find_fptk_by_legacy_match(db, posisi_val, pic_val, tanggal_val)
+
+                if fptk:
+                    match_all += 1
+                    level_db = fptk.level_fptk or ""
+                    if level_excel and level_db and str(level_excel).strip().upper() != str(level_db).strip().upper():
+                        level_beda += 1
+                else:
+                    no_match_all += 1
+                    if len(no_match_details) < 50:
+                        no_match_details.append(
+                            f"Row {idx + 2}: Posisi='{posisi_val}' | PIC='{pic_val}' | Tgl='{tanggal_val}'"
+                        )
+
+            scan_bar.empty()
+
+            st.markdown("#### 📊 Hasil Scan")
+            col1, col2, col3 = st.columns(3)
+            col1.metric("✅ Match", match_all)
+            col2.metric("❌ No Match", no_match_all)
+            col3.metric("⚠️ Beda Level", level_beda)
+
+            if no_match_details:
+                with st.expander(f"❌ Detail No Match ({no_match_all} rows)"):
+                    for d in no_match_details:
+                        st.text(d)
+
+        st.markdown("---")
+        st.markdown("#### 🚀 Import ke Database")
+
+        if st.button("🚀 Mulai Import Backup", type="primary", use_container_width=True, key="bkp_btn_import"):
+            total = len(df)
+            created = 0
+            updated = 0
+            skipped_no_match = 0
+            skipped_empty = 0
+            errors = 0
+            error_details = []
+            level_diff_count = 0
+
+            progress_bar = st.progress(0)
+            status_text = st.empty()
+
+            for idx, row in df.iterrows():
+                progress_bar.progress((idx + 1) / total)
+                status_text.info(f"Memproses row {idx + 1}/{total}...")
+
+                posisi_val = row.get(posisi_col, "")
+                pic_val = row.get(pic_col, "")
+                tanggal_val = row.get(tanggal_col, "")
+                progress_raw = row.get(progress_col, "")
+
+                if not posisi_val or not pic_val or not tanggal_val:
+                    skipped_empty += 1
+                    continue
+
+                if pd.isna(progress_raw) or str(progress_raw).strip() == "":
+                    skipped_empty += 1
+                    continue
+
+                fptk = find_fptk_by_legacy_match(db, posisi_val, pic_val, tanggal_val)
+
+                if not fptk:
+                    skipped_no_match += 1
+                    if len(error_details) < 100:
+                        error_details.append(
+                            f"❌ Row {idx + 2}: No match | Posisi='{posisi_val}' | PIC='{pic_val}' | Tgl='{tanggal_val}'"
+                        )
+                    continue
+
+                try:
+                    progress_text, next_action_text = parse_progress_update_text(progress_raw)
+
+                    if not progress_text and not next_action_text:
+                        skipped_empty += 1
+                        continue
+
+                    progress_obj, action = upsert_progress(
+                        db, fptk, week_num, year,
+                        progress_text, next_action_text
+                    )
+                    progress_obj.created_by = user.id
+                    progress_obj.created_by_name = user.display_name or user.username
+
+                    if action == "created":
+                        created += 1
+                    else:
+                        updated += 1
+
+                    if (created + updated) % 10 == 0:
+                        db.commit()
+
+                except Exception as e:
+                    errors += 1
+                    if len(error_details) < 100:
+                        error_details.append(f"❌ Row {idx + 2}: {str(e)}")
+                    db.rollback()
+
+            db.commit()
+            progress_bar.empty()
+            status_text.empty()
+
+            st.success("✅ Backup import selesai!")
+            st.markdown("### 📊 Summary")
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("✅ Created", created)
+            col2.metric("🔄 Updated", updated)
+            col3.metric("⚠️ Skip No Match", skipped_no_match)
+            col4.metric("⚠️ Skip Empty", skipped_empty)
+
+            if errors > 0:
+                st.error(f"❌ {errors} error saat import")
+
+            if error_details:
+                with st.expander("🔍 Detail Log (max 100)"):
+                    for d in error_details:
+                        st.text(d)
+
+            st.cache_data.clear()
+
+            if created + updated > 0:
+                st.balloons()
+
+    except Exception as e:
+        st.error(f"❌ Error baca Excel: {str(e)}")
+        import traceback
+        with st.expander("🔍 Detail error"):
+            st.code(traceback.format_exc())
+
 
 def show_update_progres():
     st.title("📊 Update Progres Recruitment")
@@ -1027,10 +1372,11 @@ def show_update_progres():
             time.sleep(0.3)
             st.rerun()
 
-    tab1, tab2, tab3 = st.tabs([
+    tab1, tab2, tab3, tab4 = st.tabs([
         "✏️ Update Manual",
         "📤 Upload Excel Massal",
-        "📥 Export Excel"
+        "📥 Export Excel",
+        "🔄 Backup Import (Legacy)"
     ])
 
     with tab1:
@@ -1041,3 +1387,6 @@ def show_update_progres():
 
     with tab3:
         tab_export_excel(db, user, admin, current_week, current_year, filter_opts)
+
+    with tab4:
+        tab_backup_import(db, user, admin, current_week, current_year)
