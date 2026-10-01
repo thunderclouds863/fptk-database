@@ -235,56 +235,6 @@ def enrich_fptk_dates(df):
 
 
 # ============================================================
-# HELPER: RENDER PERIOD HEADER
-# ============================================================
-
-def render_period_header(date_from, date_to, earliest_date, latest_date, total_data, is_all_time):
-    if is_all_time:
-        if earliest_date and latest_date:
-            period_text = f"📅 Periode: **SEMUA DATA** ({earliest_date.strftime('%d %b %Y')} – {latest_date.strftime('%d %b %Y')})"
-        else:
-            period_text = "📅 Periode: **SEMUA DATA**"
-        badge_color = "#3498db"
-        badge_text = "ALL TIME"
-    else:
-        period_text = f"📅 Periode: **{date_from.strftime('%d %b %Y')}** s/d **{date_to.strftime('%d %b %Y')}**"
-        delta_days = (date_to - date_from).days
-        badge_color = "#2ecc71"
-        badge_text = f"{delta_days + 1} HARI"
-
-    st.markdown(
-        f"""
-        <div style="
-            background: linear-gradient(90deg, {badge_color}22, {badge_color}11);
-            border-left: 5px solid {badge_color};
-            padding: 12px 20px;
-            border-radius: 8px;
-            margin-bottom: 12px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        ">
-            <div style="font-size: 15px; color: #2c3e50;">
-                {period_text}
-            </div>
-            <div style="
-                background: {badge_color};
-                color: white;
-                padding: 4px 14px;
-                border-radius: 20px;
-                font-size: 12px;
-                font-weight: bold;
-                letter-spacing: 1px;
-            ">
-                {badge_text} · {total_data:,} FPTK
-            </div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-
-# ============================================================
 # METRIC CARDS
 # ============================================================
 
@@ -980,7 +930,6 @@ def render_upload_cycle_progress():
 
 def show_dashboard():
     st.title("📊 Dashboard FPTK & Sourcing")
-    st.markdown("Visualisasi lengkap recruitment analytics.")
     st.markdown("---")
 
     try:
