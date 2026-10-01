@@ -1023,15 +1023,6 @@ def show_dashboard():
 
     admin = check_admin_role()
 
-    render_period_header(
-        date_from=default_from,
-        date_to=default_to,
-        earliest_date=earliest_date,
-        latest_date=latest_date,
-        total_data=len(df),
-        is_all_time=use_all_time,
-    )
-
     metrics = calculate_metrics(df)
     render_metrics_cards(metrics)
     st.markdown("---")
