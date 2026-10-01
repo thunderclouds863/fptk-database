@@ -8,9 +8,45 @@ from core.database import get_db
 from core.models import FPTK, DBSourcing, User, UploadStatus, UploadCycle, MasterDropdown
 from core.auth import get_current_user, is_admin
 from core.utils import get_filter_options_from_db
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 from sqlalchemy import func
 import time
+
+
+# ============================================================
+# CACHE: GET EARLIEST FPTK DATE
+# ============================================================
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_earliest_fptk_date():
+    db = next(get_db())
+    try:
+        result = db.query(func.min(FPTK.fptk_date_real)).scalar()
+        if result:
+            if isinstance(result, datetime):
+                return result.date()
+            return result
+        return None
+    except Exception:
+        return None
+    finally:
+        db.close()
+
+
+@st.cache_data(ttl=600, show_spinner=False)
+def get_latest_fptk_date():
+    db = next(get_db())
+    try:
+        result = db.query(func.max(FPTK.fptk_date_real)).scalar()
+        if result:
+            if isinstance(result, datetime):
+                return result.date()
+            return result
+        return None
+    except Exception:
+        return None
+    finally:
+        db.close()
 
 
 # ============================================================
@@ -196,6 +232,56 @@ def enrich_fptk_dates(df):
     df["month_year"] = df["fptk_date_real"].dt.strftime("%b %Y")
     df["quarter"] = df["fptk_date_real"].dt.to_period("Q").astype(str)
     return df
+
+
+# ============================================================
+# HELPER: RENDER PERIOD HEADER
+# ============================================================
+
+def render_period_header(date_from, date_to, earliest_date, latest_date, total_data, is_all_time):
+    if is_all_time:
+        if earliest_date and latest_date:
+            period_text = f"📅 Periode: **SEMUA DATA** ({earliest_date.strftime('%d %b %Y')} – {latest_date.strftime('%d %b %Y')})"
+        else:
+            period_text = "📅 Periode: **SEMUA DATA**"
+        badge_color = "#3498db"
+        badge_text = "ALL TIME"
+    else:
+        period_text = f"📅 Periode: **{date_from.strftime('%d %b %Y')}** s/d **{date_to.strftime('%d %b %Y')}**"
+        delta_days = (date_to - date_from).days
+        badge_color = "#2ecc71"
+        badge_text = f"{delta_days + 1} HARI"
+
+    st.markdown(
+        f"""
+        <div style="
+            background: linear-gradient(90deg, {badge_color}22, {badge_color}11);
+            border-left: 5px solid {badge_color};
+            padding: 12px 20px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        ">
+            <div style="font-size: 15px; color: #2c3e50;">
+                {period_text}
+            </div>
+            <div style="
+                background: {badge_color};
+                color: white;
+                padding: 4px 14px;
+                border-radius: 20px;
+                font-size: 12px;
+                font-weight: bold;
+                letter-spacing: 1px;
+            ">
+                {badge_text} · {total_data:,} FPTK
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 # ============================================================
@@ -906,14 +992,48 @@ def show_dashboard():
             "status_options": ["OP", "Closed", "Cancel"],
         }
 
+    earliest_date = get_earliest_fptk_date()
+    latest_date = get_latest_fptk_date()
+
+    today = date.today()
+    default_from = earliest_date if earliest_date else today - timedelta(days=180)
+    default_to = today
+
     with st.sidebar:
         st.markdown("### 🔍 Filter Dashboard")
 
-        col1, col2 = st.columns(2)
-        with col1:
-            date_from = st.date_input("Dari", datetime.now() - timedelta(days=180))
-        with col2:
-            date_to = st.date_input("Sampai", datetime.now())
+        st.markdown("**📅 Periode**")
+        use_all_time = st.checkbox(
+            "Tampilkan Semua Data (All Time)",
+            value=True,
+            key="dash_use_all_time",
+            help="Kalau dicentang, filter tanggal diabaikan."
+        )
+
+        if use_all_time:
+            st.caption(f"📌 Dari **{default_from.strftime('%d %b %Y')}** (FPTK pertama) sampai **{default_to.strftime('%d %b %Y')}**")
+            date_from = default_from
+            date_to = default_to
+        else:
+            col1, col2 = st.columns(2)
+            with col1:
+                date_from = st.date_input(
+                    "Dari",
+                    value=default_from,
+                    min_value=date(2020, 1, 1),
+                    max_value=today,
+                    key="dash_date_from",
+                )
+            with col2:
+                date_to = st.date_input(
+                    "Sampai",
+                    value=default_to,
+                    min_value=date(2020, 1, 1),
+                    max_value=today,
+                    key="dash_date_to",
+                )
+
+        st.markdown("---")
 
         pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + filter_opts.get("pic_options", []))
         status_filter = st.selectbox("Status", ["Semua"] + filter_opts.get("status_options", ["OP", "Closed", "Cancel"]))
@@ -943,16 +1063,25 @@ def show_dashboard():
             divisi_filter=divisi_filter,
             dept_filter=dept_filter,
             filter_kat=filter_kat,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=date_from if not use_all_time else None,
+            date_to=date_to if not use_all_time else None,
         )
         df_sourcing = load_sourcing_data(
             pic_filter=pic_filter,
-            date_from=date_from,
-            date_to=date_to,
+            date_from=date_from if not use_all_time else None,
+            date_to=date_to if not use_all_time else None,
         )
 
     admin = check_admin_role()
+
+    render_period_header(
+        date_from=default_from,
+        date_to=default_to,
+        earliest_date=earliest_date,
+        latest_date=latest_date,
+        total_data=len(df),
+        is_all_time=use_all_time,
+    )
 
     metrics = calculate_metrics(df)
     render_metrics_cards(metrics)
