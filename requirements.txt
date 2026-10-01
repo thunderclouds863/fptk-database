@@ -14,3 +14,4 @@ Pillow>=10.0.0
 streamlit-option-menu>=0.3.0
 python-dotenv
 boto3
+psycopg[binary]>=3.1
