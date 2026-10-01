@@ -1440,62 +1440,105 @@ def show_upload_compile():
                                 kode=kode_pic
                             )
 
-                        new_fptk = FPTK(
-                            kode_unik=kode_unik_used,
-                            posisi=posisi,
-                            kode_pic=sanitize_value(kode_pic),
-                            fptk_date_real=fptk_date,
-                            fptk_date_kode=fptk_date_kode_used,
-                            kode_angka=sanitize_value(kode_angka_used),
-                            business_unit=business_unit,
-                            direktorat=direktorat,
-                            divisi=sanitize_value(divisi),
-                            department=sanitize_value(department),
-                            level_fptk=level_fptk,
-                            level_number=level_number,
-                            alasan_permintaan_fptk=alasan,
-                            category_fptk=category,
-                            pic_recruiter=pic_recruiter,
-                            filter_kategorisasi_fptk=filter_kat,
-                            vacancy=vacancy,
-                            status=status,
-                            offering_date=offering_date,
-                            fptk_cancel_date=cancel_date,
-                            jumlah_sla=sla_days,
-                            deadline_sla=deadline_sla,
-                            detail_sla=auto_detail_sla,
-                            week_fptk_date=week_num,
-                            month_fptk_date=month_name,
-                            kode_bu=sanitize_value(kode_bu),
-                            nama_kandidat=sanitize_value(nama_kandidat),
-                            lokasi_kerja=sanitize_value(lokasi_kerja),
-                            lokasi_hr=sanitize_value(lokasi_hr),
-                            user_manager=sanitize_value(user_manager),
-                            indirect_user=sanitize_value(indirect_user),
-                            status_karyawan=sanitize_value(status_karyawan),
-                            estimasi_join=estimasi_join,
-                            kebutuhan_laptop=sanitize_value(kebutuhan_laptop),
-                            lokasi_onboarding=sanitize_value(lokasi_onboarding),
-                            fptk_availability=sanitize_value(fptk_availability),
-                            remark=sanitize_value(remark),
-                            source_user_id=user.id,
-                            created_at=datetime.now(),
-                            last_compile_action="EMAIL_PARSE"
-                        )
-                        db.add(new_fptk)
+                        created_count = 0
+                        skipped_count = 0
+                        last_kode_unik = ""
+
+                        progress_bar = st.progress(0, text="Menyimpan FPTK...")
+
+                        kode_angka_current = kode_angka_used
+
+                        for i in range(vacancy):
+                            fptk_date_kode_current = fptk_date_kode_used + timedelta(days=i)
+
+                            if i > 0:
+                                kode_angka_current = kode_angka_used + i
+
+                            kode_unik_baru = generate_kode_unik(kode_pic, kode_angka_current, fptk_date_kode_current)
+
+                            existing_check = check_duplicate(db, kode_unik_baru, posisi)
+                            suffix_index = 0
+                            while existing_check:
+                                suffix_index += 1
+                                kode_angka_current += 1
+                                kode_unik_baru = generate_kode_unik(kode_pic, kode_angka_current, fptk_date_kode_current)
+                                existing_check = check_duplicate(db, kode_unik_baru, posisi)
+                                if suffix_index > 100:
+                                    break
+
+                            existing_check = check_duplicate(db, kode_unik_baru, posisi)
+                            if existing_check:
+                                skipped_count += 1
+                                continue
+
+                            last_kode_unik = kode_unik_baru
+
+                            new_fptk = FPTK(
+                                kode_unik=kode_unik_baru,
+                                posisi=posisi,
+                                kode_pic=sanitize_value(kode_pic),
+                                fptk_date_real=fptk_date,
+                                fptk_date_kode=fptk_date_kode_current,
+                                kode_angka=sanitize_value(kode_angka_current),
+                                business_unit=business_unit,
+                                direktorat=direktorat,
+                                divisi=sanitize_value(divisi),
+                                department=sanitize_value(department),
+                                level_fptk=level_fptk,
+                                level_number=level_number,
+                                alasan_permintaan_fptk=alasan,
+                                category_fptk=category,
+                                pic_recruiter=pic_recruiter,
+                                filter_kategorisasi_fptk=filter_kat,
+                                vacancy=1,
+                                status=status,
+                                offering_date=offering_date,
+                                fptk_cancel_date=cancel_date,
+                                jumlah_sla=sla_days,
+                                deadline_sla=deadline_sla,
+                                detail_sla=auto_detail_sla,
+                                week_fptk_date=week_num,
+                                month_fptk_date=month_name,
+                                kode_bu=sanitize_value(kode_bu),
+                                nama_kandidat=sanitize_value(nama_kandidat),
+                                lokasi_kerja=sanitize_value(lokasi_kerja),
+                                lokasi_hr=sanitize_value(lokasi_hr),
+                                user_manager=sanitize_value(user_manager),
+                                indirect_user=sanitize_value(indirect_user),
+                                status_karyawan=sanitize_value(status_karyawan),
+                                estimasi_join=estimasi_join,
+                                kebutuhan_laptop=sanitize_value(kebutuhan_laptop),
+                                lokasi_onboarding=sanitize_value(lokasi_onboarding),
+                                fptk_availability=sanitize_value(fptk_availability),
+                                remark=sanitize_value(remark),
+                                source_user_id=user.id,
+                                created_at=datetime.now(),
+                                last_compile_action="EMAIL_PARSE"
+                            )
+                            db.add(new_fptk)
+                            created_count += 1
+
+                            progress = (i + 1) / vacancy
+                            progress_bar.progress(progress, text=f"Menyimpan FPTK {i+1}/{vacancy}")
+
                         db.commit()
+                        progress_bar.empty()
 
                         st.session_state.parsed_email_data = {}
 
-                        st.success(f"✅ FPTK berhasil disimpan dari email!")
-                        st.success(f"✅ Posisi '{posisi}' telah ditambahkan/diupdate ke DB Kode Posisi.")
-                        st.info(f"📋 Kode Unik: **{kode_unik_used}**")
-                        st.info(f"📋 Kode Angka: **{kode_angka_used}**")
-                        st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
-                        st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
-                        st.balloons()
-                        st.cache_data.clear()
-                        st.rerun()
+                        if created_count > 0:
+                            st.success(f"✅ {created_count} FPTK berhasil disimpan dari email!")
+                            st.success(f"✅ Posisi '{posisi}' telah ditambahkan/diupdate ke DB Kode Posisi.")
+                            if skipped_count > 0:
+                                st.warning(f"⚠️ {skipped_count} FPTK dilewati (duplikat)")
+                            st.info(f"📋 Kode Unik terakhir: **{last_kode_unik}**")
+                            st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
+                            st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
+                            st.balloons()
+                            st.cache_data.clear()
+                            st.rerun()
+                        else:
+                            st.warning("⚠️ Tidak ada FPTK yang berhasil disimpan")
 
                     except Exception as e:
                         st.error(f"❌ Error: {str(e)}")
