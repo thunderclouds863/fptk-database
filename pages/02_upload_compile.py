@@ -1677,10 +1677,10 @@ def parse_email_body(body: str, bu_options: list = None, alasan_options: list = 
     if result["kode_bu"]:
         bu_map = {
             "CORP": "Corporate",
-            "MP": "Commercial MP",
-            "CMD": "Commercial CMD",
-            "JESS": "Commercial JESS",
-            "MS": "Commercial MS"
+            "MP": "Macroprima Panganutama",
+            "CMD": "Cimory Mountain Dairy",
+            "JES": "Java Egg Specialities",
+            "MS": "Macrosentra Niagaboga"
         }
         result["direktorat"] = bu_map.get(result["kode_bu"], "")
 
