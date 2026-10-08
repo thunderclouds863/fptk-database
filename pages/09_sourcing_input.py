@@ -243,7 +243,7 @@ def parse_cv_text(raw_text):
             if not val:
                 continue
 
-            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah', 'kampus', 'institut', 'politeknik']):
+            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah', 'kampus', 'institut', 'politeknik', 'Nama Universitas/Sekolah']):
                 univ_dd, nama_universitas_lainnya = normalize_univ(val)
                 parsed['univ'] = univ_dd
                 parsed['nama_universitas_lainnya'] = nama_universitas_lainnya
