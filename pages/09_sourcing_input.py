@@ -197,7 +197,7 @@ def preprocess_cv_text(raw_text):
 
 def parse_cv_text(raw_text):
     parsed = {
-        'nama': '', 'email': '', 'hp': '', 'univ': '', 'univ_lain': '',
+        'nama': '', 'email': '', 'hp': '', 'univ': '', 'nama_universitas_lainnya': '',
         'jurusan': '', 'jurusan_lain': '', 'ipk': '', 'tahun_lulus': '', 'domisili': '',
         'last_position': '', 'last_company': '', 'last_tenure': '', 'total_tenure': '',
         'sumber': '', 'posisi': '', 'kode_unik': '', 'jenjang': '', 'fmcg': '',
@@ -244,9 +244,9 @@ def parse_cv_text(raw_text):
                 continue
 
             if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah', 'kampus', 'institut', 'politeknik']):
-                univ_dd, univ_lain = normalize_univ(val)
+                univ_dd, nama_universitas_lainnya = normalize_univ(val)
                 parsed['univ'] = univ_dd
-                parsed['univ_lain'] = univ_lain
+                parsed['nama_universitas_lainnya'] = nama_universitas_lainnya
                 parsed['university_tier'] = get_university_tier(univ_dd)
 
             elif any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
@@ -766,7 +766,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     email = initial_data.get('email', '') if initial_data else ''
     hp = initial_data.get('hp', '') if initial_data else ''
     univ = initial_data.get('univ', '') if initial_data else ''
-    univ_lain_init = initial_data.get('univ_lain', '') if initial_data else ''
+    nama_universitas_lainnya_init = initial_data.get('nama_universitas_lainnya', '') if initial_data else ''
     jurusan = initial_data.get('jurusan', '') if initial_data else ''
     jurusan_lain_init = initial_data.get('jurusan_lain', '') if initial_data else ''
     ipk = initial_data.get('ipk', '') if initial_data else ''
@@ -785,16 +785,16 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     univ_original = univ
     if univ_original and univ_original not in univ_options:
         univ = "Lainnya"
-        if not univ_lain_init:
-            univ_lain_init = univ_original
+        if not nama_universitas_lainnya_init:
+            nama_universitas_lainnya_init = univ_original
     elif univ_original == "Lainnya":
         univ = "Lainnya"
     elif univ_original in univ_options and univ_original != "":
         univ = univ_original
-        univ_lain_init = ""
+        nama_universitas_lainnya_init = ""
     else:
         univ = ""
-        univ_lain_init = ""
+        nama_universitas_lainnya_init = ""
 
     jurusan_original = jurusan
     if jurusan_original and jurusan_original not in jurusan_options:
@@ -890,9 +890,9 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             univ_input = st.selectbox("Universitas", [""] + univ_options, index=default_univ_index, key=f"{form_key}_univ")
 
             if univ_input == "Lainnya":
-                univ_lain = st.text_input("Univ Lainnya *", value=univ_lain_init, key=f"{form_key}_univ_lain")
+                nama_universitas_lainnya = st.text_input("Univ Lainnya *", value=nama_universitas_lainnya_init, key=f"{form_key}_nama_universitas_lainnya")
             else:
-                univ_lain = ""
+                nama_universitas_lainnya = ""
 
             tier_auto = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
             st.text_input("University Tier (auto)", value=tier_auto, disabled=True)
@@ -1173,7 +1173,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             errors.append("Tidak ada FPTK OP yang tersedia")
         elif not selected_fptk:
             errors.append("Pilih FPTK")
-        if univ_input == "Lainnya" and not univ_lain:
+        if univ_input == "Lainnya" and not nama_universitas_lainnya:
             errors.append("Universitas Lainnya wajib diisi karena memilih 'Lainnya'")
         if jurusan_input == "Lainnya" and not jurusan_lain:
             errors.append("Jurusan Lainnya wajib diisi karena memilih 'Lainnya'")
@@ -1222,7 +1222,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                     domisili=domisili_input,
                     jenjang_pendidikan=jenjang_input,
                     nama_universitas_top10=univ_input if univ_input != "Lainnya" else "",
-                    nama_universitas_lainnya=univ_lain if univ_input == "Lainnya" else "",
+                    nama_universitas_lainnya=nama_universitas_lainnya if univ_input == "Lainnya" else "",
                     jurusan=jurusan_input if jurusan_input != "Lainnya" else "",
                     jurusan_lainnya=jurusan_lain if jurusan_input == "Lainnya" else "",
                     university_tier=tier_final,
