@@ -140,14 +140,22 @@ def _clean_text(s):
 
 
 def normalize_univ(raw_val):
+    """Return (canonical_univ, nama_lainnya).
+    - Jika cocok dengan Top list → return (canonical, "")
+    - Jika tidak cocok → return ("Lainnya", pretty_name)
+    """
     if not raw_val or not str(raw_val).strip():
         return "", ""
     raw_str = str(raw_val).strip()
     raw_clean = _clean_text(raw_str)
+    
+    # Cek apakah cocok dengan top university
     for canonical, aliases in UNIV_ALIASES.items():
         for alias in aliases:
             if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
                 return canonical, ""
+    
+    # Tidak cocok → Lainnya, tapi simpan nama aslinya
     pretty = " ".join([w.capitalize() for w in raw_str.split()])
     return "Lainnya", pretty
 
@@ -247,7 +255,7 @@ def parse_cv_text(raw_text):
                 univ_dd, nama_universitas_lainnya = normalize_univ(val)
                 parsed['univ'] = univ_dd
                 parsed['nama_universitas_lainnya'] = nama_universitas_lainnya
-                parsed['university_tier'] = get_university_tier(univ_dd)
+                parsed['university_tier'] = get_university_tier(univ_dd) if univ_dd != "Lainnya" else "Lainnya"
 
             elif any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
                 parsed['nama'] = val
@@ -759,14 +767,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     fmcg_options = sourcing_options['fmcg_options']
     pipeline_opts = pipeline_options
 
-    reset_keys = [
-        f"{form_key}_nama_universitas_lainnya",
-        f"{form_key}_jurusan_lain",
-    ]
-    for rk in reset_keys:
-        if rk in st.session_state:
-            del st.session_state[rk]
-
     nama = initial_data.get('nama', '') if initial_data else ''
     email = initial_data.get('email', '') if initial_data else ''
     hp = initial_data.get('hp', '') if initial_data else ''
@@ -787,30 +787,40 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     posisi = initial_data.get('posisi', '') if initial_data else ''
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
 
+    # ========== FIX BUG #1: Logic universitas ==========
+    # Jika univ dari parse = "Lainnya" dan ada nama_universitas_lainnya
+    # Maka dropdown harus ke-set ke "Lainnya" dan text input keisi nama asli
     univ_original = (univ or "").strip()
-    if univ_original and univ_original not in univ_options:
+    
+    if univ_original == "Lainnya":
+        # Sudah bener, dropdown "Lainnya", text input diisi nama asli
+        univ = "Lainnya"
+        # nama_universitas_lainnya_init sudah di-set di atas dari initial_data
+    elif univ_original in univ_options:
+        # Cocok dengan top list
+        univ = univ_original
+        nama_universitas_lainnya_init = ""
+    elif univ_original:
+        # Ada nilai tapi gak cocok → anggap Lainnya
         univ = "Lainnya"
         if not nama_universitas_lainnya_init:
             nama_universitas_lainnya_init = univ_original
-    elif univ_original == "Lainnya":
-        univ = "Lainnya"
-    elif univ_original in univ_options:
-        univ = univ_original
-        nama_universitas_lainnya_init = ""
     else:
         univ = ""
         nama_universitas_lainnya_init = ""
 
+    # ========== FIX BUG #1 juga: Logic jurusan ==========
     jurusan_original = (jurusan or "").strip()
-    if jurusan_original and jurusan_original not in jurusan_options:
-        jurusan = "Lainnya"
-        if not jurusan_lain_init:
-            jurusan_lain_init = jurusan_original
-    elif jurusan_original == "Lainnya":
+    
+    if jurusan_original == "Lainnya":
         jurusan = "Lainnya"
     elif jurusan_original in jurusan_options:
         jurusan = jurusan_original
         jurusan_lain_init = ""
+    elif jurusan_original:
+        jurusan = "Lainnya"
+        if not jurusan_lain_init:
+            jurusan_lain_init = jurusan_original
     else:
         jurusan = ""
         jurusan_lain_init = ""
@@ -886,37 +896,52 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                                         index=([""] + jenjang_options).index(jenjang) if jenjang in jenjang_options else 0,
                                         key=f"{form_key}_jenjang")
 
+            # ===== FIX BUG #1: dropdown universitas =====
             default_univ_index = 0
-            if univ in univ_options:
-                default_univ_index = ([""] + univ_options).index(univ) if univ != "" else 0
-            elif univ:
+            if univ == "Lainnya":
                 default_univ_index = ([""] + univ_options).index("Lainnya")
+            elif univ in univ_options:
+                default_univ_index = ([""] + univ_options).index(univ) if univ != "" else 0
 
             univ_input = st.selectbox("Universitas", [""] + univ_options, index=default_univ_index, key=f"{form_key}_univ")
 
+            # ===== FIX BUG #1: text input univ lainnya =====
+            # Pakai key unik supaya Streamlit track value-nya
             if univ_input == "Lainnya":
                 nama_universitas_lainnya = st.text_input(
                     "Univ Lainnya *",
-                    value=nama_universitas_lainnya_init
+                    value=nama_universitas_lainnya_init,
+                    key=f"{form_key}_univ_lainnya_input",
+                    placeholder="Contoh: SMAN 101 Jakarta Barat"
                 )
             else:
                 nama_universitas_lainnya = ""
 
-            tier_auto = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
+            # ===== FIX BUG #2: University Tier auto =====
+            if univ_input and univ_input != "Lainnya" and univ_input in UNIV_TIER_MAP:
+                tier_auto = UNIV_TIER_MAP[univ_input]
+            elif univ_input == "Lainnya":
+                tier_auto = "Lainnya"
+            else:
+                tier_auto = ""
+            
             st.text_input("University Tier (auto)", value=tier_auto, disabled=True)
 
+            # ===== FIX BUG #1: dropdown jurusan =====
             default_jur_index = 0
-            if jurusan in jurusan_options:
-                default_jur_index = ([""] + jurusan_options).index(jurusan) if jurusan != "" else 0
-            elif jurusan:
+            if jurusan == "Lainnya":
                 default_jur_index = ([""] + jurusan_options).index("Lainnya")
+            elif jurusan in jurusan_options:
+                default_jur_index = ([""] + jurusan_options).index(jurusan) if jurusan != "" else 0
 
             jurusan_input = st.selectbox("Jurusan", [""] + jurusan_options, index=default_jur_index, key=f"{form_key}_jurusan")
 
             if jurusan_input == "Lainnya":
                 jurusan_lain = st.text_input(
                     "Jurusan Lainnya *",
-                    value=jurusan_lain_init
+                    value=jurusan_lain_init,
+                    key=f"{form_key}_jurusan_lainnya_input",
+                    placeholder="Contoh: Ilmu Pengetahuan Sosial"
                 )
             else:
                 jurusan_lain = ""
@@ -1220,7 +1245,38 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 last_no = db.query(DBSourcing).order_by(DBSourcing.no.desc()).first()
                 next_no = (last_no.no + 1) if last_no and last_no.no else 1
 
-                tier_final = get_university_tier(univ_input) if univ_input and univ_input != "Lainnya" else "Lainnya"
+                # ===== FIX BUG #2: University Tier & nama univ =====
+                # Logika final untuk simpan ke DB:
+                if univ_input == "Lainnya":
+                    # Simpan nama asli ke nama_universitas_lainnya
+                    final_univ_top10 = ""
+                    final_univ_lainnya = nama_universitas_lainnya
+                    final_tier = "Lainnya"
+                elif univ_input in UNIV_TIER_MAP:
+                    # Top university → nama_universitas_top10, tier otomatis
+                    final_univ_top10 = univ_input
+                    final_univ_lainnya = ""
+                    final_tier = UNIV_TIER_MAP[univ_input]
+                elif univ_input:
+                    # Ada input tapi gak masuk top → anggap Lainnya
+                    final_univ_top10 = ""
+                    final_univ_lainnya = univ_input
+                    final_tier = "Lainnya"
+                else:
+                    final_univ_top10 = ""
+                    final_univ_lainnya = ""
+                    final_tier = ""
+
+                # Logika jurusan final
+                if jurusan_input == "Lainnya":
+                    final_jurusan = ""
+                    final_jurusan_lain = jurusan_lain
+                elif jurusan_input:
+                    final_jurusan = jurusan_input
+                    final_jurusan_lain = ""
+                else:
+                    final_jurusan = ""
+                    final_jurusan_lain = ""
 
                 new = DBSourcing(
                     no=next_no,
@@ -1232,11 +1288,11 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                     model_rekrutmen=model_rekrutmen_input if model_rekrutmen_input else None,
                     domisili=domisili_input,
                     jenjang_pendidikan=jenjang_input,
-                    nama_universitas_top10=univ_input if univ_input != "Lainnya" else "",
-                    nama_universitas_lainnya=nama_universitas_lainnya if univ_input == "Lainnya" else "",
-                    jurusan=jurusan_input if jurusan_input != "Lainnya" else "",
-                    jurusan_lainnya=jurusan_lain if jurusan_input == "Lainnya" else "",
-                    university_tier=tier_final,
+                    nama_universitas_top10=final_univ_top10,
+                    nama_universitas_lainnya=final_univ_lainnya,
+                    jurusan=final_jurusan,
+                    jurusan_lainnya=final_jurusan_lain,
+                    university_tier=final_tier,
                     ipk=safe_float(ipk_input.replace(',', '.')) if ipk_input else None,
                     tahun_lulus=tahun_lulus_input if tahun_lulus_input and tahun_lulus_input > 0 else None,
                     nomor_hp=hp_input,
@@ -1261,7 +1317,11 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 db.commit()
                 db.refresh(new)
 
-                st.success(f"✅ '{nama_input}' berhasil disimpan! Tier: {tier_final}")
+                st.success(f"✅ '{nama_input}' berhasil disimpan! Tier: {final_tier}")
+                if final_univ_top10:
+                    st.caption(f"🎓 Universitas: {final_univ_top10} ({final_tier})")
+                elif final_univ_lainnya:
+                    st.caption(f"🎓 Universitas: {final_univ_lainnya} (Lainnya)")
 
                 if cv_files_input:
                     saved, cv_errors = save_cv_attachments(
