@@ -126,7 +126,7 @@ JURUSAN_ALIASES = {
     "Hukum": ["hukum", "law"], "Ekonomi": ["ekonomi", "economics"],
 }
 
-GENERIC_UNIV_WORDS = {"universitas", "university", "univ", "sekolah", "school", "institut", "institute", "stie", "stmik", "sti", "politeknik", "akademi"}
+GENERIC_UNIV_WORDS = {"universitas", "university", "univ", "sekolah", "school", "institut", "institute", "stie", "stmik", "sti", "politeknik", "akademi", "SMAN", "SMA", "SMK", "SMKN"}
 GENERIC_JURUSAN_WORDS = {"jurusan", "major", "program studi", "prodi", "department"}
 
 
