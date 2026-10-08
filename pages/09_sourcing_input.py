@@ -141,21 +141,19 @@ def _clean_text(s):
 
 def normalize_univ(raw_val):
     """Return (canonical_univ, nama_lainnya).
-    - Jika cocok dengan Top list → return (canonical, "")
-    - Jika tidak cocok → return ("Lainnya", pretty_name)
+    - Jika cocok dengan Top list -> return (canonical, "")
+    - Jika tidak cocok -> return ("Lainnya", pretty_name)
     """
     if not raw_val or not str(raw_val).strip():
         return "", ""
     raw_str = str(raw_val).strip()
     raw_clean = _clean_text(raw_str)
     
-    # Cek apakah cocok dengan top university
     for canonical, aliases in UNIV_ALIASES.items():
         for alias in aliases:
             if raw_clean == alias or re.search(rf"\b{re.escape(alias)}\b", raw_clean):
                 return canonical, ""
     
-    # Tidak cocok → Lainnya, tapi simpan nama aslinya
     pretty = " ".join([w.capitalize() for w in raw_str.split()])
     return "Lainnya", pretty
 
@@ -251,16 +249,50 @@ def parse_cv_text(raw_text):
             if not val:
                 continue
 
-            if any(k in key for k in ['nama universitas', 'universitas', 'university', 'univ', 'sekolah', 'kampus', 'institut', 'politeknik', 'Nama Universitas/Sekolah']):
+            # ============================================================
+            # PRIORITY ORDER: Cek yang paling spesifik dulu
+            # ============================================================
+
+            # 1. University Tier (HARUS dicek SEBELUM universitas umum)
+            if key.strip() in ['university tier', 'univ tier', 'tier universitas']:
+                parsed['university_tier'] = val
+                continue
+
+            # 2. IPK Tier (skip, gak ada di DB schema)
+            if key.strip() in ['ipk tier', 'tier ipk']:
+                continue
+
+            # 3. Nama Universitas/Sekolah (EXCLUDE tier/ipk/ranking)
+            is_univ_label = (
+                any(k in key for k in [
+                    'nama universitas', 'universitas/sekolah', 'nama sekolah',
+                    'universitas', 'univ', 'sekolah', 'kampus', 'institut', 'politeknik'
+                ])
+                and not any(exclude in key for exclude in [
+                    'tier', 'ipk tier', 'university tier', 'peringkat', 'ranking', 'akreditasi'
+                ])
+            )
+
+            if is_univ_label:
                 univ_dd, nama_universitas_lainnya = normalize_univ(val)
                 parsed['univ'] = univ_dd
                 parsed['nama_universitas_lainnya'] = nama_universitas_lainnya
-                parsed['university_tier'] = get_university_tier(univ_dd) if univ_dd != "Lainnya" else "Lainnya"
+                # Kalau tidak cocok dengan top list, tier default "Lainnya"
+                # tapi kalau user udah kasih "University Tier" manual, jangan ketimpa
+                if univ_dd != "Lainnya":
+                    parsed['university_tier'] = get_university_tier(univ_dd)
+                elif not parsed.get('university_tier'):
+                    parsed['university_tier'] = "Lainnya"
+                continue
 
-            elif any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
-                parsed['nama'] = val
+            # 4. Nama
+            if any(k in key for k in ['nama', 'name', 'full name', 'candidate name']):
+                if not any(k in key for k in ['universitas', 'sekolah', 'company', 'perusahaan']):
+                    parsed['nama'] = val
+                    continue
 
-            elif any(k in key for k in ['jenjang', 'education', 'level']):
+            # 5. Jenjang
+            if any(k in key for k in ['jenjang', 'education level', 'level pendidikan']):
                 vl = val.lower()
                 if 's1' in vl or 'bachelor' in vl or 'sarjana' in vl:
                     parsed['jenjang'] = 'S1'
@@ -276,34 +308,58 @@ def parse_cv_text(raw_text):
                     parsed['jenjang'] = 'SMA/SMK'
                 else:
                     parsed['jenjang'] = val
+                continue
 
-            elif any(k in key for k in ['jurusan', 'major']):
+            # 6. Jurusan
+            if any(k in key for k in ['jurusan', 'major', 'program studi', 'prodi']):
                 jur_dd, jur_lain = normalize_jurusan(val)
                 parsed['jurusan'] = jur_dd
                 parsed['jurusan_lain'] = jur_lain
+                continue
 
-            elif any(k in key for k in ['domisili', 'domicile', 'location', 'kota', 'city']):
+            # 7. Domisili
+            if any(k in key for k in ['domisili', 'domicile', 'location', 'kota', 'city']):
                 parsed['domisili'] = val
+                continue
 
-            elif any(k in key for k in ['nomor hp', 'no hp', 'hp', 'phone', 'nomor', 'no telp']):
+            # 8. Nomor HP
+            if any(k in key for k in ['nomor hp', 'no hp', 'hp', 'phone', 'nomor', 'no telp', 'telepon']):
                 parsed['hp'] = re.sub(r'[\s\-\(\)]', '', val)
+                continue
 
-            elif any(k in key for k in ['last position', 'posisi terakhir']):
+            # 9. Email
+            if 'email' in key:
+                if is_valid_email(val):
+                    parsed['email'] = val
+                continue
+
+            # 10. Last Position
+            if any(k in key for k in ['last position', 'posisi terakhir']):
                 parsed['last_position'] = val
+                continue
 
-            elif any(k in key for k in ['last company', 'perusahaan terakhir', 'company']):
+            # 11. Last Company
+            if any(k in key for k in ['last company', 'perusahaan terakhir', 'company terakhir']):
                 parsed['last_company'] = val
+                continue
 
-            elif any(k in key for k in ['last tenure', 'tenure last']):
+            # 12. Last Tenure
+            if any(k in key for k in ['last tenure', 'tenure last']):
                 parsed['last_tenure'] = val
+                continue
 
-            elif any(k in key for k in ['total tenure', 'lama kerja', 'pengalaman']):
+            # 13. Total Tenure
+            if any(k in key for k in ['total tenure', 'lama kerja', 'pengalaman kerja']):
                 parsed['total_tenure'] = val
+                continue
 
-            elif any(k in key for k in ['sumber', 'source']):
+            # 14. Sumber
+            if any(k in key for k in ['sumber', 'source']):
                 parsed['sumber'] = val
+                continue
 
-            elif any(k in key for k in ['pernah di fmcg', 'pernah di fmcg?', 'fmcg']):
+            # 15. FMCG
+            if any(k in key for k in ['pernah di fmcg', 'fmcg']):
                 vl = val.lower()
                 if 'ya' in vl or 'yes' in vl or vl == 'y':
                     parsed['fmcg'] = 'Ya'
@@ -311,13 +367,24 @@ def parse_cv_text(raw_text):
                     parsed['fmcg'] = 'Tidak'
                 else:
                     parsed['fmcg'] = val
+                continue
 
-            elif any(k in key for k in ['posisi fptk', 'fptk posisi']):
+            # 16. Posisi FPTK
+            if any(k in key for k in ['posisi fptk', 'fptk posisi']):
                 parsed['posisi'] = val
+                continue
 
-            elif any(k in key for k in ['kode unik', 'unique code']):
+            # 17. Kode Unik
+            if any(k in key for k in ['kode unik', 'unique code']):
                 parsed['kode_unik'] = val
+                continue
 
+            # 18. IPK
+            if key.strip() in ['ipk', 'gpa']:
+                parsed['ipk'] = val.replace(',', '.')
+                continue
+
+    # Fallback: cari nama di baris pertama yang bukan label
     if not parsed['nama']:
         for line in lines:
             line = line.strip()
@@ -325,6 +392,7 @@ def parse_cv_text(raw_text):
                 parsed['nama'] = line
                 break
 
+    # Fallback: jenjang dari raw text
     if not parsed['jenjang']:
         tl = raw_text.lower()
         if 's1' in tl or 'bachelor' in tl or 'sarjana' in tl:
@@ -338,6 +406,7 @@ def parse_cv_text(raw_text):
         elif 'sma' in tl or 'high school' in tl:
             parsed['jenjang'] = 'SMA/SMK'
 
+    # Fallback: FMCG
     if not parsed['fmcg']:
         tl = raw_text.lower()
         if 'fmcg' in tl:
@@ -786,22 +855,18 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     sumber = initial_data.get('sumber', '') if initial_data else ''
     posisi = initial_data.get('posisi', '') if initial_data else ''
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
+    tier_from_parse = initial_data.get('university_tier', '') if initial_data else ''
 
     # ========== FIX BUG #1: Logic universitas ==========
-    # Jika univ dari parse = "Lainnya" dan ada nama_universitas_lainnya
-    # Maka dropdown harus ke-set ke "Lainnya" dan text input keisi nama asli
     univ_original = (univ or "").strip()
-    
+
     if univ_original == "Lainnya":
-        # Sudah bener, dropdown "Lainnya", text input diisi nama asli
         univ = "Lainnya"
-        # nama_universitas_lainnya_init sudah di-set di atas dari initial_data
+        # nama_universitas_lainnya_init sudah di-set dari initial_data
     elif univ_original in univ_options:
-        # Cocok dengan top list
         univ = univ_original
         nama_universitas_lainnya_init = ""
     elif univ_original:
-        # Ada nilai tapi gak cocok → anggap Lainnya
         univ = "Lainnya"
         if not nama_universitas_lainnya_init:
             nama_universitas_lainnya_init = univ_original
@@ -811,7 +876,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
 
     # ========== FIX BUG #1 juga: Logic jurusan ==========
     jurusan_original = (jurusan or "").strip()
-    
+
     if jurusan_original == "Lainnya":
         jurusan = "Lainnya"
     elif jurusan_original in jurusan_options:
@@ -906,7 +971,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             univ_input = st.selectbox("Universitas", [""] + univ_options, index=default_univ_index, key=f"{form_key}_univ")
 
             # ===== FIX BUG #1: text input univ lainnya =====
-            # Pakai key unik supaya Streamlit track value-nya
             if univ_input == "Lainnya":
                 nama_universitas_lainnya = st.text_input(
                     "Univ Lainnya *",
@@ -918,13 +982,17 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 nama_universitas_lainnya = ""
 
             # ===== FIX BUG #2: University Tier auto =====
-            if univ_input and univ_input != "Lainnya" and univ_input in UNIV_TIER_MAP:
+            # Prioritas: tier_from_parse (dari user input manual) > auto-detect dari UNIV_TIER_MAP
+            if tier_from_parse and univ_input == "Lainnya":
+                # User kasih tier manual dan univ = Lainnya → pakai tier manual
+                tier_auto = tier_from_parse
+            elif univ_input and univ_input != "Lainnya" and univ_input in UNIV_TIER_MAP:
                 tier_auto = UNIV_TIER_MAP[univ_input]
             elif univ_input == "Lainnya":
                 tier_auto = "Lainnya"
             else:
-                tier_auto = ""
-            
+                tier_auto = tier_from_parse or ""
+
             st.text_input("University Tier (auto)", value=tier_auto, disabled=True)
 
             # ===== FIX BUG #1: dropdown jurusan =====
@@ -1246,22 +1314,19 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 next_no = (last_no.no + 1) if last_no and last_no.no else 1
 
                 # ===== FIX BUG #2: University Tier & nama univ =====
-                # Logika final untuk simpan ke DB:
                 if univ_input == "Lainnya":
-                    # Simpan nama asli ke nama_universitas_lainnya
                     final_univ_top10 = ""
                     final_univ_lainnya = nama_universitas_lainnya
-                    final_tier = "Lainnya"
+                    # Pakai tier manual dari user kalau ada, kalau nggak "Lainnya"
+                    final_tier = tier_auto if tier_auto else "Lainnya"
                 elif univ_input in UNIV_TIER_MAP:
-                    # Top university → nama_universitas_top10, tier otomatis
                     final_univ_top10 = univ_input
                     final_univ_lainnya = ""
                     final_tier = UNIV_TIER_MAP[univ_input]
                 elif univ_input:
-                    # Ada input tapi gak masuk top → anggap Lainnya
                     final_univ_top10 = ""
                     final_univ_lainnya = univ_input
-                    final_tier = "Lainnya"
+                    final_tier = tier_auto if tier_auto else "Lainnya"
                 else:
                     final_univ_top10 = ""
                     final_univ_lainnya = ""
@@ -1321,7 +1386,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 if final_univ_top10:
                     st.caption(f"🎓 Universitas: {final_univ_top10} ({final_tier})")
                 elif final_univ_lainnya:
-                    st.caption(f"🎓 Universitas: {final_univ_lainnya} (Lainnya)")
+                    st.caption(f"🎓 Universitas: {final_univ_lainnya} ({final_tier})")
 
                 if cv_files_input:
                     saved, cv_errors = save_cv_attachments(
