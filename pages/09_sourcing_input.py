@@ -393,7 +393,6 @@ def show_duplicate_warning_dialog(db, nama, email, hp):
 
 
 def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_files, user):
-    """Upload CV ke R2, simpan metadata ke DB."""
     saved = 0
     errors = []
     r2 = get_r2()
@@ -406,7 +405,6 @@ def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_file
                 errors.append(f"{f.name}: melebihi {MAX_CV_SIZE_MB} MB")
                 continue
 
-            # Upload ke R2
             ext = f.name.rsplit(".", 1)[-1].lower() if "." in f.name else "bin"
             safe_kode = (kode_unik or "unknown").replace("/", "_").replace("\\", "_")
             r2_key = f"cv/{safe_kode}/{uuid.uuid4().hex}.{ext}"
@@ -432,7 +430,6 @@ def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_file
         except Exception as e:
             errors.append(f"{f.name}: {str(e)}")
             db.rollback()
-            # Rollback: hapus dari R2 kalau DB gagal
             if r2_key:
                 try:
                     r2.delete(r2_key)
@@ -762,6 +759,14 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     fmcg_options = sourcing_options['fmcg_options']
     pipeline_opts = pipeline_options
 
+    reset_keys = [
+        f"{form_key}_nama_universitas_lainnya",
+        f"{form_key}_jurusan_lain",
+    ]
+    for rk in reset_keys:
+        if rk in st.session_state:
+            del st.session_state[rk]
+
     nama = initial_data.get('nama', '') if initial_data else ''
     email = initial_data.get('email', '') if initial_data else ''
     hp = initial_data.get('hp', '') if initial_data else ''
@@ -782,28 +787,28 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     posisi = initial_data.get('posisi', '') if initial_data else ''
     kode_unik = initial_data.get('kode_unik', '') if initial_data else ''
 
-    univ_original = univ
+    univ_original = (univ or "").strip()
     if univ_original and univ_original not in univ_options:
         univ = "Lainnya"
         if not nama_universitas_lainnya_init:
             nama_universitas_lainnya_init = univ_original
     elif univ_original == "Lainnya":
         univ = "Lainnya"
-    elif univ_original in univ_options and univ_original != "":
+    elif univ_original in univ_options:
         univ = univ_original
         nama_universitas_lainnya_init = ""
     else:
         univ = ""
         nama_universitas_lainnya_init = ""
 
-    jurusan_original = jurusan
+    jurusan_original = (jurusan or "").strip()
     if jurusan_original and jurusan_original not in jurusan_options:
         jurusan = "Lainnya"
         if not jurusan_lain_init:
             jurusan_lain_init = jurusan_original
     elif jurusan_original == "Lainnya":
         jurusan = "Lainnya"
-    elif jurusan_original in jurusan_options and jurusan_original != "":
+    elif jurusan_original in jurusan_options:
         jurusan = jurusan_original
         jurusan_lain_init = ""
     else:
@@ -890,7 +895,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             univ_input = st.selectbox("Universitas", [""] + univ_options, index=default_univ_index, key=f"{form_key}_univ")
 
             if univ_input == "Lainnya":
-                nama_universitas_lainnya = st.text_input("Univ Lainnya *", value=nama_universitas_lainnya_init, key=f"{form_key}_nama_universitas_lainnya")
+                nama_universitas_lainnya = st.text_input(
+                    "Univ Lainnya *",
+                    value=nama_universitas_lainnya_init
+                )
             else:
                 nama_universitas_lainnya = ""
 
@@ -906,7 +914,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             jurusan_input = st.selectbox("Jurusan", [""] + jurusan_options, index=default_jur_index, key=f"{form_key}_jurusan")
 
             if jurusan_input == "Lainnya":
-                jurusan_lain = st.text_input("Jurusan Lainnya *", value=jurusan_lain_init, key=f"{form_key}_jurusan_lain")
+                jurusan_lain = st.text_input(
+                    "Jurusan Lainnya *",
+                    value=jurusan_lain_init
+                )
             else:
                 jurusan_lain = ""
 
