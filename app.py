@@ -7,6 +7,12 @@ import traceback
 import pandas as pd
 from datetime import datetime, timedelta
 
+# Cara akses di Streamlit: st.secrets atau os.environ
+# Coba tampilkan keduanya
+st.write("### Debug: Connection Info")
+st.write("st.secrets DATABASE_URL:", st.secrets.get("DATABASE_URL", "TIDAK ADA"))
+st.write("os.environ DATABASE_URL:", os.environ.get("DATABASE_URL", "TIDAK ADA"))
+
 from core.session_manager import get_session_manager, check_idle_timeout, touch_session
 from core.database import SessionLocal, init_db
 from core.auth import (
