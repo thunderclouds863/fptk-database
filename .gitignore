@@ -1,3 +1,6 @@
 .env
 *.dump
 venv/
+data/
+__pycache__/
+*.pyc

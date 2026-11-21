@@ -14,21 +14,27 @@ if not DATABASE_URL:
         import streamlit as st
         DATABASE_URL = st.secrets["connections"]["postgresql"]["url"]
     except Exception:
-        raise ValueError(
-            "DATABASE_URL tidak ditemukan. "
-            "Set di .env (lokal) atau st.secrets (Streamlit Cloud)."
-        )
+        from core.demo import is_demo
+        if is_demo():
+            os.makedirs("data", exist_ok=True)
+            DATABASE_URL = "sqlite:///data/fptk_demo.db"
+        else:
+            raise ValueError(
+                "DATABASE_URL tidak ditemukan. "
+                "Set di .env (lokal) atau st.secrets (Streamlit Cloud)."
+            )
 
 # Konversi postgres:// ke postgresql:// (SQLAlchemy butuh ini)
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 # Pastikan sslmode=require (Neon butuh SSL)
-if "sslmode" not in DATABASE_URL:
+if DATABASE_URL.startswith("postgresql") and "sslmode" not in DATABASE_URL:
     separator = "&" if "?" in DATABASE_URL else "?"
     DATABASE_URL += f"{separator}sslmode=require"
 
-engine = create_engine(DATABASE_URL, pool_pre_ping=True)
+_connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, pool_pre_ping=True, connect_args=_connect_args)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 

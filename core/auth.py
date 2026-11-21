@@ -107,6 +107,18 @@ def reset_password(db: Session, user_id: int, new_password: str):
 
 
 def init_default_users(db: Session):
+    from core.demo import is_demo, DEMO_USERS, DEMO_PASSWORD
+    if is_demo():
+        for username, display_name, pic_name, bu, kode in DEMO_USERS:
+            if not db.query(User).filter(User.username == username).first():
+                create_user(db, username, DEMO_PASSWORD, "user", pic_name, display_name, bu, kode)
+        if not db.query(User).filter(User.username == "demo_admin").first():
+            db.add(User(username="demo_admin", password_hash=hash_password(DEMO_PASSWORD), role="admin",
+                        display_name="Demo Admin", pic_recruiter="Admin", business_unit="CORP", kode_pic="ADMIN"))
+            db.commit()
+        invalidate_filter_cache()
+        return
+
     pic_users = [
         ("adista", "Adista", "Adista", "CORP", "CORPAdi"),
         ("brittney", "Brittney", "Brittney", "CORP", "CORPBrit"),
