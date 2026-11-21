@@ -14,6 +14,7 @@ from core.auth import (
     hash_password, init_master_dropdown
 )
 from core.models import User
+from core.demo import is_demo
 
 
 st.set_page_config(
@@ -35,6 +36,9 @@ def initialize_system():
     try:
         init_default_users(db)
         init_master_dropdown(db)
+        from core.demo import is_demo, seed_demo_data
+        if is_demo():
+            seed_demo_data(db)
     finally:
         db.close()
     return True
@@ -209,6 +213,10 @@ if not st.session_state.user_id:
             unsafe_allow_html=True
         )
 
+    from core.demo import is_demo
+    if is_demo():
+        st.info("Demo portfolio: login **demo_admin** / **demo123** (admin) atau **recruiter1** / **demo123** (recruiter). Data contoh, reset otomatis.")
+
     with st.form("login_form"):
         st.markdown(
             '<div class="login-title"><span class="login-icon">🔐</span><span>Login</span></div>',
@@ -366,28 +374,29 @@ with st.sidebar:
 
     st.markdown("---")
 
-    with st.expander("🔑 Ganti Password"):
-        with st.form("change_password"):
-            db = get_cached_db()
-            try:
-                user = db.query(User).filter(User.id == st.session_state.user_id).first()
-                old = st.text_input("Password Lama", type="password")
-                new = st.text_input("Password Baru (min 6 karakter)", type="password")
-                confirm = st.text_input("Konfirmasi", type="password")
-                update_password = st.form_submit_button("Update Password")
+    if not is_demo():
+        with st.expander("🔑 Ganti Password"):
+            with st.form("change_password"):
+                db = get_cached_db()
+                try:
+                    user = db.query(User).filter(User.id == st.session_state.user_id).first()
+                    old = st.text_input("Password Lama", type="password")
+                    new = st.text_input("Password Baru (min 6 karakter)", type="password")
+                    confirm = st.text_input("Konfirmasi", type="password")
+                    update_password = st.form_submit_button("Update Password")
 
-                if update_password:
-                    if new and new == confirm and len(new) >= 6:
-                        if user and verify_password(old, user.password_hash):
-                            user.password_hash = hash_password(new)
-                            db.commit()
-                            st.success("Password berhasil diubah!")
+                    if update_password:
+                        if new and new == confirm and len(new) >= 6:
+                            if user and verify_password(old, user.password_hash):
+                                user.password_hash = hash_password(new)
+                                db.commit()
+                                st.success("Password berhasil diubah!")
+                            else:
+                                st.error("Password lama salah!")
                         else:
-                            st.error("Password lama salah!")
-                    else:
-                        st.error("Password baru minimal 6 karakter dan harus sama!")
-            finally:
-                db.close()
+                            st.error("Password baru minimal 6 karakter dan harus sama!")
+                finally:
+                    db.close()
 
     st.markdown("---")
 

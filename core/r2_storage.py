@@ -11,7 +11,7 @@ class R2Storage:
         try:
             config = st.secrets["connections"]["r2"]
             self.account_id = config["account_id"]
-            self.bucket = config["recruitment-files"]
+            self.bucket = config["bucket"]
             self.public_url = config.get("public_url", "").rstrip("/")
             self.access_key = config["access_key_id"]
             self.secret_key = config["secret_access_key"]
@@ -71,7 +71,55 @@ class R2Storage:
         self.client.delete_object(Bucket=self.bucket, Key=key)
 
 
+class LocalStorage:
+    """Pengganti R2 untuk DEMO_MODE: simpan file di disk lokal (ephemeral)."""
+
+    def __init__(self, root: str = "data/files"):
+        import os
+        self.root = root
+        os.makedirs(root, exist_ok=True)
+
+    def _path(self, key: str) -> str:
+        import os
+        path = os.path.join(self.root, key.replace("..", "_"))
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        return path
+
+    def upload_bytes(self, file_bytes: bytes, key: str, content_type: str = "application/octet-stream") -> str:
+        with open(self._path(key), "wb") as f:
+            f.write(file_bytes)
+        return key
+
+    def upload_base64(self, base64_data: str, key: str, content_type: str = None) -> str:
+        if base64_data.startswith("data:") and "," in base64_data:
+            base64_data = base64_data.split(",", 1)[1]
+        return self.upload_bytes(base64.b64decode(base64_data), key)
+
+    def download_bytes(self, key: str) -> bytes:
+        with open(self._path(key), "rb") as f:
+            return f.read()
+
+    def get_presigned_url(self, key: str, expires_in: int = 3600) -> str:
+        ext = key.rsplit(".", 1)[-1] if "." in key else ""
+        mime = mimetypes.types_map.get(f".{ext}", "application/octet-stream")
+        return f"data:{mime};base64," + base64.b64encode(self.download_bytes(key)).decode()
+
+    def delete(self, key: str):
+        import os
+        try:
+            os.remove(self._path(key))
+        except FileNotFoundError:
+            pass
+
+
 @st.cache_resource
-def get_r2() -> R2Storage:
+def get_r2():
     """Inisialisasi singleton, cache client global untuk menghindari pembuatan berulang."""
+    from core.demo import is_demo
+    try:
+        has_r2 = "r2" in st.secrets["connections"]
+    except Exception:
+        has_r2 = False
+    if is_demo() and not has_r2:
+        return LocalStorage()
     return R2Storage()
