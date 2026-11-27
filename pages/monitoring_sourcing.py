@@ -112,7 +112,7 @@ def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_file
 
 
 def show_monitoring_sourcing():
-    st.title("📊 Monitoring & Evidence")
+    st.title("Monitoring & Evidence")
     st.markdown("Monitoring aktivitas sourcing & upload evidence.")
 
     db = next(get_db())
@@ -125,7 +125,7 @@ def show_monitoring_sourcing():
     it_mode = is_it(db)
     editor_mode = is_editor(db)
 
-    tab1, tab2 = st.tabs(["📈 Monitoring Sourcing", "📎 Upload Evidence"])
+    tab1, tab2 = st.tabs(["Monitoring Sourcing", "Upload Evidence"])
 
     with tab1:
         render_monitoring_tab(db, user, admin)
@@ -149,7 +149,7 @@ def render_monitoring_tab(db, user, admin):
         pic_list = get_pic_options_monitoring(db)
 
     with st.sidebar:
-        st.markdown("### 🔍 Filter Monitoring")
+        st.markdown("### Filter Monitoring")
 
         today = datetime.now().date()
         week_options = []
@@ -183,7 +183,7 @@ def render_monitoring_tab(db, user, admin):
 
     total = len(df)
 
-    st.subheader(f"📅 Minggu: {week_start.strftime('%d/%m/%Y')} - {week_end.strftime('%d/%m/%Y')}")
+    st.subheader(f"Minggu: {week_start.strftime('%d/%m/%Y')} - {week_end.strftime('%d/%m/%Y')}")
 
     col1, col2, col3, col4, col5 = st.columns(5)
     col1.metric("Total CV", total)
@@ -210,7 +210,7 @@ def render_monitoring_tab(db, user, admin):
             daily_full = daily_full.merge(daily, on='Tanggal', how='left').fillna(0)
             daily_full['Jumlah'] = daily_full['Jumlah'].astype(int)
 
-            fig = px.bar(daily_full, x='Tanggal', y='Jumlah', title='📊 CV per Hari', text='Jumlah',
+            fig = px.bar(daily_full, x='Tanggal', y='Jumlah', title='CV per Hari', text='Jumlah',
                          color='Jumlah', color_continuous_scale='Blues')
             fig.update_layout(height=350)
             st.plotly_chart(fig, use_container_width=True)
@@ -219,12 +219,12 @@ def render_monitoring_tab(db, user, admin):
             if 'rekruter' in df and df['rekruter'].notna().any():
                 pic_counts = df['rekruter'].value_counts().reset_index()
                 pic_counts.columns = ['PIC', 'Jumlah']
-                fig = px.pie(pic_counts, values='Jumlah', names='PIC', title='👤 Distribusi per PIC')
+                fig = px.pie(pic_counts, values='Jumlah', names='PIC', title='Distribusi per PIC')
                 fig.update_layout(height=350)
                 st.plotly_chart(fig, use_container_width=True)
 
     st.markdown("---")
-    st.subheader("📋 Monitoring Sourcing per Kode Unik")
+    st.subheader("Monitoring Sourcing per Kode Unik")
 
     if total > 0:
         grouped = df.groupby('kode_unik')
@@ -354,7 +354,7 @@ def render_monitoring_tab(db, user, admin):
         st.dataframe(display_df, use_container_width=True, height=500, hide_index=True)
 
         st.markdown("---")
-        st.markdown("### 📎 Evidence Viewer")
+        st.markdown("### Evidence Viewer")
         st.caption("Cari evidence berdasarkan Kode Unik atau Posisi")
 
         search_options = {}
@@ -404,12 +404,12 @@ def render_monitoring_tab(db, user, admin):
                             break
 
                 if can_view:
-                    st.markdown(f"### 📎 Evidence untuk {selected_kode} - {selected_tanggal.strftime('%d/%m/%Y')}")
+                    st.markdown(f"### Evidence untuk {selected_kode} - {selected_tanggal.strftime('%d/%m/%Y')}")
                     r2 = get_r2()
                     for ev_id in ev_ids:
                         ev = db.query(Evidence).filter(Evidence.id == ev_id).first()
                         if ev:
-                            with st.expander(f"📄 {ev.file_name} | CV: {ev.total_cv} | PIC: {ev.pic_recruiter}", expanded=True):
+                            with st.expander(f"{ev.file_name} | CV: {ev.total_cv} | PIC: {ev.pic_recruiter}", expanded=True):
                                 if ev.file_key:
                                     try:
                                         url = r2.get_presigned_url(ev.file_key, expires_in=3600)
@@ -436,7 +436,7 @@ def render_monitoring_tab(db, user, admin):
                 st.info("Tidak ada evidence untuk tanggal ini")
 
         st.markdown("---")
-        st.markdown("### 📌 Legend")
+        st.markdown("### Legend")
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown("📎 = Evidence tersedia")
@@ -467,7 +467,7 @@ def render_monitoring_tab(db, user, admin):
 # ============================================================
 
 def render_evidence_tab(db, user, admin):
-    st.subheader("📤 Upload Evidence Baru")
+    st.subheader("Upload Evidence Baru")
 
     sourcing_data = db.query(DBSourcing.kode_unik, DBSourcing.posisi).filter(
         DBSourcing.kode_unik.isnot(None)
@@ -567,7 +567,7 @@ def render_evidence_tab(db, user, admin):
                         pass
 
     st.markdown("---")
-    st.subheader("📋 Histori Evidence")
+    st.subheader("Histori Evidence")
 
     pic_list = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
 
@@ -610,7 +610,7 @@ def render_evidence_tab(db, user, admin):
             st.download_button("⬇️ Download CSV", csv, f"evidence_{datetime.now().strftime('%Y%m%d')}.csv", "text/csv")
 
         st.markdown("---")
-        st.subheader("🔍 Detail Evidence")
+        st.subheader("Detail Evidence")
 
         selected_id = st.selectbox("Pilih ID untuk lihat detail", [e.id for e in evidences], key="ev_detail_select")
         if selected_id:
@@ -629,11 +629,11 @@ def render_evidence_tab(db, user, admin):
 
                 if detail.keterangan:
                     st.markdown("---")
-                    st.markdown("### 📝 Keterangan")
+                    st.markdown("### Keterangan")
                     st.info(detail.keterangan)
 
                 st.markdown("---")
-                st.markdown("### 📎 File Evidence")
+                st.markdown("### File Evidence")
 
                 if detail.file_key:
                     try:
@@ -662,7 +662,7 @@ def render_evidence_tab(db, user, admin):
                     col_edit1, col_edit2 = st.columns(2)
 
                     with col_edit1:
-                        with st.expander("✏️ Edit Total CV & Keterangan"):
+                        with st.expander("Edit Total CV & Keterangan"):
                             with st.form(f"edit_evidence_{detail.id}"):
                                 new_total = st.number_input("Total CV", min_value=0, value=detail.total_cv or 0, step=1)
                                 new_ket = st.text_area("Keterangan", value=detail.keterangan or "", height=100)
@@ -699,7 +699,7 @@ def render_evidence_tab(db, user, admin):
 
 
 def render_evidence_histori_only(db, admin):
-    st.subheader("📋 Histori Evidence (View-Only)")
+    st.subheader("Histori Evidence (View-Only)")
 
     pic_list = ["Semua"] + [u[0] for u in db.query(User.pic_recruiter).filter(User.role == "user").distinct().all() if u[0]]
 

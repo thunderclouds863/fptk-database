@@ -170,7 +170,7 @@ def generate_funnel_excel(df: pd.DataFrame, sheet_name: str = "Sheet4") -> Bytes
 
 
 def show_funnel_report():
-    st.title("🔍 Funnel Report")
+    st.title("Funnel Report")
     st.markdown("Laporan pipeline sourcing per Kode Unik (agregasi)")
 
     db = next(get_db())
@@ -184,7 +184,7 @@ def show_funnel_report():
         status_options = get_funnel_status_options()
 
     with st.sidebar:
-        st.markdown("### 🔍 Filter Funnel")
+        st.markdown("### Filter Funnel")
 
         col1, col2 = st.columns(2)
         with col1:
@@ -271,7 +271,7 @@ def show_funnel_report():
 
     agg_df = pd.DataFrame(aggregated_data)
 
-    st.markdown("### 📊 Total Kandidat per Tahap")
+    st.markdown("### Total Kandidat per Tahap")
 
     funnel_totals = {}
     for stage in pipeline_stages:
@@ -296,7 +296,7 @@ def show_funnel_report():
 
     st.markdown("---")
 
-    st.markdown("### 📈 Funnel Chart")
+    st.markdown("### Funnel Chart")
 
     funnel_data_chart = {k: v for k, v in funnel_totals.items() if v > 0 and k != "Total Kandidat"}
 
@@ -324,7 +324,7 @@ def show_funnel_report():
 
     st.markdown("---")
 
-    st.markdown("### 📋 Detail Data per Kode Unik")
+    st.markdown("### Detail Data per Kode Unik")
     st.caption(f"Total: {len(agg_df)} Kode Unik unik")
 
     desired_order = [
@@ -393,7 +393,7 @@ def show_funnel_report():
     )
 
     st.markdown("---")
-    st.markdown("### 📥 Export Data")
+    st.markdown("### Export Data")
 
     col1, col2, col3 = st.columns(3)
 
@@ -441,7 +441,7 @@ def show_funnel_report():
         )
 
     st.markdown("---")
-    st.markdown("### 📊 Summary Statistics")
+    st.markdown("### Summary Statistics")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -462,7 +462,7 @@ def show_funnel_report():
         st.metric("Total Day One", day1_count)
 
     st.markdown("---")
-    st.markdown("### 📈 Conversion Rate (per Kode Unik)")
+    st.markdown("### Conversion Rate (per Kode Unik)")
 
     conversion_data = []
     prev_count = len(agg_df)
