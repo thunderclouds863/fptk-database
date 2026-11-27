@@ -25,22 +25,6 @@ class User(Base):
     display_name = Column(String(100))
     created_at = Column(TIMESTAMP, server_default=func.now())
     last_login = Column(TIMESTAMP)
-    # Added 2026-11: optional email for password recovery, and a flag that forces
-    # a password change after an admin reset or a known default password.
-    email = Column(String(255), index=True)
-    must_change_password = Column(Boolean, default=False)
-
-
-class PasswordResetToken(Base):
-    """One-time password recovery token. Only the SHA-256 hash of the token is stored."""
-    __tablename__ = "password_reset_tokens"
-    __table_args__ = {"extend_existing": True}
-    id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
-    token_hash = Column(String(64), nullable=False, unique=True, index=True)
-    expires_at = Column(DateTime, nullable=False)
-    used_at = Column(DateTime)
-    created_at = Column(DateTime, nullable=False)
 
 
 # ====== UPLOAD CYCLE ======

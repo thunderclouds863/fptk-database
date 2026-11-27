@@ -41,7 +41,7 @@ def get_sourcing_list_static_options():
 
 
 def show_sourcing_list():
-    st.title("Database Sourcing")
+    st.title("📋 Database Sourcing")
     st.markdown("Lihat, filter, edit, dan hapus data kandidat.")
     
     db = next(get_db())
@@ -62,7 +62,7 @@ def show_sourcing_list():
     pipeline_stages = static_options['pipeline_stages']
     
     with st.sidebar:
-        st.markdown("### Filter")
+        st.markdown("### 🔍 Filter")
         search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...")
         pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + pic_options)
         sumber_filter = st.selectbox("Sumber Sourcing", ["Semua"] + sumber_options)
@@ -162,7 +162,7 @@ def show_sourcing_list():
         )
         
         st.markdown("---")
-        st.subheader("Edit / Hapus Kandidat")
+        st.subheader("✏️ Edit / Hapus Kandidat")
         st.caption("🔍 Cari berdasarkan Kode Unik, Nama, atau Posisi")
         
         df_all = pd.read_sql(query.statement, db.bind)
@@ -197,7 +197,7 @@ def show_sourcing_list():
             st.error("Data tidak ditemukan")
             return
         
-        with st.expander("Detail Kandidat", expanded=True):
+        with st.expander("📋 Detail Kandidat", expanded=True):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**Kode Unik:** {detail.kode_unik}")

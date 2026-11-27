@@ -70,7 +70,7 @@ def request_unblacklist_dialog(db, sourcing_id, kode_unik, nama, posisi):
 
 
 def show_blacklist_list():
-    st.title("Blacklist Kandidat")
+    st.title("🚫 Blacklist Kandidat")
     st.markdown("Daftar kandidat yang di-blacklist. Kandidat tidak bisa diproses di FPTK baru.")
 
     db = next(get_db())
@@ -86,7 +86,7 @@ def show_blacklist_list():
         st.info("🔍 Mode View-Only (IT)")
 
     with st.sidebar:
-        st.markdown("### Filter Blacklist")
+        st.markdown("### 🔍 Filter Blacklist")
 
         search = st.text_input("🔎 Cari (Nama / Kode Unik / Posisi)", placeholder="Ketik keyword...")
 
@@ -205,7 +205,7 @@ def show_blacklist_list():
     st.dataframe(display_df, use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### Detail & Aksi")
+    st.markdown("### 📋 Detail & Aksi")
 
     select_options = {}
     for _, row in df.iterrows():
@@ -248,7 +248,7 @@ def show_blacklist_list():
     ).first()
 
     st.markdown("---")
-    st.markdown("### Aksi")
+    st.markdown("### ⚙️ Aksi")
 
     col1, col2, col3 = st.columns(3)
 
@@ -289,7 +289,7 @@ def show_blacklist_list():
             ).order_by(BlacklistRequest.requested_at.desc()).all()
 
             if all_reqs:
-                with st.expander(f"History Request ({len(all_reqs)})"):
+                with st.expander(f"📋 History Request ({len(all_reqs)})"):
                     for req in all_reqs:
                         emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.action} - {req.status}**")
@@ -318,7 +318,7 @@ def show_blacklist_list():
 
         with col3:
             if all_reqs:
-                with st.expander("History Request Anda"):
+                with st.expander("📋 History Request Anda"):
                     for req in all_reqs:
                         emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.status}** - {req.requested_at.strftime('%d/%m/%Y %H:%M') if req.requested_at else '-'}")
