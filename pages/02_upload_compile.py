@@ -303,7 +303,7 @@ def dialog_confirm_done(db, user_id, cycle_id, cycle_name):
 
 
 def show_upload_compile():
-    st.title("📝 Input FPTK")
+    st.title("Input FPTK")
     st.markdown("Input FPTK secara manual, paste dari HR Portal, atau upload Excel (khusus Admin).")
 
     db = next(get_db())
@@ -358,7 +358,7 @@ def show_upload_compile():
     # ADMIN: Template Management
     # =========================================================
     if is_admin_user:
-        with st.expander("⚙️ Admin - Template Excel Management"):
+        with st.expander("Admin - Template Excel Management"):
             template_file = st.file_uploader("Upload Template Excel", type=["xlsx"], key="admin_template_upload")
             if template_file:
                 if st.button("💾 Simpan Template", key="save_template_btn"):
@@ -422,7 +422,7 @@ def show_upload_compile():
                     st.caption("✅ Anda sudah Done")
 
             st.markdown("---")
-            st.subheader("📁 Upload File Excel (Admin Mode)")
+            st.subheader("Upload File Excel (Admin Mode)")
 
             st.markdown("""
             **Checklist sebelum upload:**
@@ -500,7 +500,7 @@ def show_upload_compile():
 
                             if warnings:
                                 st.warning(f"⚠️ {file.name}: {len(warnings)} warning")
-                                with st.expander(f"⚠️ Lihat Warning Detail ({len(warnings)})", expanded=False):
+                                with st.expander(f"Lihat Warning Detail ({len(warnings)})", expanded=False):
                                     for err in warnings:
                                         row = err.get("row", "?")
                                         field = err.get("field", "Unknown")
@@ -520,7 +520,7 @@ def show_upload_compile():
                                 if header_error:
                                     st.markdown(f"### {header_error['summary']}")
                                     st.markdown("---")
-                                    st.markdown("#### 📋 Kolom yang Dibutuhkan Tapi Tidak Ditemukan:")
+                                    st.markdown("#### Kolom yang Dibutuhkan Tapi Tidak Ditemukan:")
                                     for i, m in enumerate(header_error["missing"], 1):
                                         col1, col2 = st.columns([3, 2])
                                         with col1:
@@ -534,15 +534,15 @@ def show_upload_compile():
                                                 st.markdown("❌ *Tidak ada kemiripan*")
                                                 st.caption("Kolom ini belum ada di file")
                                         st.markdown("")
-                                    with st.expander("📁 Lihat semua kolom yang ADA di file Anda"):
+                                    with st.expander("Lihat semua kolom yang ADA di file Anda"):
                                         st.code("\n".join(f"• {col}" for col in header_error["found"]))
                                     st.markdown("---")
-                                    st.markdown("#### 💡 Cara Memperbaiki:")
+                                    st.markdown("#### Cara Memperbaiki:")
                                     st.info(header_error["solution"])
-                                    with st.expander("🔧 Detail Teknis (Admin)"):
+                                    with st.expander("Detail Teknis (Admin)"):
                                         st.json(header_error)
                                 else:
-                                    with st.expander(f"❌ Lihat Error Detail ({len(real_errors)})", expanded=True):
+                                    with st.expander(f"Lihat Error Detail ({len(real_errors)})", expanded=True):
                                         for err in real_errors:
                                             if err.get("field") == "SUMMARY":
                                                 st.warning(f"📌 {err.get('error', '')}")
@@ -585,7 +585,7 @@ def show_upload_compile():
                                         f"3. Hapus salah satu\n"
                                         f"4. Upload ulang file-nya"
                                     )
-                                    with st.expander("🔍 Lihat detail baris yang duplikat"):
+                                    with st.expander("Lihat detail baris yang duplikat"):
                                         for i, dup in enumerate(result.get("duplicate_details", [])[:50], 1):
                                             st.markdown(
                                                 f"**{i}.** Kode Unik: `{dup['kode_unik']}`  \n"
@@ -599,7 +599,7 @@ def show_upload_compile():
                                         st.warning(friendly_msg)
                                     else:
                                         st.warning("File tidak bisa diproses. Cek kembali isinya.")
-                                    with st.expander("🔍 Detail Teknis (untuk admin)"):
+                                    with st.expander("Detail Teknis (untuk admin)"):
                                         for err in errors[:20]:
                                             st.code(str(err))
 
@@ -622,7 +622,7 @@ def show_upload_compile():
 
                                             if dbs_warnings:
                                                 st.warning(f"⚠️ {file.name}: DB Sourcing - {len(dbs_warnings)} warning")
-                                                with st.expander(f"⚠️ DB Sourcing Warning Detail ({len(dbs_warnings)})", expanded=False):
+                                                with st.expander(f"DB Sourcing Warning Detail ({len(dbs_warnings)})", expanded=False):
                                                     for err in dbs_warnings:
                                                         row = err.get("row", "?")
                                                         field = err.get("field", "Unknown")
@@ -632,7 +632,7 @@ def show_upload_compile():
 
                                             if dbs_real_errors:
                                                 st.warning(f"⚠️ {file.name}: DB Sourcing - {len(dbs_real_errors)} error")
-                                                with st.expander(f"⚠️ DB Sourcing Error Detail ({len(dbs_real_errors)})", expanded=True):
+                                                with st.expander(f"DB Sourcing Error Detail ({len(dbs_real_errors)})", expanded=True):
                                                     for err in dbs_real_errors:
                                                         if err.get("field") == "SUMMARY":
                                                             st.warning(f"📌 {err.get('error', '')}")
@@ -677,7 +677,7 @@ def show_upload_compile():
 
                                             if dbk_critical:
                                                 st.warning(f"⚠️ {file.name}: DB Kode Posisi - {len(dbk_critical)} error")
-                                                with st.expander(f"⚠️ DB Kode Posisi Error Detail ({len(dbk_critical)})", expanded=True):
+                                                with st.expander(f"DB Kode Posisi Error Detail ({len(dbk_critical)})", expanded=True):
                                                     for err in dbk_critical:
                                                         row = err.get("row", "?")
                                                         field = err.get("field", "Unknown")
@@ -716,7 +716,7 @@ def show_upload_compile():
                     status_placeholder.empty()
 
                     st.markdown("---")
-                    st.markdown("### 📊 Ringkasan Compile")
+                    st.markdown("### Ringkasan Compile")
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Total File", total_files)
                     col2.metric("✅ Berhasil", success_count)
@@ -735,7 +735,7 @@ def show_upload_compile():
                     status_placeholder.empty()
 
             st.markdown("---")
-            st.subheader("📜 Riwayat Upload")
+            st.subheader("Riwayat Upload")
             try:
                 if db.is_active:
                     db.rollback()
@@ -763,7 +763,7 @@ def show_upload_compile():
     # TAB 2: INPUT MANUAL FPTK
     # =========================================================
     with tab2:
-        st.subheader("📝 Input FPTK Manual")
+        st.subheader("Input FPTK Manual")
         st.caption("Input satu per satu. PIC otomatis dari user yang login.")
 
         if "manual_posisi" not in st.session_state:
@@ -1164,7 +1164,7 @@ def show_upload_compile():
     # TAB 3: PASTE HR PORTAL
     # =========================================================
     with tab3:
-        st.subheader("📧 Paste Informasi FPTK dari HR Portal")
+        st.subheader("Paste Informasi FPTK dari HR Portal")
         st.caption("Paste isi email permintaan FPTK. Sistem akan otomatis mengekstrak data.")
 
         if "parsed_email_data" not in st.session_state:

@@ -8,9 +8,11 @@ from core.models import (
     User, FPTK, DBSourcing, UploadLog, UploadStatus, AuditLog, Evidence,
     UploadCycle
 )
+from core.auth import hash_password
 from core.auth import (
-    get_current_user, is_admin, is_it, create_user, reset_password,
-    hash_password, invalidate_filter_cache
+    get_current_user, is_admin, is_it, create_user,
+    invalidate_filter_cache, generate_temp_password, set_user_password,
+    validate_new_password, normalize_email, is_valid_email, MIN_PASSWORD_LENGTH,
 )
 from core.utils import get_filter_options_from_db
 from core.upload_cycle import create_upload_cycle, get_cycle_progress, close_cycle
@@ -34,6 +36,24 @@ def generate_kode_pic(business_unit, pic_name):
         return ""
     name_code = re.sub(r'[^A-Za-z]', '', pic_name)[:3].capitalize()
     return f"{business_unit}{name_code}"
+
+
+def show_temp_password_notice():
+    """Show a one-time temporary password set by the previous action, then forget it."""
+    notice = st.session_state.pop("um_temp_pw", None)
+    if notice:
+        username, pw = notice
+        st.success(f"Password sementara untuk **{username}** (tampil sekali, sampaikan secara langsung):")
+        st.code(pw, language=None)
+        st.caption("User wajib mengganti password ini saat login berikutnya.")
+
+
+def email_taken(db, email, exclude_user_id=None):
+    from sqlalchemy import func
+    q = db.query(User).filter(func.lower(User.email) == email)
+    if exclude_user_id:
+        q = q.filter(User.id != exclude_user_id)
+    return q.first() is not None
 
 
 def refresh_filter_cache():
@@ -136,7 +156,7 @@ def confirm_deactivate_user(user_id, username):
 @st.dialog("Aktifkan User Kembali")
 def confirm_activate_user(user_id, username):
     st.info(f"Aktifkan user **{username}** kembali?")
-    st.caption("Password akan direset ke **password123**.")
+    st.caption("User akan mendapat password sementara yang wajib diganti saat login.")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -155,11 +175,11 @@ def confirm_activate_user(user_id, username):
                             db.close()
                             st.stop()
                         user.username = original
-                    user.password_hash = hash_password("password123")
-                    db.commit()
+                    temp_pw = generate_temp_password()
+                    set_user_password(db, user, temp_pw, must_change=True)
                     refresh_filter_cache()
                     st.cache_data.clear()
-                    st.success(f"User '{username}' berhasil diaktifkan! Password: **password123**")
+                    st.session_state.um_temp_pw = (user.username, temp_pw)
                     st.rerun()
                 else:
                     st.error("User tidak ditemukan!")
@@ -202,12 +222,14 @@ def edit_user_dialog(user_id):
             new_username = st.text_input("Username", value=user.username, disabled=not is_active)
             new_display = st.text_input("Display Name", value=user.display_name or "")
             new_pic = st.text_input("PIC Recruiter *", value=current_pic)
+            new_email = st.text_input("Email (untuk reset password)", value=user.email or "")
         with col2:
             role_options = ["user", "admin", "it"]
             current_role_index = role_options.index(user.role) if user.role in role_options else 0
             new_role = st.selectbox("Role", role_options, index=current_role_index)
             reset_pw = st.checkbox("Reset Password")
-            new_password = st.text_input("Password Baru (min 6 karakter)", type="password", disabled=not reset_pw)
+            new_password = st.text_input(f"Password Baru (min {MIN_PASSWORD_LENGTH} karakter, huruf + angka)",
+                                         type="password", disabled=not reset_pw)
 
         st.markdown("### Business Unit & Kode PIC")
         st.caption("Kode PIC otomatis dari BU + Nama PIC. Admin bisa override manual.")
@@ -231,8 +253,18 @@ def edit_user_dialog(user_id):
             errors = []
             if not new_pic:
                 errors.append("PIC Recruiter wajib diisi")
-            if reset_pw and new_password and len(new_password) < 6:
-                errors.append("Password baru minimal 6 karakter")
+            if reset_pw:
+                pw_error = validate_new_password(new_password)
+                if pw_error:
+                    errors.append(pw_error)
+            email_value = normalize_email(new_email)
+            if email_value and not is_valid_email(email_value):
+                errors.append("Format email tidak valid")
+            elif email_value and email_taken(db, email_value, exclude_user_id=user_id):
+                errors.append("Email sudah dipakai user lain")
+            if user.role == "admin" and new_role != "admin" and \
+                    db.query(User).filter(User.role == "admin").count() <= 1:
+                errors.append("Tidak bisa mengubah role admin terakhir")
 
             if errors:
                 for err in errors:
@@ -255,10 +287,13 @@ def edit_user_dialog(user_id):
                 user.pic_recruiter = new_pic
                 user.role = new_role
                 user.business_unit = new_bu
+                user.email = email_value
                 if final_kode:
                     user.kode_pic = final_kode
-                if reset_pw and new_password and len(new_password) >= 6:
+                if reset_pw and new_password:
+                    # Admin-chosen password is temporary: the user must replace it at next login.
                     user.password_hash = hash_password(new_password)
+                    user.must_change_password = True
 
                 db.commit()
                 refresh_filter_cache()
@@ -273,14 +308,14 @@ def edit_user_dialog(user_id):
 
 
 def show_user_management():
-    st.title("👥 User Management")
+    st.title("User Management")
     st.markdown("Kelola akun user & upload cycle.")
 
     db = next(get_db())
 
     if is_it(db):
         st.info("Mode View-Only (IT)")
-        tab1, tab2 = st.tabs(["📋 Daftar User", "🔄 Update Cycle"])
+        tab1, tab2 = st.tabs(["Daftar User", "Update Cycle"])
         with tab1:
             users = db.query(User).all()
             data = [{
@@ -306,7 +341,7 @@ def show_user_management():
         db.close()
         return
 
-    tab1, tab2 = st.tabs(["👤 Daftar User", "🔄 Update Cycle"])
+    tab1, tab2 = st.tabs(["Daftar User", "Update Cycle"])
 
     with tab1:
         render_user_tab(db, user)
@@ -316,8 +351,10 @@ def show_user_management():
 
 
 def render_user_tab(db, current_user):
-    st.subheader("📋 Daftar User")
+    st.subheader("Daftar User")
     users = db.query(User).order_by(User.username).all()
+
+    show_temp_password_notice()
 
     if not users:
         st.info("Belum ada user.")
@@ -331,6 +368,7 @@ def render_user_tab(db, current_user):
             "Display Name": u.display_name or u.username,
             "Role": u.role, "BU": u.business_unit or "-",
             "Kode PIC": u.kode_pic or "-", "PIC": u.pic_recruiter or "-",
+            "Email": u.email or "-",
             "Status": "Aktif" if is_active else "Nonaktif",
             "Last Login": u.last_login.strftime("%d/%m/%Y %H:%M") if u.last_login else "-",
             "Created": u.created_at.strftime("%d/%m/%Y") if u.created_at else "-",
@@ -352,7 +390,7 @@ def render_user_tab(db, current_user):
         })
 
     st.markdown("---")
-    st.subheader("🔧 Aksi User")
+    st.subheader("Aksi User")
 
     user_options = {f"{u.username} ({u.display_name or u.username})": u.id for u in users}
     selected_user = st.selectbox("Pilih User", list(user_options.keys()), key="um_user_select")
@@ -367,13 +405,12 @@ def render_user_tab(db, current_user):
             if st.button("✏️ Edit User", use_container_width=True):
                 edit_user_dialog(selected_id)
         with col2:
-            if st.button("🔑 Reset Password", use_container_width=True):
-                if reset_password(db, selected_id, "password123"):
-                    st.cache_data.clear()
-                    st.success(f"Password direset ke: **password123**")
-                    st.rerun()
-                else:
-                    st.error("Gagal reset password!")
+            if st.button("🔑 Reset Password", use_container_width=True,
+                         help="Buat password sementara acak; user wajib menggantinya saat login"):
+                temp_pw = generate_temp_password()
+                set_user_password(db, selected_data, temp_pw, must_change=True)
+                st.session_state.um_temp_pw = (selected_data.username, temp_pw)
+                st.rerun()
         with col3:
             if is_active:
                 if st.button("⛔ Nonaktifkan", use_container_width=True):
@@ -390,7 +427,7 @@ def render_user_tab(db, current_user):
             else:
                 st.error("Nonaktif")
 
-        with st.expander("📋 Detail User Terpilih", expanded=True):
+        with st.expander("Detail User Terpilih", expanded=True):
             col1, col2 = st.columns(2)
             with col1:
                 st.markdown(f"**Username:** {selected_data.username}")
@@ -402,14 +439,15 @@ def render_user_tab(db, current_user):
                 st.markdown(f"**PIC Recruiter:** {selected_data.pic_recruiter or '-'}")
 
     st.markdown("---")
-    st.subheader("➕ Tambah User Baru")
+    st.subheader("Tambah User Baru")
+    st.caption("Password sementara dibuat otomatis, ditampilkan sekali, dan wajib diganti user saat login pertama.")
 
     with st.form("add_user"):
         col1, col2, col3 = st.columns(3)
         with col1:
             new_username = st.text_input("Username *", placeholder="contoh: pauline")
         with col2:
-            new_password = st.text_input("Password *", type="password", value="password123")
+            new_email = st.text_input("Email", placeholder="nama@perusahaan.com")
         with col3:
             new_role = st.selectbox("Role", ["user", "admin", "it"], index=0)
 
@@ -431,8 +469,11 @@ def render_user_tab(db, current_user):
             errors = []
             if not new_username:
                 errors.append("Username wajib diisi")
-            if not new_password or len(new_password) < 6:
-                errors.append("Password minimal 6 karakter")
+            email_value = normalize_email(new_email)
+            if email_value and not is_valid_email(email_value):
+                errors.append("Format email tidak valid")
+            elif email_value and email_taken(db, email_value):
+                errors.append("Email sudah dipakai user lain")
             if not new_display:
                 errors.append("Display Name wajib diisi")
             if not new_pic_name:
@@ -443,18 +484,20 @@ def render_user_tab(db, current_user):
                     st.error(f"{err}")
             else:
                 auto_kode = generate_kode_pic(new_bu, new_pic_name)
-                result = create_user(db, new_username, new_password, new_role,
-                    new_pic_name, new_display, new_bu, auto_kode)
+                temp_pw = generate_temp_password()
+                result = create_user(db, new_username.strip(), temp_pw, new_role,
+                    new_pic_name, new_display, new_bu, auto_kode,
+                    email=email_value, must_change_password=True)
                 if result:
                     refresh_filter_cache()
                     st.cache_data.clear()
-                    st.success(f"User '{new_username}' berhasil dibuat! Kode PIC: {auto_kode}")
+                    st.session_state.um_temp_pw = (result.username, temp_pw)
                     st.rerun()
                 else:
-                    st.error("Username sudah digunakan atau password kurang dari 6 karakter!")
+                    st.error("Username sudah digunakan.")
 
     st.markdown("---")
-    st.subheader("📊 Statistik User")
+    st.subheader("Statistik User")
 
     users = db.query(User).all()
     if users:
@@ -498,7 +541,7 @@ def render_upload_cycle_tab(db, current_user, it_mode=False):
             st.info("Belum ada upload cycle.")
         return
 
-    st.subheader("📋 Riwayat Upload Cycle")
+    st.subheader("Riwayat Upload Cycle")
     cycles = db.query(UploadCycle).order_by(UploadCycle.created_at.desc()).all()
 
     if cycles:
@@ -517,7 +560,7 @@ def render_upload_cycle_tab(db, current_user, it_mode=False):
         st.info("Belum ada upload cycle.")
 
     st.markdown("---")
-    st.subheader("➕ Buat Upload Cycle Baru")
+    st.subheader("Buat Upload Cycle Baru")
 
     with st.form("create_cycle"):
         cycle_name = st.text_input("Nama Cycle", placeholder="Contoh: Periode Januari 2026")
@@ -533,7 +576,7 @@ def render_upload_cycle_tab(db, current_user, it_mode=False):
             st.error("Nama Cycle wajib diisi")
 
     st.markdown("---")
-    st.subheader("📊 Progress Cycle Aktif")
+    st.subheader("Progress Cycle Aktif")
 
     active_cycle = db.query(UploadCycle).filter(
         UploadCycle.ended_at.is_(None)

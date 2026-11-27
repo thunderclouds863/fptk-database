@@ -264,16 +264,16 @@ def render_mpp_chart(df, mode="Cumulative"):
 
     if mode == "Trend per Week":
         group_col = "year_week"
-        title = "📈 Trend FPTK per Week"
+        title = "Trend FPTK per Week"
     elif mode == "Trend per Month":
         group_col = "month_year"
-        title = "📈 Trend FPTK per Month"
+        title = "Trend FPTK per Month"
     elif mode == "Trend per Quarter":
         group_col = "quarter"
-        title = "📈 Trend FPTK per Quarter"
+        title = "Trend FPTK per Quarter"
     else:
         group_col = "year_week"
-        title = "📊 MPP Cumulative (FPTK Diterima vs Closed)"
+        title = "MPP Cumulative (FPTK Diterima vs Closed)"
 
     incoming = df.groupby(group_col).size().reset_index(name="FPTK Diterima")
     closed_df = df[df["status"] == "Closed"]
@@ -337,7 +337,7 @@ def render_status_distribution(df):
     status_counts.columns = ["Status", "Count"]
     fig = px.pie(
         status_counts, values="Count", names="Status",
-        title="🥧 Distribusi Status FPTK",
+        title="Distribusi Status FPTK",
         color="Status",
         color_discrete_map={"OP": "#2ecc71", "Closed": "#3498db", "Cancel": "#e74c3c"},
         hole=0.4,
@@ -384,7 +384,7 @@ def render_fulfillment_per_pic(df):
     fig.update_yaxes(title_text="Jumlah FPTK", secondary_y=False)
     fig.update_yaxes(title_text="Fulfillment %", secondary_y=True, range=[0, 100])
     fig.update_layout(
-        title="📊 Pemenuhan SDM per Recruiter (OP & Closed)",
+        title="Pemenuhan SDM per Recruiter (OP & Closed)",
         height=450,
         barmode="group",
         xaxis_tickangle=-45,
@@ -467,12 +467,12 @@ def render_top_pic_performance(df):
         perf_df,
         x="PIC",
         y=key,
-        title=f"🏆 Top 10 PIC by {selected_metric_label}",
+        title=f"Top 10 PIC by {selected_metric_label}",
         color=key,
         color_continuous_scale="RdYlGn",
         text=key,
     )
-    fig.update_traces(textposition="outside")
+    fig.update_traces(textposition="outside", texttemplate="%{text:.1f}")
     fig.update_layout(
         height=450,
         xaxis_tickangle=-45,
@@ -481,7 +481,7 @@ def render_top_pic_performance(df):
     )
     st.plotly_chart(fig, use_container_width=True)
 
-    with st.expander("📋 Detail Metrik PIC", expanded=False):
+    with st.expander("Detail Metrik PIC", expanded=False):
         st.dataframe(
             perf_df[["PIC", "Open", "Closed", "Cancel", "Fulfillment %", "SLA %", "Composite Score"]],
             use_container_width=True,
@@ -517,7 +517,7 @@ def render_position_closed_per_level(df):
         fig.add_trace(go.Bar(x=pivot["pic_recruiter"], y=pivot[col], name=col))
 
     fig.update_layout(
-        title="📊 Position Closed per Recruiter per Level Jabatan",
+        title="Position Closed per Recruiter per Level Jabatan",
         xaxis_title="Recruiter",
         yaxis_title="Jumlah Closed",
         barmode="stack",
@@ -569,7 +569,7 @@ def render_position_complexity(df):
             fig.add_trace(go.Bar(x=pivot["pic_recruiter"], y=pivot[cat], name=cat))
 
     fig.update_layout(
-        title="🎯 Complexity Closed Position: Distribution per Recruiter",
+        title="Complexity Closed Position: Distribution per Recruiter",
         xaxis_title="Recruiter",
         yaxis_title="Jumlah Closed",
         barmode="stack",
@@ -610,7 +610,7 @@ def render_sla_distribution(df):
     }
     fig = px.bar(
         detail_counts, x="Detail SLA", y="Count",
-        title="⏱️ Distribusi Detail SLA",
+        title="Distribusi Detail SLA",
         color="Detail SLA", color_discrete_map=color_map, text="Count",
     )
     fig.update_traces(textposition="outside")
@@ -666,7 +666,7 @@ def render_sla_per_recruiter(df):
         x=sla_df["Recruiter"], y=sla_df["OP Lewat SLA"], name="OP Lewat SLA", marker_color="#e67e22",
     ))
     fig.update_layout(
-        title="⏱️ Pemenuhan SDM by SLA (Total Closed)",
+        title="Pemenuhan SDM by SLA (Total Closed)",
         barmode="group",
         xaxis_title="Recruiter",
         yaxis_title="Jumlah",
@@ -702,7 +702,7 @@ def render_penyebaran_per_direktorat(df):
     fig.add_trace(go.Bar(x=pivot["direktorat"], y=pivot["Closed"], name="Closed", marker_color="#3498db"))
     fig.add_trace(go.Bar(x=pivot["direktorat"], y=pivot["Cancel"], name="Cancel", marker_color="#e74c3c"))
     fig.update_layout(
-        title="🏢 Overview Status FPTK per Direktorat",
+        title="Overview Status FPTK per Direktorat",
         barmode="stack",
         xaxis_title="Direktorat",
         yaxis_title="Jumlah FPTK",
@@ -727,7 +727,7 @@ def render_level_distribution(df):
 
     fig = px.bar(
         counts, x="Level", y="Count",
-        title="📊 Distribusi Level FPTK",
+        title="Distribusi Level FPTK",
         color="Count", color_continuous_scale="Viridis",
         text="Count",
     )
@@ -760,7 +760,7 @@ def render_heatmap_fptk(df):
 
     fig = px.density_heatmap(
         heatmap_data, x="day", y="month_name", z="count",
-        title="🔥 Persebaran FPTK (Calendar Heatmap)",
+        title="Persebaran FPTK (Calendar Heatmap)",
         color_continuous_scale="Blues",
     )
     fig.update_layout(height=400)
@@ -809,7 +809,7 @@ def render_sourcing_funnel(df_sourcing):
         textposition="inside", textinfo="value+percent initial",
         marker=dict(color=px.colors.sequential.Blues_r[: len(df_funnel)]),
     ))
-    fig.update_layout(title="🔍 Funnel Sourcing Pipeline", height=500)
+    fig.update_layout(title="Funnel Sourcing Pipeline", height=500)
     st.plotly_chart(fig, use_container_width=True)
 
 
@@ -884,7 +884,7 @@ def render_sumber_sourcing_pie(df_sourcing):
         counts,
         values="Count",
         names="Sumber",
-        title="🌐 Distribusi Sumber Sourcing",
+        title="Distribusi Sumber Sourcing",
         hole=0.4,
     )
     fig.update_traces(textposition="inside", textinfo="percent+label")
@@ -929,7 +929,7 @@ def render_upload_cycle_progress():
 # ============================================================
 
 def show_dashboard():
-    st.title("📊 Dashboard FPTK & Sourcing")
+    st.title("Dashboard FPTK & Sourcing")
     st.markdown("---")
 
     try:
@@ -949,7 +949,7 @@ def show_dashboard():
     default_to = today
 
     with st.sidebar:
-        st.markdown("### 🔍 Filter Dashboard")
+        st.markdown("### Filter Dashboard")
 
         st.markdown("**📅 Periode**")
         use_all_time = st.checkbox(
@@ -1067,7 +1067,7 @@ def show_dashboard():
 
     st.markdown("---")
 
-    st.subheader("🔍 Sourcing Analytics")
+    st.subheader("Sourcing Analytics")
     render_sourcing_summary(df_sourcing)
     st.markdown("")
 
@@ -1080,12 +1080,12 @@ def show_dashboard():
     st.markdown("---")
 
     if dir_filter == "Semua" and bu_filter == "Semua":
-        st.subheader("🏢 Overview per Direktorat")
+        st.subheader("Overview per Direktorat")
         render_penyebaran_per_direktorat(df)
         st.markdown("---")
 
     if admin:
-        st.subheader("🔄 Upload Cycle Progress (Admin)")
+        st.subheader("Upload Cycle Progress (Admin)")
         render_upload_cycle_progress()
         st.markdown("---")
 

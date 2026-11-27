@@ -1,2 +1,22 @@
 [client]
-showSidebarNavigation = false
+# Hide Streamlit's developer items (Deploy, rerun controls) from end users.
+toolbarMode = "viewer"
+# Do not show stack traces to end users; full details stay in the server log.
+showErrorDetails = "type"
+
+[theme]
+base = "light"
+primaryColor = "#C4252F"
+backgroundColor = "#FFFFFF"
+secondaryBackgroundColor = "#F4F5F7"
+textColor = "#1F2430"
+linkColor = "#1D4E89"
+borderColor = "#DDE1E6"
+showWidgetBorder = true
+baseRadius = "6px"
+headingFontSizes = ["1.75rem", "1.35rem", "1.125rem", "1rem", "0.95rem", "0.9rem"]
+headingFontWeights = [650, 600, 600, 600, 600, 600]
+dataframeHeaderBackgroundColor = "#F4F5F7"
+
+[theme.sidebar]
+backgroundColor = "#F7F8FA"

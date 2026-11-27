@@ -9,7 +9,7 @@ import time
 
 
 def show_transfer_fptk():
-    st.title("🔄 Transfer FPTK")
+    st.title("Transfer FPTK")
     st.markdown("Transfer FPTK dari satu PIC ke PIC lain.")
 
     db = next(get_db())
@@ -31,7 +31,7 @@ def show_transfer_fptk():
         db.close()
         return
 
-    tab1, tab2 = st.tabs(["🔄 Transfer FPTK", "📜 History Transfer"])
+    tab1, tab2 = st.tabs(["Transfer FPTK", "History Transfer"])
 
     with tab1:
         show_transfer_form(db, user)
@@ -214,7 +214,7 @@ def show_transfer_form(db, user):
 
 
 def show_transfer_history(db):
-    st.subheader("📜 History Transfer FPTK")
+    st.subheader("History Transfer FPTK")
 
     col1, col2 = st.columns(2)
 
@@ -285,7 +285,7 @@ def show_transfer_history(db):
     st.dataframe(df, use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### 📊 Statistik Transfer")
+    st.markdown("### Statistik Transfer")
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Transfer", len(histories))

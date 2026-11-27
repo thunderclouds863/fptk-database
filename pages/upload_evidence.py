@@ -31,7 +31,7 @@ def get_sourcing_kode_unik(_db):
 
 
 def show_upload_evidence():
-    st.title("📎 Upload Evidence Sourcing")
+    st.title("Upload Evidence Sourcing")
     st.markdown("Upload bukti evidence sourcing dan lihat histori upload.")
 
     db = next(get_db())
@@ -59,7 +59,7 @@ def show_upload_evidence():
         show_histori_only(db, pic_list)
         return
 
-    tab1, tab2 = st.tabs(["📤 Upload Evidence Baru", "📋 Histori Evidence"])
+    tab1, tab2 = st.tabs(["Upload Evidence Baru", "Histori Evidence"])
 
     with tab1:
         show_upload_form(db, user, sourcing_data)
@@ -69,7 +69,7 @@ def show_upload_evidence():
 
 
 def show_upload_form(db, user, sourcing_data):
-    st.subheader("📤 Upload Evidence Baru")
+    st.subheader("Upload Evidence Baru")
 
     posisi_options = {}
     for s in sourcing_data:
@@ -192,7 +192,7 @@ def show_upload_form(db, user, sourcing_data):
 
 
 def show_histori(db, user, admin, pic_list):
-    st.subheader("📋 Histori Evidence")
+    st.subheader("Histori Evidence")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -243,7 +243,7 @@ def show_histori(db, user, admin, pic_list):
                 )
 
         st.markdown("---")
-        st.subheader("🔍 Detail Evidence")
+        st.subheader("Detail Evidence")
 
         selected_id = st.selectbox("Pilih ID untuk lihat detail", [e.id for e in evidences], key="evidence_detail_select")
         if selected_id:
@@ -262,11 +262,11 @@ def show_histori(db, user, admin, pic_list):
 
                 if detail.keterangan:
                     st.markdown("---")
-                    st.markdown("### 📝 Keterangan")
+                    st.markdown("### Keterangan")
                     st.info(detail.keterangan)
 
                 st.markdown("---")
-                st.markdown("### 📎 File Evidence")
+                st.markdown("### File Evidence")
 
                 if detail.file_key:
                     try:
@@ -295,7 +295,7 @@ def show_histori(db, user, admin, pic_list):
                     col_edit1, col_edit2 = st.columns(2)
 
                     with col_edit1:
-                        with st.expander("✏️ Edit Total CV & Keterangan"):
+                        with st.expander("Edit Total CV & Keterangan"):
                             with st.form(f"edit_evidence_{detail.id}"):
                                 new_total = st.number_input(
                                     "Total CV",
@@ -339,7 +339,7 @@ def show_histori(db, user, admin, pic_list):
 
 
 def show_histori_only(db, pic_list):
-    st.subheader("📋 Histori Evidence (View-Only)")
+    st.subheader("Histori Evidence (View-Only)")
 
     col1, col2 = st.columns(2)
     with col1:
