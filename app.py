@@ -2,14 +2,11 @@
 import html
 import importlib
 import logging
-from contextlib import contextmanager
 from datetime import datetime
 
 import streamlit as st
-from sqlalchemy.exc import SQLAlchemyError
 
 from core.session_manager import get_session_manager, check_idle_timeout, touch_session
-from core import database
 from core.database import SessionLocal, init_db
 from core.auth import (
     attempt_login, is_admin, init_default_users, verify_password,
@@ -18,10 +15,9 @@ from core.auth import (
 )
 from core.models import User
 from core.demo import is_demo
-from core.ui import apply_base_styles, apply_auth_styles, run_page, install_client_hooks
+from core.ui import apply_base_styles, apply_auth_styles, run_page, install_mobile_nav_hook
 
 logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("fptk")
 
 LOGO_PATH = "asset/cimory_logo.png"
 
@@ -39,8 +35,6 @@ def get_cached_db():
 
 @st.cache_resource
 def initialize_system():
-    """Runs once per server process (failures are not cached, so a retry re-runs it)."""
-    database.check_connection()
     init_db()
     db = SessionLocal()
     try:
@@ -49,69 +43,14 @@ def initialize_system():
         if is_demo():
             from core.demo import seed_demo_data
             seed_demo_data(db)
-        from core.first_run import issue_code
-        issue_code(db)  # writes a setup code to the server log only if setup is needed
     finally:
         db.close()
     return True
 
 
-# Non-technical copy per failure category. Details (never credentials) go to the server log.
-_SYSTEM_PROBLEMS = {
-    "missing_url": ("Aplikasi belum terhubung ke database",
-                    "Pengaturan koneksi database belum diisi di server.", "DB-CONFIG"),
-    "invalid_url": ("Aplikasi belum terhubung ke database",
-                    "Pengaturan koneksi database di server tidak valid.", "DB-CONFIG"),
-    "auth_failed": ("Aplikasi tidak dapat masuk ke database",
-                    "Server database menolak akses aplikasi.", "DB-AUTH"),
-    "unreachable": ("Database sedang tidak dapat dihubungi",
-                    "Server database tidak merespons. Biasanya ini sementara.", "DB-UNREACHABLE"),
-    "db_missing": ("Database belum siap",
-                   "Database tujuan belum dibuat di server.", "DB-INIT"),
-    "init_failed": ("Database belum siap",
-                    "Persiapan awal database gagal.", "DB-INIT"),
-}
-
-
-def render_system_problem(category):
-    title, detail, code = _SYSTEM_PROBLEMS.get(category, _SYSTEM_PROBLEMS["init_failed"])
-    apply_auth_styles()
-    st.image(LOGO_PATH, width=132)
-    st.header(title, anchor=False)
-    st.write(f"{detail} Data Anda tidak terpengaruh.")
-    st.caption(f"Kode: {code}. Jika masalah berlanjut, sampaikan kode ini ke administrator sistem.")
-    if st.button("Coba lagi", type="primary", width="stretch"):
-        st.rerun()
-    st.stop()
-
-
-@contextmanager
-def db_guard(slot=None):
-    """Turn a database failure during a run into the system-problem screen instead of a
-    raw exception or a misleading message. `slot` (an st.empty) is cleared first."""
-    try:
-        yield
-    except SQLAlchemyError as exc:
-        category = database.classify_db_error(exc)
-        log.error("Database error during request (%s): %s", category, type(exc).__name__, exc_info=exc)
-        if slot is not None:
-            slot.empty()
-        render_system_problem(category)
-
-
-if database.CONFIG_ERROR:
-    log.error("Database configuration problem: %s", database.CONFIG_ERROR)
-    render_system_problem(database.CONFIG_ERROR)
-
-try:
+if 'system_initialized' not in st.session_state:
     initialize_system()
-except Exception as _exc:  # noqa: BLE001 - startup boundary
-    if type(_exc).__module__.startswith("streamlit"):
-        raise
-    _category = database.classify_db_error(_exc)
-    log.error("Database startup failed (%s) target=%s: %s", _category, database.describe_target(),
-              type(_exc).__name__, exc_info=_exc)
-    render_system_problem(_category)
+    st.session_state.system_initialized = True
 
 
 session_mgr = get_session_manager()
@@ -152,27 +91,8 @@ def _complete_login(user):
     st.session_state.pop("auth_view", None)
 
 
-def _setup_needed():
-    from core.first_run import setup_required
-    db = get_cached_db()
-    try:
-        return setup_required(db)
-    finally:
-        db.close()
-
-
 def render_login():
-    _auth_header("Masuk", "FPTK & Sourcing System · Rekrutmen")
-    if is_demo():
-        st.markdown('<span class="auth-env">LINGKUNGAN DEMO</span>', unsafe_allow_html=True)
-
-    if _setup_needed():
-        st.info("Aplikasi belum disiapkan: belum ada akun administrator. "
-                "Pengelola sistem perlu menyelesaikan pengaturan awal sebelum siapa pun bisa masuk.")
-        if st.button("Pengaturan awal", type="primary", width="stretch"):
-            st.session_state.auth_view = "setup"
-            st.rerun()
-        return
+    _auth_header("Masuk", "FPTK & Sourcing System")
 
     flash = st.session_state.pop("auth_flash", None)
     if flash:
@@ -192,28 +112,18 @@ def render_login():
             st.error("Isi username dan password.")
         else:
             db = get_cached_db()
-            user = error = None
             try:
-                with st.spinner("Memeriksa akun..."):
-                    user, error = attempt_login(db, username, password)
+                user, error = attempt_login(db, username, password)
                 if user:
-                    _complete_login(user)  # reads user attributes, so before db.close()
-            except SQLAlchemyError:
-                # Infrastructure failure: never reported as wrong credentials.
-                log.exception("Login failed: database error")
-                user, error = None, "unavailable"
+                    _complete_login(user)
+                    st.rerun()
+                elif error == "locked":
+                    st.error(f"Terlalu banyak percobaan gagal. Coba lagi dalam {LOGIN_LOCK_MINUTES} menit "
+                             "atau gunakan Lupa password.")
+                else:
+                    st.error("Username atau password salah.")
             finally:
                 db.close()
-            if user:
-                st.rerun()
-            elif error == "locked":
-                st.error(f"Terlalu banyak percobaan masuk yang gagal. Demi keamanan, coba lagi "
-                         f"dalam {LOGIN_LOCK_MINUTES} menit atau gunakan Lupa password.")
-            elif error == "unavailable":
-                st.warning("Layanan sedang tidak dapat menghubungi database, jadi akun belum bisa "
-                           "diperiksa. Coba lagi beberapa saat.")
-            else:
-                st.error("Username atau password salah. Periksa juga Caps Lock.")
 
     if st.button("Lupa password?", type="tertiary"):
         st.session_state.auth_view = "forgot"
@@ -222,61 +132,6 @@ def render_login():
     if is_demo():
         st.caption("Demo: **demo_admin** / **demo123** (admin) atau **recruiter1** / **demo123** "
                    "(recruiter). Data contoh.")
-
-
-def render_setup():
-    from core.first_run import (issue_code, complete_setup, SETUP_CODE_MINUTES,
-                                REGENERATE_COOLDOWN_SECONDS)
-    from core.auth import MIN_PASSWORD_LENGTH
-    _auth_header("Pengaturan awal", "Buat akun administrator pertama.")
-    db = get_cached_db()
-    try:
-        status = issue_code(db)
-        if status == "not_required":
-            st.session_state.pop("auth_view", None)
-            st.session_state.auth_flash = "Pengaturan awal sudah selesai. Silakan masuk."
-            st.rerun()
-
-        st.caption("Kode pengaturan sekali pakai hanya tersedia bagi pengelola server, di log aplikasi "
-                   f"(misalnya Streamlit Cloud → Manage app → Logs). Kode berlaku {SETUP_CODE_MINUTES} menit.")
-        with st.form("setup_form", border=True):
-            code = st.text_input("Kode pengaturan", placeholder="XXXX-XXXX-XXXX", autocomplete="off")
-            username = st.text_input("Username admin", autocomplete="username")
-            display_name = st.text_input("Nama tampilan")
-            email = st.text_input("Email (untuk reset password, opsional)", autocomplete="email")
-            st.caption(f"Password minimal {MIN_PASSWORD_LENGTH} karakter, berisi huruf dan angka.")
-            password = st.text_input("Password", type="password", autocomplete="new-password")
-            confirm = st.text_input("Ulangi password", type="password", autocomplete="new-password")
-            submitted = st.form_submit_button("Buat akun admin", type="primary", width="stretch")
-        if submitted:
-            with st.spinner("Membuat akun..."):
-                ok, result = complete_setup(db, code, username, display_name, email, password, confirm)
-            if ok:
-                st.session_state.pop("auth_view", None)
-                st.session_state.auth_flash = "Akun administrator dibuat. Silakan masuk."
-                st.rerun()
-            messages = {
-                "invalid_code": "Kode pengaturan tidak valid.",
-                "used": "Kode ini sudah dipakai. Buat kode baru.",
-                "expired": "Kode sudah kedaluwarsa. Buat kode baru.",
-                "too_many_attempts": "Terlalu banyak kode salah; kode dinonaktifkan. Buat kode baru.",
-                "closed": "Pengaturan awal sudah selesai. Silakan masuk.",
-            }
-            st.error(messages.get(result, result))
-
-        if st.button("Buat kode baru", type="tertiary",
-                     help="Kode baru ditulis ke log server; kode lama tidak berlaku lagi."):
-            result = issue_code(db, force=True)
-            if result == "throttled":
-                st.warning(f"Tunggu {REGENERATE_COOLDOWN_SECONDS} detik sebelum membuat kode baru.")
-            elif result == "issued":
-                st.success("Kode baru sudah ditulis ke log server.")
-    finally:
-        db.close()
-
-    if st.button("Kembali ke halaman masuk", type="tertiary"):
-        st.session_state.pop("auth_view", None)
-        st.rerun()
 
 
 def render_forgot():
@@ -353,18 +208,13 @@ def render_reset(raw_token):
 
 if not st.session_state.user_id:
     apply_auth_styles()
-    _slot = st.empty()
-    with db_guard(_slot), _slot.container():
-        reset_token = st.query_params.get("reset_token")
-        if reset_token:
-            render_reset(reset_token)
-        elif st.session_state.get("auth_view") == "forgot":
-            render_forgot()
-        elif st.session_state.get("auth_view") == "setup":
-            render_setup()
-        else:
-            render_login()
-    install_client_hooks()
+    reset_token = st.query_params.get("reset_token")
+    if reset_token:
+        render_reset(reset_token)
+    elif st.session_state.get("auth_view") == "forgot":
+        render_forgot()
+    else:
+        render_login()
     st.stop()
 
 
@@ -406,10 +256,7 @@ def render_forced_password_change():
 
 
 if st.session_state.get("must_change_password"):
-    _slot = st.empty()
-    with db_guard(_slot), _slot.container():
-        render_forced_password_change()
-    install_client_hooks()
+    render_forced_password_change()
     st.stop()
 
 
@@ -419,8 +266,7 @@ if st.session_state.get("must_change_password"):
 if "user_is_admin" not in st.session_state or st.session_state.get("pages_dict_role") != st.session_state.role:
     _db = get_cached_db()
     try:
-        with db_guard():
-            st.session_state.user_is_admin = bool(is_admin(_db))
+        st.session_state.user_is_admin = bool(is_admin(_db))
     finally:
         _db.close()
     st.session_state.pages_dict_role = st.session_state.role
@@ -505,9 +351,6 @@ with st.sidebar:
                         else:
                             set_user_password(db, user, new, must_change=False)
                             st.success("Password berhasil diubah.")
-                    except SQLAlchemyError:
-                        log.exception("Change password failed: database error")
-                        st.warning("Database sedang tidak dapat dihubungi. Password belum diubah; coba lagi.")
                     finally:
                         db.close()
 
@@ -516,7 +359,7 @@ with st.sidebar:
         st.session_state.clear()
         st.rerun()
 
-    install_client_hooks()
+    install_mobile_nav_hook()
 
 
 current.run()

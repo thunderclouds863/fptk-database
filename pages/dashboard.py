@@ -1027,13 +1027,6 @@ def show_dashboard():
     render_metrics_cards(metrics)
     st.markdown("---")
 
-    if df.empty and df_sourcing.empty:
-        # One clear empty state instead of a dozen "Tidak ada data" boxes.
-        st.info("Belum ada data FPTK atau kandidat untuk periode dan filter ini. "
-                "Tambahkan FPTK lewat menu **Input FPTK** dan kandidat lewat **Input Kandidat**, "
-                "atau longgarkan filter di sidebar.")
-        return
-
     col1, col2 = st.columns([2, 1])
     with col1:
         render_mpp_chart(df, mode=mpp_mode)
