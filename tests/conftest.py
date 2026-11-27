@@ -6,7 +6,9 @@ import pytest
 
 # Isolated SQLite database for every test run; must be set before core.database is imported.
 _tmpdir = tempfile.mkdtemp()
-os.environ["DATABASE_URL"] = f"sqlite:///{_tmpdir}/test.db"
+# TEST_DATABASE_URL lets the same suite run against a throwaway Postgres database.
+# Never point it at a real/production database: tables are dropped between tests.
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or f"sqlite:///{_tmpdir}/test.db"
 os.environ.pop("DEMO_MODE", None)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
