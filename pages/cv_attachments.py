@@ -33,7 +33,7 @@ def build_cv_key(kode_unik: str, filename: str) -> str:
 
 
 def show_cv_attachments():
-    st.title("Lampiran CV Kandidat")
+    st.title("📎 Lampiran CV Kandidat")
     st.markdown("Upload dan lihat CV kandidat yang sudah diproses.")
 
     db = next(get_db())
@@ -48,7 +48,7 @@ def show_cv_attachments():
     if it_mode:
         st.info("🔍 Mode View-Only (IT) - Anda hanya bisa melihat dan download.")
 
-    tab1, tab2 = st.tabs(["Upload CV", "Daftar & Lihat CV"])
+    tab1, tab2 = st.tabs(["📤 Upload CV", "📂 Daftar & Lihat CV"])
 
     with tab1:
         if it_mode:
@@ -223,7 +223,7 @@ def show_list_cv(db, user, admin, it_mode):
     st.subheader("Daftar CV Kandidat")
 
     with st.sidebar:
-        st.markdown("### Filter")
+        st.markdown("### 🔍 Filter")
 
         search_cv = st.text_input("Cari (Nama / Kode Unik / File)", placeholder="Ketik keyword...", key="search_cv")
 
@@ -302,7 +302,7 @@ def show_list_cv(db, user, admin, it_mode):
     st.dataframe(df, use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### Lihat & Download CV")
+    st.markdown("### 📂 Lihat & Download CV")
 
     select_options = {}
     for cv in cv_list:

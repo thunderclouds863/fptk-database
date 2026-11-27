@@ -1,31 +1,27 @@
 # app.py
-import html
-import importlib
-import logging
-from datetime import datetime
-
 import streamlit as st
+import importlib
+import time
+import base64
+import traceback
+import pandas as pd
+from datetime import datetime, timedelta
 
 from core.session_manager import get_session_manager, check_idle_timeout, touch_session
 from core.database import SessionLocal, init_db
 from core.auth import (
-    attempt_login, is_admin, init_default_users, verify_password,
-    init_master_dropdown, validate_new_password, set_user_password,
-    LOGIN_LOCK_MINUTES,
+    login_user, is_admin, init_default_users, verify_password,
+    hash_password, init_master_dropdown
 )
 from core.models import User
 from core.demo import is_demo
-from core.ui import apply_base_styles, apply_auth_styles, run_page, install_mobile_nav_hook
 
-logging.basicConfig(level=logging.INFO)
-
-LOGO_PATH = "asset/cimory_logo.png"
 
 st.set_page_config(
-    page_title="FPTK & Sourcing",
-    page_icon=LOGO_PATH,
+    page_title="FPTK & Sourcing System",
+    page_icon="📊",
     layout="wide",
-    initial_sidebar_state="auto",
+    initial_sidebar_state="expanded"
 )
 
 
@@ -40,8 +36,8 @@ def initialize_system():
     try:
         init_default_users(db)
         init_master_dropdown(db)
+        from core.demo import is_demo, seed_demo_data
         if is_demo():
-            from core.demo import seed_demo_data
             seed_demo_data(db)
     finally:
         db.close()
@@ -55,311 +51,511 @@ if 'system_initialized' not in st.session_state:
 
 session_mgr = get_session_manager()
 
-for _key, _default in (("user_id", session_mgr.user_id), ("username", session_mgr.username),
-                       ("role", session_mgr.role), ("user_display", session_mgr.user_display),
-                       ("last_fptk_load", datetime.now()), ("last_sourcing_load", datetime.now()),
-                       ("last_activity", None)):
-    if _key not in st.session_state:
-        st.session_state[_key] = _default
+
+if "user_id" not in st.session_state:
+    st.session_state.user_id = session_mgr.user_id
+if "username" not in st.session_state:
+    st.session_state.username = session_mgr.username
+if "role" not in st.session_state:
+    st.session_state.role = session_mgr.role
+if "user_display" not in st.session_state:
+    st.session_state.user_display = session_mgr.user_display
+if "page" not in st.session_state:
+    st.session_state.page = "dashboard"
+if "last_fptk_load" not in st.session_state:
+    st.session_state.last_fptk_load = datetime.now()
+if "last_sourcing_load" not in st.session_state:
+    st.session_state.last_sourcing_load = datetime.now()
+if "last_activity" not in st.session_state:
+    st.session_state.last_activity = None
+
+
+if st.session_state.user_id and not session_mgr.is_logged_in:
+    session_mgr.login(
+        st.session_state.user_id, st.session_state.username,
+        st.session_state.role, st.session_state.user_display
+    )
+elif not st.session_state.user_id and session_mgr.is_logged_in:
+    st.session_state.user_id = session_mgr.user_id
+    st.session_state.username = session_mgr.username
+    st.session_state.role = session_mgr.role
+    st.session_state.user_display = session_mgr.user_display
+
 
 if st.session_state.user_id:
     touch_session()
-    if check_idle_timeout():
-        st.rerun()
-
-apply_base_styles()
-
-
-# ---------------------------------------------------------------------------
-# Unauthenticated views: login, forgot password, reset password
-# ---------------------------------------------------------------------------
-def _auth_header(title, subtitle=None):
-    st.image(LOGO_PATH, width=132)
-    st.header(title, anchor=False)
-    if subtitle:
-        st.markdown(f'<p class="auth-sub">{subtitle}</p>', unsafe_allow_html=True)
-
-
-def _complete_login(user):
-    session_mgr.login(user.id, user.username, user.role, user.display_name or user.username)
-    st.session_state.user_id = user.id
-    st.session_state.username = user.username
-    st.session_state.role = user.role
-    st.session_state.user_display = user.display_name or user.username
-    st.session_state.last_activity = datetime.now()
-    st.session_state.must_change_password = bool(user.must_change_password)
-    st.session_state.pop("auth_view", None)
-
-
-def render_login():
-    _auth_header("Masuk", "FPTK & Sourcing System")
-
-    flash = st.session_state.pop("auth_flash", None)
-    if flash:
-        st.success(flash)
-    expired_msg = st.session_state.pop("session_expired_message", None)
-    st.session_state.pop("session_expired_username", None)
-    if expired_msg:
-        st.warning(expired_msg)
-
-    with st.form("login_form", border=True):
-        username = st.text_input("Username", autocomplete="username")
-        password = st.text_input("Password", type="password", autocomplete="current-password")
-        submitted = st.form_submit_button("Masuk", type="primary", width="stretch")
-
-    if submitted:
-        if not username or not password:
-            st.error("Isi username dan password.")
-        else:
-            db = get_cached_db()
-            try:
-                user, error = attempt_login(db, username, password)
-                if user:
-                    _complete_login(user)
-                    st.rerun()
-                elif error == "locked":
-                    st.error(f"Terlalu banyak percobaan gagal. Coba lagi dalam {LOGIN_LOCK_MINUTES} menit "
-                             "atau gunakan Lupa password.")
-                else:
-                    st.error("Username atau password salah.")
-            finally:
-                db.close()
-
-    if st.button("Lupa password?", type="tertiary"):
-        st.session_state.auth_view = "forgot"
-        st.rerun()
-
-    if is_demo():
-        st.caption("Demo: **demo_admin** / **demo123** (admin) atau **recruiter1** / **demo123** "
-                   "(recruiter). Data contoh.")
-
-
-def render_forgot():
-    from core.password_reset import request_password_reset, is_available
-    _auth_header("Lupa password", "Masukkan email yang terdaftar di akun Anda. "
-                                  "Kami akan mengirim tautan untuk membuat password baru.")
-    if not is_available():
-        st.info("Reset password lewat email belum diaktifkan di server ini. "
-                "Hubungi admin untuk mengatur ulang password Anda.")
-    else:
-        with st.form("forgot_form", border=True):
-            email = st.text_input("Email", autocomplete="email")
-            submitted = st.form_submit_button("Kirim tautan reset", type="primary", width="stretch")
-        if submitted:
-            db = get_cached_db()
-            try:
-                with st.spinner("Memproses..."):
-                    result = request_password_reset(db, email)
-            finally:
-                db.close()
-            if result == "invalid_email":
-                st.error("Format email tidak valid.")
-            elif result == "unavailable":
-                st.info("Reset password lewat email belum diaktifkan. Hubungi admin.")
-            else:
-                st.success("Jika email tersebut terdaftar, tautan reset sudah dikirim dan berlaku 30 menit. "
-                           "Tidak menerima email dalam beberapa menit? Periksa folder spam atau hubungi admin.")
-    if st.button("Kembali ke halaman masuk", type="tertiary"):
-        st.session_state.pop("auth_view", None)
+    expired = check_idle_timeout()
+    if expired:
         st.rerun()
 
 
-def render_reset(raw_token):
-    from core.password_reset import check_token, reset_password_with_token
-    from core.auth import MIN_PASSWORD_LENGTH
-    _auth_header("Buat password baru")
-    db = get_cached_db()
-    try:
-        _, status = check_token(db, raw_token)
-        if status != "valid":
-            messages = {
-                "expired": "Tautan reset sudah kedaluwarsa. Minta tautan baru.",
-                "used": "Tautan reset ini sudah dipakai. Minta tautan baru jika masih perlu.",
-            }
-            st.error(messages.get(status, "Tautan reset tidak valid. Pastikan Anda membuka tautan lengkap dari email."))
-            if st.button("Minta tautan baru", type="primary", width="stretch"):
-                st.query_params.clear()
-                st.session_state.auth_view = "forgot"
-                st.rerun()
-            return
-
-        with st.form("reset_form", border=True):
-            st.caption(f"Minimal {MIN_PASSWORD_LENGTH} karakter, berisi huruf dan angka.")
-            new_pw = st.text_input("Password baru", type="password", autocomplete="new-password")
-            confirm = st.text_input("Ulangi password baru", type="password", autocomplete="new-password")
-            submitted = st.form_submit_button("Simpan password", type="primary", width="stretch")
-        if submitted:
-            ok, msg = reset_password_with_token(db, raw_token, new_pw, confirm)
-            if ok:
-                st.query_params.clear()
-                st.session_state.auth_flash = "Password berhasil diubah. Silakan masuk dengan password baru."
-                st.rerun()
-            elif msg in ("expired", "used", "invalid"):
-                st.error("Tautan tidak berlaku lagi. Minta tautan baru.")
-            else:
-                st.error(msg)
-    finally:
-        db.close()
-
-    if st.button("Kembali ke halaman masuk", type="tertiary"):
-        st.query_params.clear()
-        st.rerun()
+if "session_expired_message" in st.session_state and not st.session_state.user_id:
+    st.warning(st.session_state.session_expired_message)
+    del st.session_state.session_expired_message
+    if "session_expired_username" in st.session_state:
+        del st.session_state.session_expired_username
 
 
 if not st.session_state.user_id:
-    apply_auth_styles()
-    reset_token = st.query_params.get("reset_token")
-    if reset_token:
-        render_reset(reset_token)
-    elif st.session_state.get("auth_view") == "forgot":
-        render_forgot()
-    else:
-        render_login()
+
+    @st.cache_data(ttl=3600)
+    def load_logo():
+        try:
+            with open("asset/cimory_logo.png", "rb") as logo_file:
+                return base64.b64encode(logo_file.read()).decode("utf-8")
+        except FileNotFoundError:
+            return ""
+
+    logo_base64 = load_logo()
+
+    st.markdown(
+        """
+        <style>
+        .stApp {
+            background: radial-gradient(ellipse at 50% 20%, #151b29 0%, #0d1119 45%, #080b10 100%);
+            min-height: 100vh;
+        }
+        header { visibility: hidden; }
+        .block-container { padding-top: 30px !important; padding-bottom: 50px !important; }
+        .cimory-logo-container {
+            width: 100vw !important; max-width: 100vw !important;
+            position: relative !important; left: 50% !important;
+            transform: translateX(-50%) !important;
+            display: flex !important; justify-content: center !important;
+            align-items: center !important;
+            margin-top: 10px !important; margin-bottom: 55px !important;
+            padding: 0 !important; box-sizing: border-box !important;
+            text-align: center !important;
+        }
+        .cimory-logo {
+            width: 260px !important; max-width: 260px !important;
+            height: auto !important; display: block !important;
+            margin: 0 auto !important; padding: 0 !important;
+            object-fit: contain !important;
+        }
+        div[data-testid="stForm"] {
+            width: 700px !important;
+            max-width: calc(100vw - 40px) !important;
+            margin-left: auto !important; margin-right: auto !important;
+            padding: 42px 42px 38px 42px !important;
+            background: linear-gradient(145deg, rgba(20, 24, 34, 0.90), rgba(12, 15, 22, 0.90)) !important;
+            border: 1px solid rgba(125, 140, 170, 0.28) !important;
+            border-radius: 20px !important;
+            box-shadow: 0 25px 70px rgba(0, 0, 0, 0.45) !important;
+            backdrop-filter: blur(15px);
+            -webkit-backdrop-filter: blur(15px);
+            box-sizing: border-box !important;
+        }
+        .login-title {
+            display: flex; align-items: center; gap: 12px;
+            color: #f5f7fb; font-size: 38px; font-weight: 700;
+            line-height: 1; margin-bottom: 35px; letter-spacing: -1px;
+        }
+        .login-icon {
+            font-size: 30px !important; line-height: 1 !important;
+            width: 38px; height: 38px;
+            display: flex; align-items: center; justify-content: center;
+        }
+        div[data-testid="stTextInput"] label {
+            color: #f1f3f7 !important; font-size: 16px !important;
+            font-weight: 600 !important; margin-bottom: 8px !important;
+        }
+        div[data-baseweb="input"] {
+            height: 58px !important;
+            background: linear-gradient(145deg, #242731, #1e212b) !important;
+            border: 1px solid rgba(150, 160, 180, 0.20) !important;
+            border-radius: 12px !important;
+            transition: border 0.2s ease, box-shadow 0.2s ease;
+        }
+        div[data-baseweb="input"]:focus-within {
+            border: 1px solid rgba(255, 255, 255, 0.38) !important;
+            box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.04) !important;
+        }
+        div[data-baseweb="input"] input {
+            height: 56px !important; color: #f5f5f7 !important;
+            font-size: 16px !important; font-weight: 400 !important;
+        }
+        div[data-baseweb="input"] input::placeholder { color: #a0a3ad !important; opacity: 1 !important; }
+        div[data-baseweb="input"] button { color: #f4f5f8 !important; }
+        div[data-testid="stTextInput"] { margin-bottom: 20px; }
+        div[data-testid="stFormSubmitButton"] { margin-top: 8px !important; }
+        div[data-testid="stFormSubmitButton"] button {
+            width: 100% !important; height: 62px !important;
+            border: none !important; border-radius: 13px !important;
+            background: linear-gradient(90deg, #ff3d48, #ff4d54) !important;
+            color: white !important; font-size: 18px !important;
+            font-weight: 700 !important;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        div[data-testid="stFormSubmitButton"] button:hover {
+            background: linear-gradient(90deg, #ff4751, #ff5960) !important;
+            transform: translateY(-1px);
+            box-shadow: 0 10px 25px rgba(255, 60, 70, 0.25);
+        }
+        @media (max-width: 768px) {
+            .block-container { padding-left: 15px !important; padding-right: 15px !important; padding-top: 20px !important; }
+            .cimory-logo { width: 220px !important; max-width: 220px !important; }
+            div[data-testid="stForm"] {
+                width: auto !important; max-width: calc(100vw - 30px) !important;
+                padding: 30px 22px 28px 22px !important;
+                border-radius: 17px !important;
+            }
+            .login-title { font-size: 32px; gap: 10px; }
+        }
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+    if logo_base64:
+        st.markdown(
+            f'<div class="cimory-logo-container"><img src="data:image/png;base64,{logo_base64}" class="cimory-logo" alt="Cimory Logo"></div>',
+            unsafe_allow_html=True
+        )
+
+    from core.demo import is_demo
+    if is_demo():
+        st.info("Demo portfolio: login **demo_admin** / **demo123** (admin) atau **recruiter1** / **demo123** (recruiter). Data contoh, reset otomatis.")
+
+    with st.form("login_form"):
+        st.markdown(
+            '<div class="login-title"><span class="login-icon">🔐</span><span>Login</span></div>',
+            unsafe_allow_html=True
+        )
+
+        username = st.text_input("Username", placeholder="Masukkan username")
+        password = st.text_input("Password", type="password", placeholder="Masukkan password")
+        submitted = st.form_submit_button("Login  →", width='stretch')
+
+        if submitted:
+            if not username or not password:
+                st.error("Username dan password wajib diisi!")
+            else:
+                db = get_cached_db()
+                try:
+                    user = login_user(db, username, password)
+                    if user:
+                        session_mgr.login(user.id, user.username, user.role, user.display_name or user.username)
+                        st.session_state.user_id = user.id
+                        st.session_state.username = user.username
+                        st.session_state.role = user.role
+                        st.session_state.user_display = user.display_name or user.username
+                        st.session_state.last_activity = datetime.now()
+                        st.session_state.page = "dashboard"
+
+                        if "pages_dict" in st.session_state:
+                            del st.session_state.pages_dict
+                        if "user_is_admin" in st.session_state:
+                            del st.session_state.user_is_admin
+                        if "pages_dict_role" in st.session_state:
+                            del st.session_state.pages_dict_role
+
+                        st.success(f"Selamat datang, {st.session_state.user_display}!")
+                        time.sleep(0.3)
+                        st.rerun()
+                    else:
+                        st.error("Username atau password salah!")
+                finally:
+                    db.close()
+
     st.stop()
 
 
-# ---------------------------------------------------------------------------
-# Forced password change (admin reset / known default password)
-# ---------------------------------------------------------------------------
-def render_forced_password_change():
-    from core.auth import MIN_PASSWORD_LENGTH
-    apply_auth_styles()
-    _auth_header("Ganti password", "Password Anda adalah password sementara atau password default. "
-                                   "Buat password baru untuk melanjutkan.")
-    with st.form("forced_pw_form", border=True):
-        st.caption(f"Minimal {MIN_PASSWORD_LENGTH} karakter, berisi huruf dan angka.")
-        current = st.text_input("Password saat ini", type="password", autocomplete="current-password")
-        new_pw = st.text_input("Password baru", type="password", autocomplete="new-password")
-        confirm = st.text_input("Ulangi password baru", type="password", autocomplete="new-password")
-        submitted = st.form_submit_button("Simpan dan lanjutkan", type="primary", width="stretch")
-    if submitted:
+with st.sidebar:
+    st.markdown(f"### 👤 {st.session_state.user_display}")
+    st.caption(f"Role: {st.session_state.role}")
+
+    if session_mgr.is_logged_in:
+        remaining = session_mgr.get_idle_remaining_seconds()
+        if remaining > 0:
+            mins = remaining // 60
+            secs = remaining % 60
+            if remaining < 300:
+                st.caption(f"⏰ Auto-logout dalam **{mins}m {secs}s**")
+            else:
+                st.caption(f"⏰ Auto-logout dalam {mins}m {secs}s")
+
+    st.markdown("---")
+
+    current_role = st.session_state.get("role", "user")
+
+    if "pages_dict" not in st.session_state or st.session_state.get("pages_dict_role") != current_role:
+        base_pages = {
+            "📊 Dashboard": "dashboard",
+            "📤 Upload & Compile FPTK": "upload_compile",
+            "📋 FPTK View": "fptk_view",
+            "📝 Update Progres Recruitment": "update_progres",
+            "👤 Sourcing Input": "sourcing_input",
+            "👩🏻‍💻 Sourcing View": "sourcing_view",
+            "🏢 DB Kode Posisi": "db_kode_posisi",
+            "🔍 Funnel Report": "funnel_report",
+            "📊 Monitoring & Evidence": "monitoring_sourcing",
+        }
+
         db = get_cached_db()
         try:
-            user = db.query(User).filter(User.id == st.session_state.user_id).first()
-            error = validate_new_password(new_pw, confirm)
-            if not user or not verify_password(current, user.password_hash):
-                st.error("Password saat ini salah.")
-            elif error:
-                st.error(error)
-            elif new_pw == current:
-                st.error("Password baru harus berbeda dari password saat ini.")
-            else:
-                set_user_password(db, user, new_pw, must_change=False)
-                st.session_state.must_change_password = False
-                st.rerun()
+            user_is_admin = is_admin(db)
         finally:
             db.close()
-    if st.button("Keluar", type="tertiary"):
-        session_mgr.logout()
-        st.session_state.clear()
-        st.rerun()
 
+        st.session_state["user_is_admin"] = user_is_admin
 
-if st.session_state.get("must_change_password"):
-    render_forced_password_change()
-    st.stop()
+        if user_is_admin:
+            base_pages["👥 User Management"] = "user_management"
+            base_pages["📩 Request"] = "admin_delete_requests"
 
+        st.session_state.pages_dict = base_pages
+        st.session_state.pages_dict_role = current_role
 
-# ---------------------------------------------------------------------------
-# Navigation
-# ---------------------------------------------------------------------------
-if "user_is_admin" not in st.session_state or st.session_state.get("pages_dict_role") != st.session_state.role:
-    _db = get_cached_db()
-    try:
-        st.session_state.user_is_admin = bool(is_admin(_db))
-    finally:
-        _db.close()
-    st.session_state.pages_dict_role = st.session_state.role
-user_is_admin = st.session_state.user_is_admin
+    pages = st.session_state.pages_dict
 
+    st.markdown("### 📋 Navigasi")
+    current_page = st.session_state.get("page", "dashboard")
 
-def _page(module, func, title, icon, url_path, default=False):
-    def render():
-        run_page(lambda: getattr(importlib.import_module(module), func)(), is_admin_user=user_is_admin)
-    render.__name__ = f"page_{url_path.replace('-', '_')}"
-    return st.Page(render, title=title, icon=f":material/{icon}:", url_path=url_path, default=default)
+    for label, page_key in pages.items():
+        is_active = (page_key == current_page)
+        if is_active:
+            btn_type = "primary"
+            btn_label = f"▶ {label}"
+        else:
+            btn_type = "secondary"
+            btn_label = f"   {label}"
 
+        if st.button(btn_label, key=f"nav_btn_{page_key}", width='stretch', type=btn_type):
+            st.session_state.page = page_key
+            st.rerun()
 
-sections = {
-    "Ringkasan": [
-        _page("pages.dashboard", "show_dashboard", "Dashboard", "space_dashboard", "dashboard", default=True),
-    ],
-    "FPTK": [
-        _page("pages.02_upload_compile", "show_upload_compile", "Input FPTK", "upload_file", "input-fptk"),
-        _page("pages.03_fptk_view", "show_fptk_view", "Database FPTK", "table_view", "fptk"),
-        _page("pages.11_update_progres", "show_update_progres", "Progres Rekrutmen", "edit_note", "progres"),
-        _page("pages.05_db_kode_posisi", "show_db_kode_posisi", "Kode Posisi", "badge", "kode-posisi"),
-    ],
-    "Sourcing": [
-        _page("pages.09_sourcing_input", "show_sourcing_input", "Input Kandidat", "person_add", "input-kandidat"),
-        _page("pages.04_sourcing_view", "show_sourcing_view", "Database Kandidat", "group", "kandidat"),
-    ],
-    "Laporan": [
-        _page("pages.funnel_report", "show_funnel_report", "Funnel Report", "filter_alt", "funnel"),
-        _page("pages.monitoring_sourcing", "show_monitoring_sourcing", "Monitoring & Evidence", "monitoring", "monitoring"),
-    ],
-}
-if user_is_admin:
-    sections["Admin"] = [
-        _page("pages.07_user_management", "show_user_management", "Pengguna", "manage_accounts", "pengguna"),
-        _page("pages.10_admin_delete_requests", "show_admin_delete_requests", "Permintaan", "inbox", "permintaan"),
-        _page("pages.export_data", "show_export_data", "Export Data", "download", "export"),
-    ]
+    st.markdown("---")
+    st.markdown("### ⚡ Cache Control")
 
-st.logo(LOGO_PATH, size="large")
-current = st.navigation(sections, position="sidebar")
+    def get_cache_functions():
+        try:
+            from pages.dashboard import load_fptk_data, load_sourcing_data, calculate_metrics, get_upload_cycle_progress
+            from core.utils import get_filter_options_from_db
+            return {
+                'load_fptk_data': load_fptk_data,
+                'load_sourcing_data': load_sourcing_data,
+                'calculate_metrics': calculate_metrics,
+                'get_upload_cycle_progress': get_upload_cycle_progress,
+                'get_filter_options_from_db': get_filter_options_from_db,
+            }
+        except ImportError as e:
+            st.caption(f"Cache functions not available: {str(e)}")
+            return None
 
+    cache_funcs = get_cache_functions()
 
-# ---------------------------------------------------------------------------
-# Sidebar: account block
-# ---------------------------------------------------------------------------
-with st.sidebar:
-    role_label = {"admin": "Admin", "user": "Recruiter", "it": "IT (lihat saja)"}.get(
-        st.session_state.role, st.session_state.role)
-    remaining = session_mgr.get_idle_remaining_seconds()
-    st.markdown(
-        f'<p class="acct-name">{html.escape(str(st.session_state.user_display))}</p>'
-        f'<p class="acct-meta">{role_label} · keluar otomatis setelah 30 menit tidak aktif</p>',
-        unsafe_allow_html=True,
-    )
-    if 0 < remaining < 300:
-        st.caption(f"Sesi berakhir dalam {remaining // 60}m {remaining % 60}s")
+    if cache_funcs:
+        load_fptk_data = cache_funcs['load_fptk_data']
+        load_sourcing_data = cache_funcs['load_sourcing_data']
+        calculate_metrics = cache_funcs['calculate_metrics']
+        get_upload_cycle_progress = cache_funcs['get_upload_cycle_progress']
+        get_filter_options_from_db = cache_funcs['get_filter_options_from_db']
 
-    if st.button("Muat ulang data", icon=":material/refresh:", width="stretch",
-                 help="Ambil data terbaru dari database"):
-        st.cache_data.clear()
-        st.session_state.last_fptk_load = datetime.now()
-        st.session_state.last_sourcing_load = datetime.now()
-        st.toast("Data dimuat ulang.")
-        st.rerun()
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("🔄 Refresh All", width='stretch', type="primary"):
+                st.cache_data.clear()
+                st.session_state.last_fptk_load = datetime.now()
+                st.session_state.last_sourcing_load = datetime.now()
+                st.success("All cache cleared!")
+                time.sleep(0.5)
+                st.rerun()
+
+        with col2:
+            if st.button("🗑️ Clear Cache", width='stretch'):
+                load_fptk_data.clear()
+                load_sourcing_data.clear()
+                calculate_metrics.clear()
+                get_upload_cycle_progress.clear()
+                st.success("Data cache cleared!")
+                time.sleep(0.5)
+                st.rerun()
+
+    st.markdown("---")
 
     if not is_demo():
-        with st.expander("Ganti password", icon=":material/key:"):
-            with st.form("change_password", border=False):
-                old = st.text_input("Password saat ini", type="password", autocomplete="current-password")
-                new = st.text_input("Password baru", type="password", autocomplete="new-password")
-                confirm = st.text_input("Ulangi password baru", type="password", autocomplete="new-password")
-                if st.form_submit_button("Simpan", width="stretch"):
-                    db = get_cached_db()
-                    try:
-                        user = db.query(User).filter(User.id == st.session_state.user_id).first()
-                        error = validate_new_password(new, confirm)
-                        if not user or not verify_password(old, user.password_hash):
-                            st.error("Password saat ini salah.")
-                        elif error:
-                            st.error(error)
-                        else:
-                            set_user_password(db, user, new, must_change=False)
-                            st.success("Password berhasil diubah.")
-                    finally:
-                        db.close()
+        with st.expander("🔑 Ganti Password"):
+            with st.form("change_password"):
+                db = get_cached_db()
+                try:
+                    user = db.query(User).filter(User.id == st.session_state.user_id).first()
+                    old = st.text_input("Password Lama", type="password")
+                    new = st.text_input("Password Baru (min 6 karakter)", type="password")
+                    confirm = st.text_input("Konfirmasi", type="password")
+                    update_password = st.form_submit_button("Update Password")
 
-    if st.button("Keluar", icon=":material/logout:", width="stretch"):
+                    if update_password:
+                        if new and new == confirm and len(new) >= 6:
+                            if user and verify_password(old, user.password_hash):
+                                user.password_hash = hash_password(new)
+                                db.commit()
+                                st.success("Password berhasil diubah!")
+                            else:
+                                st.error("Password lama salah!")
+                        else:
+                            st.error("Password baru minimal 6 karakter dan harus sama!")
+                finally:
+                    db.close()
+
+    st.markdown("---")
+
+    if st.button("🚪 Logout", width='stretch'):
         session_mgr.logout()
         st.session_state.clear()
         st.rerun()
 
-    install_mobile_nav_hook()
+
+if st.session_state.user_id and not session_mgr.is_logged_in:
+    session_mgr.login(
+        st.session_state.user_id, st.session_state.username,
+        st.session_state.role, st.session_state.user_display
+    )
+elif not st.session_state.user_id and session_mgr.is_logged_in:
+    st.session_state.user_id = session_mgr.user_id
+    st.session_state.username = session_mgr.username
+    st.session_state.role = session_mgr.role
+    st.session_state.user_display = session_mgr.user_display
 
 
-current.run()
+page = st.session_state.page
+
+
+if page == "dashboard":
+    dashboard = importlib.import_module("pages.dashboard")
+    dashboard.show_dashboard()
+
+elif page == "upload_compile":
+    upload_compile = importlib.import_module("pages.02_upload_compile")
+    upload_compile.show_upload_compile()
+
+elif page == "fptk_view":
+    fptk_view = importlib.import_module("pages.03_fptk_view")
+    fptk_view.show_fptk_view()
+
+elif page == "update_progres":
+    try:
+        update_progres = importlib.import_module("pages.11_update_progres")
+        update_progres.show_update_progres()
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
+
+elif page == "sourcing_view":
+    sourcing_view = importlib.import_module("pages.04_sourcing_view")
+    sourcing_view.show_sourcing_view()
+
+elif page == "sourcing_input":
+    try:
+        sourcing_input = importlib.import_module("pages.09_sourcing_input")
+        sourcing_input.show_sourcing_input()
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
+
+elif page == "monitoring_sourcing":
+    try:
+        monitoring_sourcing = importlib.import_module("pages.monitoring_sourcing")
+        monitoring_sourcing.show_monitoring_sourcing()
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
+
+elif page == "db_kode_posisi":
+    db_kode_posisi = importlib.import_module("pages.05_db_kode_posisi")
+    db_kode_posisi.show_db_kode_posisi()
+
+elif page == "user_management":
+    user_management = importlib.import_module("pages.07_user_management")
+    user_management.show_user_management()
+
+elif page == "admin_delete_requests":
+    try:
+        admin_delete_requests = importlib.import_module("pages.10_admin_delete_requests")
+        admin_delete_requests.show_admin_delete_requests()
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
+
+elif page == "funnel_report":
+    try:
+        funnel_report = importlib.import_module("pages.funnel_report")
+        funnel_report.show_funnel_report()
+    except ModuleNotFoundError as e:
+        st.error(f"ModuleNotFoundError: {e}")
+        st.code(traceback.format_exc(), language="python")
+    except Exception as e:
+        st.error(f"Error: {type(e).__name__}: {e}")
+        st.code(traceback.format_exc(), language="python")
+
+
+st.markdown("---")
+st.markdown("### 📥 Export Data")
+
+if st.button("📊 Export All Data", width='stretch'):
+    with st.spinner("Mengekspor data..."):
+        db = get_cached_db()
+        try:
+            from core.export_excel import export_database_to_excel
+            buffer = export_database_to_excel(db)          # BytesIO
+            file_data = buffer.getvalue()                  # raw bytes
+            filename = f"fptk_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+
+            st.download_button(
+                label="📥 Download Excel",
+                data=file_data,
+                file_name=filename,
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                width='stretch',
+            )
+            st.success(f"Export berhasil! File: {filename}")
+        except Exception as e:
+            st.error(f"Export gagal: {type(e).__name__}: {e}")
+            st.code(traceback.format_exc(), language="python")
+        finally:
+            db.close()
+
+with st.expander("📋 Export Sheet Spesifik"):
+    sheet_options = [
+        "Blacklist Candidate", "DB Kode Posisi", "FPTK", "DB Sourcing",
+        "Grafik MPP", "Recruiter Performance", "Master Dropdown", "Evidence"
+    ]
+    selected_sheet = st.selectbox("Pilih Sheet", sheet_options)
+
+    if st.button(f"Export {selected_sheet}"):
+        with st.spinner(f"Mengekspor {selected_sheet}..."):
+            db = get_cached_db()
+            try:
+                from core.export_excel import export_single_sheet
+                df = export_single_sheet(db, selected_sheet)
+                from io import BytesIO
+                output = BytesIO()
+                with pd.ExcelWriter(output, engine='openpyxl') as writer:
+                    df.to_excel(writer, sheet_name=selected_sheet, index=False)
+                output.seek(0)
+
+                st.download_button(
+                    label=f"📥 Download {selected_sheet}.xlsx",
+                    data=output.getvalue(),
+                    file_name=f"{selected_sheet}.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    width='stretch',
+                )
+                st.success(f"Export {selected_sheet} berhasil!")
+            except Exception as e:
+                st.error(f"Export gagal: {type(e).__name__}: {e}")
+                st.code(traceback.format_exc(), language="python")
+            finally:
+                db.close()

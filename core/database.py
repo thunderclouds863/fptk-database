@@ -43,30 +43,6 @@ def init_db():
     """Buat semua tabel jika belum ada (dipanggil saat startup)."""
     from core import models  # noqa: F401
     Base.metadata.create_all(bind=engine)
-    _add_missing_columns()
-
-
-# Additive, idempotent column migrations for tables that already exist
-# (create_all never alters existing tables). Never drops or rewrites data.
-_ADDITIVE_COLUMNS = {
-    "users": {
-        "email": "VARCHAR(255)",
-        "must_change_password": "BOOLEAN DEFAULT FALSE",
-    },
-}
-
-
-def _add_missing_columns():
-    from sqlalchemy import inspect, text
-    inspector = inspect(engine)
-    with engine.begin() as conn:
-        for table, columns in _ADDITIVE_COLUMNS.items():
-            if not inspector.has_table(table):
-                continue
-            existing = {c["name"] for c in inspector.get_columns(table)}
-            for name, ddl in columns.items():
-                if name not in existing:
-                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}"))
 
 
 def get_db():

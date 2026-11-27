@@ -200,7 +200,7 @@ def dialog_confirm_delete(db, sourcing_id, kode_unik, nama):
 
 
 def show_sourcing_view():
-    st.title("Sourcing Database")
+    st.title("👤 Sourcing Database")
     st.markdown("Lihat, filter, dan kelola data kandidat sourcing & blacklist.")
 
     db = next(get_db())
@@ -216,7 +216,7 @@ def show_sourcing_view():
         sourcing_options = get_sourcing_options_view()
         pipeline_stages = get_pipeline_stages_view()
 
-    tab1, tab2, tab3 = st.tabs(["Database Sourcing", "Blacklist Kandidat", "Transfer Kandidat"])
+    tab1, tab2, tab3 = st.tabs(["📊 Database Sourcing", "🚫 Blacklist Kandidat", "🔄 Transfer Kandidat"])
 
     with tab1:
         render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pipeline_stages)
@@ -252,7 +252,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
             pic_from_users = []
 
     with st.sidebar:
-        st.markdown("### Filter Sourcing")
+        st.markdown("### 🔍 Filter Sourcing")
         search = st.text_input("🔎 Cari (Nama / Posisi / Kode Unik)", placeholder="Ketik keyword...", key="src_search")
         pic_options = ["Semua"] + pic_from_users
         pic_filter = st.selectbox("PIC Recruiter / Rekruter", pic_options, key="src_pic")
@@ -425,7 +425,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
     # BULK EDIT SOURCING
     # ============================================================
     st.markdown("---")
-    st.markdown("### Bulk Edit Sourcing")
+    st.markdown("### ✏️ Bulk Edit Sourcing")
     st.caption("Pilih banyak kandidat sekaligus, lalu update field yang sama untuk semuanya.")
 
     bulk_query = db.query(DBSourcing).filter(DBSourcing.is_blacklisted != True)
@@ -585,7 +585,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
     # DETAIL & EDIT
     # ============================================================
     st.markdown("---")
-    st.subheader("Detail & Edit Kandidat")
+    st.subheader("✏️ Detail & Edit Kandidat")
     st.caption("🔍 Cari berdasarkan Kode Unik, Nama, atau Posisi")
 
     df_all = pd.read_sql(query.statement, db.bind)
@@ -618,7 +618,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
         st.error("Data tidak ditemukan")
         return
 
-    with st.expander("Data Pribadi & Pendidikan", expanded=True):
+    with st.expander("📋 Data Pribadi & Pendidikan", expanded=True):
         col1, col2, col3 = st.columns(3)
         with col1:
             st.markdown(f"**ID:** {detail.id}")
@@ -638,7 +638,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
             st.markdown(f"**Jurusan Lainnya:** {getattr(detail, 'jurusan_lainnya', None) or '-'}")
             st.markdown(f"**IPK:** {detail.ipk or '-'}")
 
-    with st.expander("Pengalaman Kerja"):
+    with st.expander("💼 Pengalaman Kerja"):
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"**Posisi Terakhir:** {detail.last_position or '-'}")
@@ -648,7 +648,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
             st.markdown(f"**Total Masa Kerja:** {detail.total_tenure or '-'}")
             st.markdown(f"**Pernah di FMCG:** {detail.pernah_di_fmcg or '-'}")
 
-    with st.expander("Pipeline Status"):
+    with st.expander("📊 Pipeline Status"):
         pipeline_data = []
         for stage in pipeline_stages:
             field = getattr(detail, stage["field"])
@@ -663,7 +663,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
             })
         st.dataframe(pd.DataFrame(pipeline_data), use_container_width=True)
 
-    with st.expander("Lampiran CV"):
+    with st.expander("📎 Lampiran CV"):
         cv_list = db.query(CVAttachment).filter(
             CVAttachment.sourcing_id == detail.id
         ).order_by(CVAttachment.created_at.desc()).all()
@@ -704,11 +704,11 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                         st.image(url, caption=cv.file_name, use_container_width=True)
                     except Exception as e:
                         st.error(f"Error: {str(e)}")
-    with st.expander("Catatan"):
+    with st.expander("📝 Catatan"):
         st.markdown(f"**Catatan:** {detail.notes or '-'}")
 
     st.markdown("---")
-    st.markdown("### Aksi Kandidat")
+    st.markdown("### ⚙️ Aksi Kandidat")
 
     existing_del_request = db.query(SourcingDeleteRequest).filter(
         SourcingDeleteRequest.sourcing_id == detail.id,
@@ -758,7 +758,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                 st.caption("Tidak ada request pending")
         with col4:
             if all_del_requests:
-                with st.expander(f"History ({len(all_del_requests)})"):
+                with st.expander(f"📋 History ({len(all_del_requests)})"):
                     for req in all_del_requests:
                         emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.status}**")
@@ -788,7 +788,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
             st.caption("ℹ️ Hanya PIC pemilik")
         with col4:
             if all_del_requests:
-                with st.expander("History Del"):
+                with st.expander("📋 History Del"):
                     for req in all_del_requests:
                         emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.status}**")
@@ -796,7 +796,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                         st.markdown("---")
 
     st.markdown("---")
-    st.subheader("Edit Data Kandidat")
+    st.subheader("✏️ Edit Data Kandidat")
     can_edit = admin or is_owner
 
     if not can_edit:
@@ -804,7 +804,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
         return
 
     with st.form("edit_sourcing_full", clear_on_submit=False):
-        st.markdown("### Data Pribadi & Pendidikan")
+        st.markdown("### 📋 Data Pribadi & Pendidikan")
         col1, col2, col3 = st.columns(3)
 
         with col1:
@@ -828,7 +828,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                 index=([""] + sourcing_options['fmcg_options']).index(detail.pernah_di_fmcg) if detail.pernah_di_fmcg in sourcing_options['fmcg_options'] else 0)
 
         st.markdown("---")
-        st.markdown("### Pendidikan")
+        st.markdown("### 🎓 Pendidikan")
         col1, col2, col3 = st.columns(3)
         with col1:
             jenjang_pendidikan = st.selectbox("Jenjang Pendidikan", [""] + sourcing_options['jenjang_options'],
@@ -849,7 +849,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                 index=([""] + sourcing_options['ipk_tier_options']).index(detail.ipk_tier) if detail.ipk_tier in sourcing_options['ipk_tier_options'] else 0)
 
         st.markdown("---")
-        st.markdown("### Pengalaman Kerja")
+        st.markdown("### 💼 Pengalaman Kerja")
         col1, col2 = st.columns(2)
         with col1:
             last_position = st.text_input("Posisi Terakhir", value=detail.last_position or "")
@@ -859,7 +859,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
             total_tenure = st.text_input("Total Masa Kerja", value=detail.total_tenure or "")
 
         st.markdown("---")
-        st.markdown("### Pipeline Stages (V = Lolos, X = Tidak Lolos)")
+        st.markdown("### 📊 Pipeline Stages (V = Lolos, X = Tidak Lolos)")
 
         pipeline_inputs = {}
         for i, stage in enumerate(pipeline_stages):
@@ -889,7 +889,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                 pipeline_inputs[date_field] = new_date
 
         st.markdown("---")
-        st.markdown("### Catatan")
+        st.markdown("### 📝 Catatan")
         notes = st.text_area("Catatan", value=detail.notes or "", height=100)
         st.markdown("---")
         submitted = st.form_submit_button("💾 Simpan Perubahan")
@@ -953,11 +953,11 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
 # ============================================================
 
 def render_blacklist_tab(db, user, admin):
-    st.markdown("### Kandidat Blacklist")
+    st.markdown("### 🚫 Kandidat Blacklist")
     st.caption("Kandidat yang di-blacklist tidak bisa diproses di FPTK baru.")
 
     with st.sidebar:
-        st.markdown("### Filter Blacklist")
+        st.markdown("### 🔍 Filter Blacklist")
         bl_search = st.text_input("🔎 Cari (Nama / Kode Unik / Posisi)", placeholder="Ketik keyword...", key="bl_search")
         bl_pic_options = ["Semua"] + sorted(set([
             r[0] for r in db.query(DBSourcing.rekruter)
@@ -1029,7 +1029,7 @@ def render_blacklist_tab(db, user, admin):
     st.dataframe(display_df, use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### Detail & Aksi")
+    st.markdown("### 📋 Detail & Aksi")
 
     select_options = {}
     for _, row in df.iterrows():
@@ -1070,7 +1070,7 @@ def render_blacklist_tab(db, user, admin):
     ).first()
 
     st.markdown("---")
-    st.markdown("### Aksi")
+    st.markdown("### ⚙️ Aksi")
     is_owner = detail.rekruter == user.pic_recruiter
     col1, col2 = st.columns(2)
 
@@ -1116,7 +1116,7 @@ def render_blacklist_tab(db, user, admin):
 # ============================================================
 
 def render_transfer_tab(db, user, admin):
-    st.markdown("### Transfer Kandidat")
+    st.markdown("### 🔄 Transfer Kandidat")
     st.caption("Pindahkan kandidat dari satu FPTK ke FPTK lain (recycle).")
 
     if is_it(db):
@@ -1124,7 +1124,7 @@ def render_transfer_tab(db, user, admin):
         render_transfer_history(db, admin=False)
         return
 
-    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["Transfer Single", "Transfer Bulk", "History Transfer"])
+    sub_tab1, sub_tab2, sub_tab3 = st.tabs(["🔄 Transfer Single", "📦 Transfer Bulk", "📜 History Transfer"])
 
     with sub_tab1:
         render_transfer_single(db, user, admin)
@@ -1318,7 +1318,7 @@ def render_transfer_bulk(db, user, admin):
                 st.info(f"📋 Berhasil: {result['success_count']}")
                 st.warning(f"⚠️ Gagal: {result['error_count']}")
                 if result["errors"]:
-                    with st.expander("Detail Error"):
+                    with st.expander("❌ Detail Error"):
                         for err in result["errors"]:
                             st.text(err)
                 st.balloons()
@@ -1371,7 +1371,7 @@ def render_transfer_history(db, admin):
     st.dataframe(df, use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### Statistik")
+    st.markdown("### 📊 Statistik")
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Transfer", len(histories))
 

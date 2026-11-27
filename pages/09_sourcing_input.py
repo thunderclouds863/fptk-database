@@ -430,7 +430,7 @@ def show_duplicate_warning_dialog(db, nama, email, hp):
         st.warning(f"⚠️ Kandidat dengan nama **{nama}** sudah pernah diproses!")
         st.caption(f"Ditemukan {len(duplicates)} kandidat dengan nama sama.")
 
-        st.markdown("### Kandidat yang Sudah Ada:")
+        st.markdown("### 📋 Kandidat yang Sudah Ada:")
 
         for i, dup in enumerate(duplicates, 1):
             with st.expander(f"#{i} - {dup['nama']} | {dup['kode_unik']}", expanded=(i == 1)):
@@ -516,7 +516,7 @@ def save_cv_attachments(db, sourcing_id, kode_unik, nama_kandidat, uploaded_file
 
 
 def show_sourcing_input():
-    st.title("Input Sourcing / CV")
+    st.title("👤 Input Sourcing / CV")
     st.markdown("Input kandidat baru & kelola lampiran CV")
 
     db = next(get_db())
@@ -546,7 +546,7 @@ def show_sourcing_input():
     if 'show_parsed_form' not in st.session_state:
         st.session_state.show_parsed_form = False
 
-    tab1, tab2 = st.tabs(["Input Kandidat Baru", "Manage CV"])
+    tab1, tab2 = st.tabs(["📝 Input Kandidat Baru", "📎 Manage CV"])
 
     with tab1:
         render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_options, pipeline_options, pipeline_stages)
@@ -559,7 +559,7 @@ def render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_option
     st.markdown("---")
     col1, col2, col3 = st.columns([2, 1, 1])
     with col1:
-        st.markdown("### Copilot Agent")
+        st.markdown("### 🤖 Copilot Agent")
         st.caption("Parsing CV gambar/PDF scan menggunakan Copilot Agent")
     with col2:
         st.link_button("🚀 Buka Copilot Agent", COPILOT_AGENT_URL, use_container_width=True, type="primary")
@@ -568,7 +568,7 @@ def render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_option
 
     st.markdown("---")
 
-    sub1, sub2, sub3 = st.tabs(["Manual Input", "Paste Text", "Batch CV"])
+    sub1, sub2, sub3 = st.tabs(["📝 Manual Input", "📋 Paste Text", "📦 Batch CV"])
 
     with sub1:
         st.subheader("Manual Input Kandidat")
@@ -589,7 +589,7 @@ def render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_option
                 parsed = parse_cv_text(raw_text)
                 if parsed.get('nama'):
                     st.success(f"✅ Data ditemukan: {parsed.get('nama')}")
-                    with st.expander("Debug Parsed Data"):
+                    with st.expander("🐛 Debug Parsed Data"):
                         st.json({k: v for k, v in parsed.items() if v})
                     st.session_state.parsed_cv_data = parsed
                     st.session_state.show_parsed_form = True
@@ -598,7 +598,7 @@ def render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_option
 
         if st.session_state.show_parsed_form and st.session_state.parsed_cv_data:
             st.markdown("---")
-            st.markdown("### Review & Edit Data Sebelum Simpan")
+            st.markdown("### ✏️ Review & Edit Data Sebelum Simpan")
             st.caption("Data dari hasil parse sudah diisi otomatis. Silakan edit jika diperlukan.")
 
             show_sourcing_form(
@@ -629,7 +629,7 @@ def render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_option
 
             if idx < len(candidates):
                 st.markdown("---")
-                st.subheader(f"Kandidat {idx+1} dari {len(candidates)}")
+                st.subheader(f"📄 Kandidat {idx+1} dari {len(candidates)}")
 
                 raw_text = candidates[idx]
                 parsed = parse_cv_text(raw_text)
@@ -654,18 +654,18 @@ def render_input_tab(db, user, admin, pic_options, fptk_options, sourcing_option
 
 
 def render_manage_cv_tab(db, user, admin):
-    st.markdown("### Manage Lampiran CV")
+    st.markdown("### 📎 Manage Lampiran CV")
     st.caption("Upload CV untuk kandidat yang sudah ada, lihat, atau hapus.")
 
     with st.sidebar:
-        st.markdown("### Filter CV")
+        st.markdown("### 🔍 Filter CV")
         search_cv = st.text_input("Cari (Nama / Kode Unik / File)", placeholder="Ketik keyword...", key="search_cv")
         uploaded_by_filter = st.text_input("Filter Upload By", placeholder="Nama uploader...", key="uploader_filter")
 
         if st.button("🔄 Reset Filter", use_container_width=True, key="reset_cv_filter"):
             st.rerun()
 
-    sub1, sub2 = st.tabs(["Upload CV untuk Kandidat", "Daftar & Lihat CV"])
+    sub1, sub2 = st.tabs(["📤 Upload CV untuk Kandidat", "📂 Daftar & Lihat CV"])
 
     with sub1:
         st.subheader("Upload CV")
@@ -764,7 +764,7 @@ def render_manage_cv_tab(db, user, admin):
         st.dataframe(df, use_container_width=True, height=400, hide_index=True)
 
         st.markdown("---")
-        st.markdown("### Lihat & Download")
+        st.markdown("### 📂 Lihat & Download")
 
         select_options = {}
         for cv in cv_list:
@@ -917,7 +917,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
     model_options_local = [""] + get_model_options()
 
     with st.form(form_key):
-        st.markdown("### Data Pribadi")
+        st.markdown("### 📋 Data Pribadi")
         col1, col2 = st.columns(2)
         with col1:
             nama_input = st.text_input("Nama *", value=nama)
@@ -1030,7 +1030,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                                      key=f"{form_key}_fmcg")
 
         st.markdown("---")
-        st.markdown("### Riwayat Pekerjaan")
+        st.markdown("### 💼 Riwayat Pekerjaan")
         col1, col2 = st.columns(2)
         with col1:
             last_position_input = st.text_input("Last Position", value=last_position)
@@ -1040,7 +1040,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             total_tenure_input = st.text_input("Total Tenure", value=total_tenure)
 
         st.markdown("---")
-        st.markdown("### Lampiran CV")
+        st.markdown("### 📎 Lampiran CV")
         st.caption(f"Max {MAX_CV_SIZE_MB} MB per file. Format: {', '.join(ALLOWED_CV_EXT)}. Bisa multiple.")
         cv_files_input = st.file_uploader(
             "Upload CV (opsional)", type=ALLOWED_CV_EXT,
@@ -1048,7 +1048,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
         )
 
         st.markdown("---")
-        st.markdown("### Pipeline (Status awal)")
+        st.markdown("### 📊 Pipeline (Status awal)")
         pipeline_inputs = {}
 
         with st.expander("Sourcing Freelance", expanded=False):
@@ -1249,7 +1249,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
             pipeline_inputs['detail_keterangan_day1'] = st.text_area("Detail Keterangan Day 1", key=f"{form_key}_dkd1") or None
 
         st.markdown("---")
-        st.markdown("### Catatan")
+        st.markdown("### 📝 Catatan")
         notes_input = st.text_area("Notes / Catatan", key=f"{form_key}_notes") or None
 
         col1, col2 = st.columns([1, 4])

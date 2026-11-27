@@ -10,7 +10,7 @@ import time
 
 
 def show_candidate_transfer():
-    st.title("Transfer Kandidat")
+    st.title("🔄 Transfer Kandidat")
     st.markdown("Pindahkan kandidat dari satu FPTK ke FPTK lain (recycle).")
 
     db = next(get_db())
@@ -26,7 +26,7 @@ def show_candidate_transfer():
 
     admin = is_admin(db)
 
-    tab1, tab2, tab3 = st.tabs(["Transfer Single", "Transfer Bulk", "History Transfer"])
+    tab1, tab2, tab3 = st.tabs(["🔄 Transfer Single", "📦 Transfer Bulk", "📜 History Transfer"])
 
     with tab1:
         show_transfer_single(db, user, admin)
@@ -259,7 +259,7 @@ def show_transfer_bulk(db, user, admin):
                     st.warning(f"⚠️ Gagal: {result['error_count']}")
 
                     if result["errors"]:
-                        with st.expander("Detail Error"):
+                        with st.expander("❌ Detail Error"):
                             for err in result["errors"]:
                                 st.text(err)
 
@@ -269,7 +269,7 @@ def show_transfer_bulk(db, user, admin):
 
 
 def show_transfer_history(db, admin):
-    st.subheader("History Transfer Kandidat")
+    st.subheader("📜 History Transfer Kandidat")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -318,7 +318,7 @@ def show_transfer_history(db, admin):
     st.dataframe(df, use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### Statistik")
+    st.markdown("### 📊 Statistik")
 
     col1, col2, col3 = st.columns(3)
     col1.metric("Total Transfer", len(histories))
@@ -349,7 +349,7 @@ def show_transfer_history(db, admin):
 
 
 def show_transfer_history_only(db):
-    st.subheader("History Transfer Kandidat (View-Only)")
+    st.subheader("📜 History Transfer Kandidat (View-Only)")
     show_transfer_history(db, admin=False)
 
 

@@ -8,7 +8,7 @@ from core.utils import safe_int, parse_phone
 from datetime import datetime
 
 def show_paste_cv():
-    st.title("Paste CV Text")
+    st.title("📋 Paste CV Text")
     st.markdown("Paste teks CV dari Jobstreet, LinkedIn, atau hasil parsing Copilot.")
     
     db = next(get_db())
