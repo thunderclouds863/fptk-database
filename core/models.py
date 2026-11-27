@@ -43,6 +43,40 @@ class PasswordResetToken(Base):
     created_at = Column(DateTime, nullable=False)
 
 
+class LoginAttempt(Base):
+    """Login attempts keyed by the typed username (existing or not), used for lockout
+    so that lockout behaviour does not reveal which usernames exist."""
+    __tablename__ = "login_attempts"
+    __table_args__ = {"extend_existing": True}
+    id = Column(Integer, primary_key=True)
+    username_key = Column(String(100), nullable=False, index=True)
+    success = Column(Boolean, nullable=False, default=False)
+    created_at = Column(DateTime, nullable=False, index=True)
+
+
+class SetupState(Base):
+    """Singleton row (id=1). completed_at is set once the first administrator exists;
+    after that the first-run setup screen is permanently unavailable."""
+    __tablename__ = "setup_state"
+    __table_args__ = {"extend_existing": True}
+    id = Column(Integer, primary_key=True)
+    completed_at = Column(DateTime)
+    completed_by_user_id = Column(Integer)
+
+
+class SetupCode(Base):
+    """One-time first-run setup code. Only a SHA-256 hash is stored; the plain code is
+    written to the server log only."""
+    __tablename__ = "setup_codes"
+    __table_args__ = {"extend_existing": True}
+    id = Column(Integer, primary_key=True)
+    code_hash = Column(String(64), nullable=False, unique=True)
+    created_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    used_at = Column(DateTime)
+    failed_attempts = Column(Integer, nullable=False, default=0)
+
+
 # ====== UPLOAD CYCLE ======
 class UploadCycle(Base):
     __tablename__ = "upload_cycles"

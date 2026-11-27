@@ -1,5 +1,6 @@
 # pages/09_sourcing_input.py
 import streamlit as st
+from core.ui import set_flash, show_flash
 import pandas as pd
 from datetime import datetime
 from core.database import get_db
@@ -829,6 +830,7 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                        pipeline_stages, initial_data=None, form_key="sourcing_form",
                        is_parse_mode=False, batch_mode=False):
 
+    show_flash(f"sourcing_{form_key}")
     sumber_options = sourcing_options['sumber_options']
     jenjang_options = sourcing_options['jenjang_options']
     univ_options = sourcing_options['univ_options']
@@ -1382,11 +1384,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                 db.commit()
                 db.refresh(new)
 
-                st.success(f"✅ '{nama_input}' berhasil disimpan! Tier: {final_tier}")
-                if final_univ_top10:
-                    st.caption(f"🎓 Universitas: {final_univ_top10} ({final_tier})")
-                elif final_univ_lainnya:
-                    st.caption(f"🎓 Universitas: {final_univ_lainnya} ({final_tier})")
+                univ_note = final_univ_top10 or final_univ_lainnya
+                set_flash(f"sourcing_{form_key}",
+                          f"Kandidat **{nama_input}** disimpan ke {kode_unik_input}. Tier: {final_tier}"
+                          + (f" ({univ_note})" if univ_note else "") + ".")
 
                 if cv_files_input:
                     saved, cv_errors = save_cv_attachments(
@@ -1394,13 +1395,10 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                         cv_files_input, user
                     )
                     if saved > 0:
-                        st.info(f"📎 {saved} CV berhasil diupload!")
+                        set_flash(f"sourcing_{form_key}", f"{saved} CV berhasil diupload.", "info")
                     if cv_errors:
-                        st.warning(f"⚠️ {len(cv_errors)} CV gagal:")
-                        for err in cv_errors:
-                            st.text(err)
-
-                st.balloons()
+                        set_flash(f"sourcing_{form_key}",
+                                  f"{len(cv_errors)} CV gagal diupload: " + "; ".join(map(str, cv_errors)), "warning")
 
                 if is_parse_mode:
                     st.session_state.parsed_cv_data = {}
@@ -1414,7 +1412,6 @@ def show_sourcing_form(db, user, pic_options, fptk_options, sourcing_options, pi
                         st.session_state.batch_index += 1
                     st.rerun()
 
-                time.sleep(1)
                 st.rerun()
 
             except Exception as e:

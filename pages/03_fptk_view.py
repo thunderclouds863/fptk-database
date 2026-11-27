@@ -15,6 +15,7 @@ from core.utils import (
 from datetime import datetime, timedelta
 import re
 import time
+from core.ui import set_flash, show_flash
 
 
 @st.cache_data(ttl=3600)
@@ -697,8 +698,10 @@ def render_fptk_database(db, user, admin):
             posisi = row.get('posisi', '')
             display = f"{kode} | {posisi[:50]}..." if len(str(posisi)) > 50 else f"{kode} | {posisi}"
             select_options[display] = row.get('id')
-        selected_display = st.selectbox("Pilih FPTK", list(select_options.keys()), key="fptk_select")
-        selected_id = select_options.get(selected_display)
+        # Options are ids (labels via format_func) so the selection survives an edit of Posisi.
+        id_labels = {v: k for k, v in select_options.items()}
+        selected_id = st.selectbox("Pilih FPTK", list(id_labels.keys()), key="fptk_select_id",
+                                   format_func=lambda i: id_labels.get(i, str(i)))
     else:
         selected_id = None
 
@@ -796,6 +799,7 @@ def render_fptk_database(db, user, admin):
 
     st.markdown("---")
     st.markdown("### Edit Data FPTK")
+    show_flash("fptk_edit")
 
     # ============================================================
     # NAMA KANDIDAT PICKER — DI LUAR FORM (INTERAKTIF)
@@ -964,8 +968,7 @@ def render_fptk_database(db, user, admin):
 
             db.commit()
             st.cache_data.clear()
-            st.success(f"✅ FPTK berhasil diupdate!")
-            time.sleep(0.5)
+            set_flash("fptk_edit", f"FPTK {detail.kode_unik} berhasil diupdate.")
             st.rerun()
         except Exception as e:
             st.error(f"❌ Error: {str(e)}")

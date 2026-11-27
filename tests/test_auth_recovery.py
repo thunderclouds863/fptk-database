@@ -5,7 +5,7 @@ import threading
 import pytest
 
 from core import auth
-from core.models import AuditLog, PasswordResetToken, User
+from core.models import AuditLog, LoginAttempt, PasswordResetToken, User
 
 
 def make_user(db, username="rina", password="Rahasia123", email="rina@example.com", **kw):
@@ -47,11 +47,30 @@ def test_lockout_after_repeated_failures(db):
     assert auth.attempt_login(db, "rina", "Rahasia123") == (None, "locked")
 
 
+def test_lockout_same_for_unknown_username(db):
+    """Lockout must not reveal whether a username exists."""
+    make_user(db)
+    for name in ("rina", "tidak-ada"):
+        for _ in range(auth.MAX_FAILED_LOGINS):
+            assert auth.attempt_login(db, name, "wrong")[1] == "invalid"
+        assert auth.attempt_login(db, name, "whatever")[1] == "locked"
+
+
+def test_lockout_is_case_insensitive_and_success_resets(db):
+    make_user(db)
+    for _ in range(auth.MAX_FAILED_LOGINS - 1):
+        auth.attempt_login(db, "RINA", "wrong")
+    assert auth.attempt_login(db, "rina", "Rahasia123")[0] is not None
+    for _ in range(auth.MAX_FAILED_LOGINS - 1):
+        auth.attempt_login(db, "rina", "wrong")
+    assert auth.attempt_login(db, "rina", "Rahasia123")[0] is not None
+
+
 def test_lockout_expires(db):
-    u = make_user(db)
+    make_user(db)
     old = datetime.datetime.now() - datetime.timedelta(minutes=auth.LOGIN_LOCK_MINUTES + 1)
     for _ in range(auth.MAX_FAILED_LOGINS):
-        db.add(AuditLog(user_id=u.id, action="LOGIN_FAILED", created_at=old))
+        db.add(LoginAttempt(username_key="rina", success=False, created_at=old))
     db.commit()
     user, err = auth.attempt_login(db, "rina", "Rahasia123")
     assert user and err is None

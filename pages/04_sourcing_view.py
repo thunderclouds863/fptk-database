@@ -15,6 +15,7 @@ from core.utils import (
 )
 from datetime import datetime
 import time
+from core.ui import set_flash, show_flash
 from core.r2_storage import get_r2
 
 
@@ -601,9 +602,11 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                 display += f" | {posisi[:20]}..." if len(str(posisi)) > 20 else f" | {posisi}"
             search_options[display] = row.get('id')
 
-        selected_display = st.selectbox("Pilih Kandidat (Kode Unik | Nama | Posisi)",
-            list(search_options.keys()), key="src_detail_select")
-        selected_id = search_options[selected_display] if selected_display else None
+        # Options are ids (labels via format_func) so the selection survives an edit of Nama/Posisi.
+        id_labels = {v: k for k, v in search_options.items()}
+        selected_id = st.selectbox("Pilih Kandidat (Kode Unik | Nama | Posisi)",
+            list(id_labels.keys()), key="src_detail_select_id",
+            format_func=lambda i: id_labels.get(i, str(i)))
     else:
         selected_id = None
         st.info("Tidak ada data untuk diedit.")
@@ -797,6 +800,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
 
     st.markdown("---")
     st.subheader("Edit Data Kandidat")
+    show_flash("sourcing_edit")
     can_edit = admin or is_owner
 
     if not can_edit:
@@ -941,7 +945,7 @@ def render_database_sourcing(db, user, admin, filter_opts, sourcing_options, pip
                 detail.last_compile_action = "Manual Edit"
 
                 db.commit()
-                st.success("✅ Data berhasil diupdate!")
+                set_flash("sourcing_edit", f"Data kandidat {detail.nama} berhasil diupdate.")
                 st.rerun()
             except Exception as e:
                 db.rollback()
