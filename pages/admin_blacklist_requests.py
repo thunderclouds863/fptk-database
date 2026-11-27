@@ -14,7 +14,7 @@ import time
 
 
 def show_admin_delete_requests():
-    st.title("📩 Request")
+    st.title("Request")
     st.markdown("Kelola semua request dari PIC.")
 
     db = next(get_db())
@@ -82,7 +82,7 @@ def render_tab_fptk(db, user):
 
     st.markdown("---")
 
-    sub1, sub2, sub3 = st.tabs(["⏳ Pending", "✅ Approved", "❌ Rejected"])
+    sub1, sub2, sub3 = st.tabs(["Pending", "Approved", "Rejected"])
 
     with sub1:
         pending_requests = db.query(FPTKDeleteRequest).filter(
@@ -94,7 +94,7 @@ def render_tab_fptk(db, user):
         else:
             for req in pending_requests:
                 with st.container():
-                    st.markdown(f"### 📩 Request #{req.id}")
+                    st.markdown(f"### Request #{req.id}")
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
@@ -201,7 +201,7 @@ def render_tab_fptk(db, user):
         else:
             for req in rejected_requests:
                 with st.container():
-                    st.markdown(f"### ❌ Request #{req.id} - DITOLAK")
+                    st.markdown(f"### Request #{req.id} - DITOLAK")
                     st.markdown(f"**FPTK:** {req.kode_unik} | {req.posisi}")
                     st.markdown(f"**PIC:** {req.pic_recruiter}")
                     st.markdown(f"**Requested by:** {req.requested_by_name}")
@@ -222,7 +222,7 @@ def render_tab_sourcing(db, user):
 
     st.markdown("---")
 
-    sub1, sub2, sub3 = st.tabs(["⏳ Pending", "✅ Approved", "❌ Rejected"])
+    sub1, sub2, sub3 = st.tabs(["Pending", "Approved", "Rejected"])
 
     with sub1:
         pending_requests = db.query(SourcingDeleteRequest).filter(
@@ -234,7 +234,7 @@ def render_tab_sourcing(db, user):
         else:
             for req in pending_requests:
                 with st.container():
-                    st.markdown(f"### 📩 Request #{req.id}")
+                    st.markdown(f"### Request #{req.id}")
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
@@ -335,7 +335,7 @@ def render_tab_sourcing(db, user):
         else:
             for req in rejected_requests:
                 with st.container():
-                    st.markdown(f"### ❌ Request #{req.id} - DITOLAK")
+                    st.markdown(f"### Request #{req.id} - DITOLAK")
                     st.markdown(f"**Kandidat:** {req.nama} | {req.kode_unik}")
                     st.info(req.reason)
                     st.warning(req.admin_notes or "-")
@@ -363,7 +363,7 @@ def render_tab_blacklist(db, user):
 
     st.markdown("---")
 
-    sub1, sub2, sub3 = st.tabs(["⏳ Pending", "✅ Approved", "❌ Rejected"])
+    sub1, sub2, sub3 = st.tabs(["Pending", "Approved", "Rejected"])
 
     with sub1:
         pending_requests = db.query(BlacklistRequest).filter(
@@ -376,7 +376,7 @@ def render_tab_blacklist(db, user):
         else:
             for req in pending_requests:
                 with st.container():
-                    st.markdown(f"### 📩 Request #{req.id}")
+                    st.markdown(f"### Request #{req.id}")
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
@@ -481,7 +481,7 @@ def render_tab_blacklist(db, user):
         else:
             for req in rejected:
                 with st.container():
-                    st.markdown(f"### ❌ Request #{req.id} - DITOLAK")
+                    st.markdown(f"### Request #{req.id} - DITOLAK")
                     st.markdown(f"**Kandidat:** {req.nama} | {req.kode_unik}")
                     st.info(req.reason)
                     st.warning(req.admin_notes or "-")
@@ -509,7 +509,7 @@ def render_tab_unblacklist(db, user):
 
     st.markdown("---")
 
-    sub1, sub2, sub3 = st.tabs(["⏳ Pending", "✅ Approved", "❌ Rejected"])
+    sub1, sub2, sub3 = st.tabs(["Pending", "Approved", "Rejected"])
 
     with sub1:
         pending_requests = db.query(BlacklistRequest).filter(
@@ -522,7 +522,7 @@ def render_tab_unblacklist(db, user):
         else:
             for req in pending_requests:
                 with st.container():
-                    st.markdown(f"### 📩 Request #{req.id}")
+                    st.markdown(f"### Request #{req.id}")
 
                     col1, col2 = st.columns([2, 1])
                     with col1:
@@ -626,7 +626,7 @@ def render_tab_unblacklist(db, user):
         else:
             for req in rejected:
                 with st.container():
-                    st.markdown(f"### ❌ Request #{req.id} - DITOLAK")
+                    st.markdown(f"### Request #{req.id} - DITOLAK")
                     st.markdown(f"**Kandidat:** {req.nama} | {req.kode_unik}")
                     st.info(req.reason)
                     st.warning(req.admin_notes or "-")

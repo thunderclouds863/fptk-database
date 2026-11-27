@@ -6,6 +6,16 @@ from core.models import User, AuditLog, MasterDropdown
 import datetime
 import hashlib
 import re
+import secrets
+
+
+# Login throttling: lock an account after this many failed attempts within the window.
+MAX_FAILED_LOGINS = 5
+LOGIN_LOCK_MINUTES = 15
+MIN_PASSWORD_LENGTH = 8
+# Passwords that were seeded or handed out by older versions of the app.
+# A user who still logs in with one of them must set a new password first.
+KNOWN_DEFAULT_PASSWORDS = {"password123", "admin123", "it12345"}
 
 
 BU_CODE_MAPPING = {
@@ -39,6 +49,54 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
+def validate_new_password(password: str, confirm: str = None):
+    """Return an error message (Indonesian) or None when the password is acceptable."""
+    if not password:
+        return "Password wajib diisi."
+    if confirm is not None and password != confirm:
+        return "Konfirmasi password tidak sama."
+    if len(password) < MIN_PASSWORD_LENGTH:
+        return f"Password minimal {MIN_PASSWORD_LENGTH} karakter."
+    if not re.search(r"[A-Za-z]", password) or not re.search(r"\d", password):
+        return "Password harus mengandung huruf dan angka."
+    if password.lower() in KNOWN_DEFAULT_PASSWORDS:
+        return "Password ini terlalu umum. Gunakan password lain."
+    return None
+
+
+def generate_temp_password() -> str:
+    """Random one-time password for admin resets (user must change it at next login)."""
+    while True:
+        pw = secrets.token_urlsafe(9)
+        if re.search(r"[A-Za-z]", pw) and re.search(r"\d", pw):
+            return pw
+
+
+def set_user_password(db: Session, user: User, new_password: str, must_change: bool = False):
+    user.password_hash = hash_password(new_password)
+    user.must_change_password = must_change
+    db.commit()
+
+
+def _recent_failed_logins(db: Session, user: User) -> int:
+    now = datetime.datetime.now()
+    window_start = now - datetime.timedelta(minutes=LOGIN_LOCK_MINUTES)
+    last_success = (
+        db.query(AuditLog.created_at)
+        .filter(AuditLog.user_id == user.id, AuditLog.action == "LOGIN",
+                AuditLog.created_at >= window_start)
+        .order_by(AuditLog.created_at.desc())
+        .first()
+    )
+    since = max(window_start, last_success[0]) if last_success and last_success[0] else window_start
+    return (
+        db.query(AuditLog)
+        .filter(AuditLog.user_id == user.id, AuditLog.action == "LOGIN_FAILED",
+                AuditLog.created_at > since)
+        .count()
+    )
+
+
 def authenticate_user(db: Session, username: str, password: str):
     user = db.query(User).filter(User.username == username).first()
     if not user:
@@ -48,21 +106,36 @@ def authenticate_user(db: Session, username: str, password: str):
     return None
 
 
+def attempt_login(db: Session, username: str, password: str):
+    """Authenticate with lockout. Returns (user, error) where error is None,
+    'invalid' or 'locked'. Audit rows use app-side timestamps so the lockout
+    window does not depend on the database server's timezone."""
+    username = (username or "").strip()
+    user = db.query(User).filter(User.username == username).first()
+    if not user:
+        return None, "invalid"
+    if _recent_failed_logins(db, user) >= MAX_FAILED_LOGINS:
+        return None, "locked"
+    now = datetime.datetime.now()
+    if not verify_password(password, user.password_hash):
+        db.add(AuditLog(user_id=user.id, action="LOGIN_FAILED", table_name="users",
+                        record_id=user.id, created_at=now))
+        db.commit()
+        return None, "invalid"
+    if password.lower() in KNOWN_DEFAULT_PASSWORDS:
+        from core.demo import is_demo
+        if not is_demo():
+            user.must_change_password = True
+    user.last_login = now
+    db.add(AuditLog(user_id=user.id, action="LOGIN", table_name="users",
+                    record_id=user.id, created_at=now))
+    db.commit()
+    return user, None
+
+
 def login_user(db: Session, username: str, password: str):
-    user = authenticate_user(db, username, password)
-    if user:
-        user.last_login = datetime.datetime.now()
-        db.commit()
-        audit = AuditLog(
-            user_id=user.id,
-            action="LOGIN",
-            table_name="users",
-            record_id=user.id
-        )
-        db.add(audit)
-        db.commit()
-        return user
-    return None
+    user, _ = attempt_login(db, username, password)
+    return user
 
 
 def generate_kode_pic(business_unit: str, pic_name: str) -> str:
@@ -74,10 +147,12 @@ def generate_kode_pic(business_unit: str, pic_name: str) -> str:
 
 def create_user(db: Session, username: str, password: str, role: str = "user",
                 pic_recruiter: str = None, display_name: str = None,
-                business_unit: str = None, kode_pic: str = None):
+                business_unit: str = None, kode_pic: str = None,
+                email: str = None, must_change_password: bool = False,
+                enforce_policy: bool = True):
     if db.query(User).filter(User.username == username).first():
         return None
-    if len(password) < 6:
+    if enforce_policy and validate_new_password(password):
         return None
     user = User(
         username=username,
@@ -86,7 +161,9 @@ def create_user(db: Session, username: str, password: str, role: str = "user",
         pic_recruiter=pic_recruiter,
         display_name=display_name or username,
         business_unit=business_unit,
-        kode_pic=kode_pic
+        kode_pic=kode_pic,
+        email=normalize_email(email),
+        must_change_password=must_change_password,
     )
     db.add(user)
     db.commit()
@@ -99,11 +176,30 @@ def reset_password(db: Session, user_id: int, new_password: str):
     user = db.query(User).filter(User.id == user_id).first()
     if not user:
         return False
-    if len(new_password) < 6:
+    if validate_new_password(new_password):
         return False
-    user.password_hash = hash_password(new_password)
-    db.commit()
+    set_user_password(db, user, new_password, must_change=True)
     return True
+
+
+def normalize_email(email):
+    email = (email or "").strip().lower()
+    return email or None
+
+
+def is_valid_email(email) -> bool:
+    return bool(email) and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email) is not None
+
+
+def _get_setting(name):
+    import os
+    val = os.getenv(name)
+    if val:
+        return val
+    try:
+        return st.secrets.get(name)
+    except Exception:
+        return None
 
 
 def init_default_users(db: Session):
@@ -111,7 +207,8 @@ def init_default_users(db: Session):
     if is_demo():
         for username, display_name, pic_name, bu, kode in DEMO_USERS:
             if not db.query(User).filter(User.username == username).first():
-                create_user(db, username, DEMO_PASSWORD, "user", pic_name, display_name, bu, kode)
+                create_user(db, username, DEMO_PASSWORD, "user", pic_name, display_name, bu, kode,
+                            enforce_policy=False)
         if not db.query(User).filter(User.username == "demo_admin").first():
             db.add(User(username="demo_admin", password_hash=hash_password(DEMO_PASSWORD), role="admin",
                         display_name="Demo Admin", pic_recruiter="Admin", business_unit="CORP", kode_pic="ADMIN"))
@@ -148,35 +245,26 @@ def init_default_users(db: Session):
         ("leo", "Leo", "Leo", "MS", "MSLeo"),
     ]
 
+    # Recruiter (PIC) accounts are seeded without a usable password: an admin sets
+    # a temporary password from User Management. Existing accounts are untouched.
     for username, display_name, pic_name, bu, kode in pic_users:
         if not db.query(User).filter(User.username == username).first():
-            create_user(db, username, "password123", "user", pic_name, display_name, bu, kode)
+            db.add(User(username=username, password_hash="DISABLED", role="user",
+                        pic_recruiter=pic_name, display_name=display_name,
+                        business_unit=bu, kode_pic=kode))
+    db.commit()
 
-    if not db.query(User).filter(User.username == "admin").first():
-        admin = User(
-            username="admin",
-            password_hash=hash_password("admin123"),
-            role="admin",
-            display_name="Administrator",
-            pic_recruiter="Admin",
-            business_unit="CORP",
-            kode_pic="ADMIN"
-        )
-        db.add(admin)
-        db.commit()
-
-    if not db.query(User).filter(User.username == "it").first():
-        it_user = User(
-            username="it",
-            password_hash=hash_password("it12345"),
-            role="it",
-            display_name="IT Support",
-            pic_recruiter="IT",
-            business_unit="CORP",
-            kode_pic="IT001"
-        )
-        db.add(it_user)
-        db.commit()
+    # The first admin is only created when INITIAL_ADMIN_PASSWORD is provided
+    # (env var or Streamlit secret); no password is hardcoded in the source.
+    if not db.query(User).filter(User.role == "admin").first():
+        initial_pw = _get_setting("INITIAL_ADMIN_PASSWORD")
+        if initial_pw:
+            db.add(User(username="admin", password_hash=hash_password(initial_pw), role="admin",
+                        display_name="Administrator", pic_recruiter="Admin",
+                        business_unit="CORP", kode_pic="ADMIN", must_change_password=True))
+            db.commit()
+        else:
+            print("[fptk] No admin account exists. Set INITIAL_ADMIN_PASSWORD to create one.")
 
     invalidate_filter_cache()
 

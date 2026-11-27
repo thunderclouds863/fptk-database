@@ -247,7 +247,7 @@ def render_kandidat_picker_outside_form(db, kode_unik_input, key_prefix, default
         if selected_id:
             kandidat_detail = next((k for k in filtered_kandidat if k['id'] == selected_id), None)
             if kandidat_detail:
-                with st.expander("📋 Preview Kandidat", expanded=True):
+                with st.expander("Preview Kandidat", expanded=True):
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown(f"**Nama:** {kandidat_detail['nama']}")
@@ -352,7 +352,7 @@ def confirm_delete_fptk(db, fptk_id, kode_unik, posisi):
 
 
 def show_fptk_view():
-    st.title("📋 FPTK Database")
+    st.title("FPTK Database")
     st.markdown("Lihat semua data FPTK & transfer.")
 
     db = next(get_db())
@@ -369,7 +369,7 @@ def show_fptk_view():
             st.success(f"✅ {updated} data FPTK diperbarui SLA-nya!")
         time.sleep(0.3)
 
-    tab1, tab2 = st.tabs(["📋 Database FPTK", "🔄 Transfer FPTK"])
+    tab1, tab2 = st.tabs(["Database FPTK", "Transfer FPTK"])
 
     with tab1:
         render_fptk_database(db, user, admin)
@@ -402,7 +402,7 @@ def render_fptk_database(db, user, admin):
     detail_sla_options = get_detail_sla_options()
 
     with st.sidebar:
-        st.markdown("### 🔍 Filter FPTK")
+        st.markdown("### Filter FPTK")
         search = st.text_input("🔎 Cari (Kode Unik / Posisi)", placeholder="Ketik keyword...", key="fptk_search")
         status_filter = st.selectbox("Status", ["Semua"] + status_options, key="fptk_status")
         pic_filter = st.selectbox("PIC Recruiter", ["Semua"] + pic_options_all, key="fptk_pic")
@@ -482,7 +482,7 @@ def render_fptk_database(db, user, admin):
                 "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", key="dl_fptk_xlsx")
 
     st.markdown("---")
-    st.markdown("### 📋 Daftar FPTK")
+    st.markdown("### Daftar FPTK")
 
     page_size = st.number_input("Baris per halaman", min_value=10, max_value=200, value=50, key="fptk_page_size")
     page = st.number_input("Halaman", min_value=1, max_value=max(1, (total + page_size - 1) // page_size), value=1, key="fptk_page")
@@ -506,7 +506,7 @@ def render_fptk_database(db, user, admin):
     # BULK EDIT FPTK
     # ============================================================
     st.markdown("---")
-    st.markdown("### ✏️ Bulk Edit FPTK")
+    st.markdown("### Bulk Edit FPTK")
     st.caption("Pilih banyak FPTK sekaligus, lalu update field yang sama untuk semuanya.")
 
     bulk_query = db.query(FPTK)
@@ -687,7 +687,7 @@ def render_fptk_database(db, user, admin):
                     st.rerun()
 
     st.markdown("---")
-    st.markdown("### ✏️ Pilih Data FPTK")
+    st.markdown("### Pilih Data FPTK")
 
     df_all = pd.read_sql(query.statement, db.bind)
     if not df_all.empty:
@@ -713,7 +713,7 @@ def render_fptk_database(db, user, admin):
     can_edit = admin or (detail.pic_recruiter == user.pic_recruiter)
 
     st.markdown("---")
-    st.markdown("### ⚙️ Aksi Data")
+    st.markdown("### Aksi Data")
 
     existing_request = db.query(FPTKDeleteRequest).filter(
         FPTKDeleteRequest.fptk_id == detail.id, FPTKDeleteRequest.status == "PENDING"
@@ -734,7 +734,7 @@ def render_fptk_database(db, user, admin):
                 st.caption("Tidak ada request pending")
         with col3:
             if all_requests:
-                with st.expander(f"📋 History ({len(all_requests)})"):
+                with st.expander(f"History ({len(all_requests)})"):
                     for req in all_requests:
                         emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.status}**")
@@ -758,7 +758,7 @@ def render_fptk_database(db, user, admin):
                 st.caption("Belum ada request")
         with col3:
             if all_requests:
-                with st.expander("📋 History"):
+                with st.expander("History"):
                     for req in all_requests:
                         emoji = {"PENDING": "⏳", "APPROVED": "✅", "REJECTED": "❌"}.get(req.status, "❓")
                         st.markdown(f"{emoji} **{req.status}**")
@@ -766,7 +766,7 @@ def render_fptk_database(db, user, admin):
                         st.markdown("---")
 
     st.markdown("---")
-    st.markdown("### 📋 Detail FPTK")
+    st.markdown("### Detail FPTK")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -795,12 +795,12 @@ def render_fptk_database(db, user, admin):
         return
 
     st.markdown("---")
-    st.markdown("### ✏️ Edit Data FPTK")
+    st.markdown("### Edit Data FPTK")
 
     # ============================================================
     # NAMA KANDIDAT PICKER — DI LUAR FORM (INTERAKTIF)
     # ============================================================
-    st.markdown("#### 👤 Nama Kandidat")
+    st.markdown("#### Nama Kandidat")
     st.caption(f"Kode Unik FPTK: `{detail.kode_unik}` — pilih mode di bawah")
 
     picker_result = render_kandidat_picker_outside_form(
@@ -977,7 +977,7 @@ def render_fptk_database(db, user, admin):
 # ============================================================
 
 def render_transfer_fptk(db, user, admin):
-    st.markdown("### 🔄 Transfer FPTK")
+    st.markdown("### Transfer FPTK")
     st.caption("Transfer FPTK dari satu PIC ke PIC lain.")
 
     if is_it(db):
@@ -989,7 +989,7 @@ def render_transfer_fptk(db, user, admin):
         st.error("❌ Anda tidak memiliki akses untuk transfer FPTK. Hubungi Admin.")
         return
 
-    sub_tab1, sub_tab2 = st.tabs(["🔄 Transfer FPTK", "📜 History Transfer"])
+    sub_tab1, sub_tab2 = st.tabs(["Transfer FPTK", "History Transfer"])
 
     with sub_tab1:
         render_transfer_fptk_form(db, user)
@@ -1200,7 +1200,7 @@ def render_transfer_fptk_history(db):
     st.dataframe(df, use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### 📊 Statistik Transfer")
+    st.markdown("### Statistik Transfer")
 
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("Total Transfer", len(histories))

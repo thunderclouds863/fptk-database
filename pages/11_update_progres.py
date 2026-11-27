@@ -272,7 +272,7 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     query = query.order_by(FPTK.fptk_date_real.desc())
     total = query.count()
 
-    st.markdown("### 📈 Statistik")
+    st.markdown("### Statistik")
 
     col1, col2, col3, col4 = st.columns(4)
 
@@ -323,7 +323,7 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
         st.dataframe(pd.DataFrame(display_data), use_container_width=True, height=400, hide_index=True)
 
     st.markdown("---")
-    st.markdown("### ✏️ Update Progress FPTK")
+    st.markdown("### Update Progress FPTK")
 
     df_all = pd.read_sql(query.statement, db.bind)
     if df_all.empty:
@@ -378,7 +378,7 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
         st.session_state[form_key_next] = default_next
 
     with st.form(f"form_progress_{selected_id}", clear_on_submit=False):
-        st.markdown(f"#### 📅 Update untuk **{get_week_label(current_week, current_year)}**")
+        st.markdown(f"#### Update untuk **{get_week_label(current_week, current_year)}**")
 
         if existing:
             st.info(f"✏️ Sudah ada update sebelumnya.")
@@ -428,7 +428,7 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
                     db.rollback()
 
     st.markdown("---")
-    st.markdown(f"### 📜 History Progress — {detail.kode_unik}")
+    st.markdown(f"### History Progress — {detail.kode_unik}")
 
     history = db.query(RecruitmentProgress).filter(
         RecruitmentProgress.fptk_id == selected_id
@@ -465,12 +465,12 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
 
 
 def tab_upload_excel(db, user, admin, current_week, current_year):
-    st.markdown("### 📤 Upload Excel Progress Massal")
+    st.markdown("### Upload Excel Progress Massal")
     st.caption("Upload file Excel untuk import progress sekaligus banyak.")
 
     if admin:
-        with st.expander("⚙️ Admin - Kelola Template Excel Progress", expanded=False):
-            st.markdown("#### 📋 Template Aktif")
+        with st.expander("Admin - Kelola Template Excel Progress", expanded=False):
+            st.markdown("#### Template Aktif")
 
             active_template = get_active_template(db, template_type="PROGRESS")
 
@@ -496,7 +496,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                 st.warning("⚠️ Belum ada template aktif untuk Update Progress Recruitment.")
 
             st.markdown("---")
-            st.markdown("#### 📤 Upload Template Baru")
+            st.markdown("#### Upload Template Baru")
             st.caption("Upload file Excel template baru. Template lama otomatis jadi non-aktif. Versi auto increment.")
 
             new_template_file = st.file_uploader(
@@ -547,7 +547,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                     st.error(f"❌ Gagal baca file: {str(e)}")
 
             st.markdown("---")
-            st.markdown("#### 📜 History Template")
+            st.markdown("#### History Template")
 
             history = get_template_history(db, template_type="PROGRESS", limit=10)
 
@@ -565,7 +565,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                 st.info("Belum ada history template.")
 
     st.markdown("---")
-    st.markdown("#### 📥 Download Template")
+    st.markdown("#### Download Template")
     st.caption("Download template untuk memudahkan pengisian progress recruitment.")
 
     active_template = get_active_template(db, template_type="PROGRESS")
@@ -589,7 +589,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
     else:
         st.warning("⚠️ Belum ada template. Hubungi Admin.")
 
-    with st.expander("📋 Petunjuk Penggunaan Template", expanded=False):
+    with st.expander("Petunjuk Penggunaan Template", expanded=False):
         st.markdown("""
         ### 🎯 Cara Menggunakan Template
 
@@ -621,7 +621,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
         """)
 
     st.markdown("---")
-    st.markdown("#### 📤 Upload File Excel")
+    st.markdown("#### Upload File Excel")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -685,7 +685,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
             if from_template:
                 st.info("✅ Kolom terdeteksi otomatis! (kemungkinan dari template)")
 
-                with st.expander("🔧 Ubah Mapping Kolom (opsional)", expanded=False):
+                with st.expander("Ubah Mapping Kolom (opsional)", expanded=False):
                     col1, col2 = st.columns(2)
                     with col1:
                         kode_col = st.selectbox(
@@ -736,7 +736,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                 )
 
             st.markdown("---")
-            st.markdown("#### 👀 Preview Data yang Akan Di-import")
+            st.markdown("#### Preview Data yang Akan Di-import")
 
             preview_rows = []
             for _, row in df.head(10).iterrows():
@@ -825,7 +825,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                     status_text.empty()
 
                     st.success(f"✅ Import selesai!")
-                    st.markdown("### 📊 Summary")
+                    st.markdown("### Summary")
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("✅ Created", created)
                     col2.metric("🔄 Updated", updated)
@@ -836,7 +836,7 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
                         st.error(f"❌ {errors} error saat import:")
 
                     if error_details:
-                        with st.expander("🔍 Detail log"):
+                        with st.expander("Detail log"):
                             for d in error_details[:100]:
                                 st.text(d)
 
@@ -848,15 +848,15 @@ def tab_upload_excel(db, user, admin, current_week, current_year):
         except Exception as e:
             st.error(f"❌ Error baca Excel: {str(e)}")
             import traceback
-            with st.expander("🔍 Detail error"):
+            with st.expander("Detail error"):
                 st.code(traceback.format_exc())
 
 
 def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
-    st.markdown("### 📥 Export Excel Update Progress Recruitment")
+    st.markdown("### Export Excel Update Progress Recruitment")
     st.caption("Download data progress recruitment dalam format Excel yang siap dipakai.")
 
-    st.markdown("#### 🔍 Filter Data yang Akan Di-export")
+    st.markdown("#### Filter Data yang Akan Di-export")
 
     col1, col2, col3 = st.columns(3)
 
@@ -968,7 +968,7 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
         st.warning("⚠️ Tidak ada data untuk di-export.")
         return
 
-    st.markdown(f"#### 👀 Preview ({len(df_export)} baris)")
+    st.markdown(f"#### Preview ({len(df_export)} baris)")
     st.dataframe(df_export.head(20), use_container_width=True, hide_index=True)
 
     if len(df_export) > 20:
@@ -992,7 +992,7 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
                 except Exception as e:
                     st.error(f"❌ Error generate Excel: {str(e)}")
                     import traceback
-                    with st.expander("🔍 Detail error"):
+                    with st.expander("Detail error"):
                         st.code(traceback.format_exc())
 
     with col2:
@@ -1009,7 +1009,7 @@ def tab_export_excel(db, user, admin, current_week, current_year, filter_opts):
 
 
 def tab_backup_import(db, user, admin, current_week, current_year):
-    st.markdown("### 🔄 Backup Import (Legacy Excel)")
+    st.markdown("### Backup Import (Legacy Excel)")
     st.caption("Import progress dari file Excel lama yang **belum ada Kode Unik**.")
     st.info(
         "📌 **Cara kerja matching:** Posisi + PIC Recruiter + Tanggal FPTK\n\n"
@@ -1083,7 +1083,7 @@ def tab_backup_import(db, user, admin, current_week, current_year):
                 col_map["progress"] = c
 
         st.markdown("---")
-        st.markdown("#### 🔧 Mapping Kolom")
+        st.markdown("#### Mapping Kolom")
 
         col_a, col_b, col_c = st.columns(3)
         with col_a:
@@ -1125,7 +1125,7 @@ def tab_backup_import(db, user, admin, current_week, current_year):
             )
 
         st.markdown("---")
-        st.markdown("#### 👀 Preview Matching (10 baris pertama)")
+        st.markdown("#### Preview Matching (10 baris pertama)")
 
         preview_data = []
         match_count = 0
@@ -1202,19 +1202,19 @@ def tab_backup_import(db, user, admin, current_week, current_year):
 
             scan_bar.empty()
 
-            st.markdown("#### 📊 Hasil Scan")
+            st.markdown("#### Hasil Scan")
             col1, col2, col3 = st.columns(3)
             col1.metric("✅ Match", match_all)
             col2.metric("❌ No Match", no_match_all)
             col3.metric("⚠️ Beda Level", level_beda)
 
             if no_match_details:
-                with st.expander(f"❌ Detail No Match ({no_match_all} rows)"):
+                with st.expander(f"Detail No Match ({no_match_all} rows)"):
                     for d in no_match_details:
                         st.text(d)
 
         st.markdown("---")
-        st.markdown("#### 🚀 Import ke Database")
+        st.markdown("#### Import ke Database")
 
         if st.button("🚀 Mulai Import Backup", type="primary", use_container_width=True, key="bkp_btn_import"):
             total = len(df)
@@ -1289,7 +1289,7 @@ def tab_backup_import(db, user, admin, current_week, current_year):
             status_text.empty()
 
             st.success("✅ Backup import selesai!")
-            st.markdown("### 📊 Summary")
+            st.markdown("### Summary")
             col1, col2, col3, col4 = st.columns(4)
             col1.metric("✅ Created", created)
             col2.metric("🔄 Updated", updated)
@@ -1300,7 +1300,7 @@ def tab_backup_import(db, user, admin, current_week, current_year):
                 st.error(f"❌ {errors} error saat import")
 
             if error_details:
-                with st.expander("🔍 Detail Log (max 100)"):
+                with st.expander("Detail Log (max 100)"):
                     for d in error_details:
                         st.text(d)
 
@@ -1312,12 +1312,12 @@ def tab_backup_import(db, user, admin, current_week, current_year):
     except Exception as e:
         st.error(f"❌ Error baca Excel: {str(e)}")
         import traceback
-        with st.expander("🔍 Detail error"):
+        with st.expander("Detail error"):
             st.code(traceback.format_exc())
 
 
 def show_update_progres():
-    st.title("📊 Update Progres Recruitment")
+    st.title("Update Progres Recruitment")
     st.markdown("Update progress rekrutmen mingguan per FPTK yang masih OP.")
 
     db = next(get_db())
@@ -1342,7 +1342,7 @@ def show_update_progres():
     st.markdown("---")
 
     with st.sidebar:
-        st.markdown("### 🔍 Filter FPTK OP")
+        st.markdown("### Filter FPTK OP")
 
         st.text_input(
             "🔎 Cari (Kode Unik / Posisi)",

@@ -44,7 +44,7 @@ def get_pic_options_detail(_db):
 
 
 def show_sourcing_detail():
-    st.title("📋 Detail Kandidat")
+    st.title("Detail Kandidat")
     
     db = next(get_db())
     user = get_current_user(db)
@@ -91,7 +91,7 @@ def show_sourcing_detail():
     col1, col2 = st.columns(2)
     
     with col1:
-        st.markdown("### 📝 Data Kandidat")
+        st.markdown("### Data Kandidat")
         st.markdown(f"**Nama:** {detail.nama}")
         st.markdown(f"**Posisi:** {detail.posisi or '-'}")
         st.markdown(f"**Kode Unik:** {detail.kode_unik or '-'}")
@@ -104,7 +104,7 @@ def show_sourcing_detail():
         st.markdown(f"**Sourcing Date:** {detail.sourcing_date.strftime('%d/%m/%Y') if detail.sourcing_date else '-'}")
     
     with col2:
-        st.markdown("### 📞 Kontak & Lokasi")
+        st.markdown("### Kontak & Lokasi")
         st.markdown(f"**Email:** {detail.email or '-'}")
         st.markdown(f"**Nomor HP:** {detail.nomor_hp or '-'}")
         st.markdown(f"**Domisili:** {detail.domisili or '-'}")
@@ -116,7 +116,7 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    st.markdown("### 🎓 Pendidikan")
+    st.markdown("### Pendidikan")
     col1, col2, col3 = st.columns(3)
     with col1:
         st.markdown(f"**Jenjang Pendidikan:** {detail.jenjang_pendidikan or '-'}")
@@ -133,7 +133,7 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    st.markdown("### 📊 Pipeline Status")
+    st.markdown("### Pipeline Status")
     st.caption("V = Lolos | X = Tidak Lolos | Kosong = Belum diproses")
     
     pipeline_data = []
@@ -163,7 +163,7 @@ def show_sourcing_detail():
     st.dataframe(pipeline_df, use_container_width=True, hide_index=True)
     
     st.markdown("---")
-    st.markdown("### 📋 Detail Pipeline")
+    st.markdown("### Detail Pipeline")
     
     for stage in pipeline_stages:
         field = getattr(detail, stage["field"])
@@ -184,7 +184,7 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    st.markdown("### 📝 Catatan & Blacklist")
+    st.markdown("### Catatan & Blacklist")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"**Catatan:** {detail.notes or '-'}")
@@ -196,7 +196,7 @@ def show_sourcing_detail():
     
     st.markdown("---")
     
-    st.markdown("### 📋 Metadata")
+    st.markdown("### Metadata")
     col1, col2 = st.columns(2)
     with col1:
         st.markdown(f"**Created At:** {detail.created_at.strftime('%d/%m/%Y %H:%M') if detail.created_at else '-'}")
@@ -248,7 +248,7 @@ def show_sourcing_detail():
     
     if fptk:
         st.markdown("---")
-        st.markdown("### 🔗 Terkait dengan FPTK")
+        st.markdown("### Terkait dengan FPTK")
         col1, col2 = st.columns(2)
         with col1:
             st.markdown(f"**Kode Unik:** {fptk.kode_unik}")
