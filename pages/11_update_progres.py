@@ -9,7 +9,6 @@ from core.template_manager import (
     save_template, get_active_template, get_template_bytes, get_template_history
 )
 import time
-from core.ui import set_flash, show_flash
 
 from io import BytesIO
 from openpyxl import Workbook
@@ -378,7 +377,6 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
     if form_key_next not in st.session_state:
         st.session_state[form_key_next] = default_next
 
-    show_flash("progress_save")
     with st.form(f"form_progress_{selected_id}", clear_on_submit=False):
         st.markdown(f"#### Update untuk **{get_week_label(current_week, current_year)}**")
 
@@ -422,7 +420,8 @@ def tab_update_manual(db, user, admin, current_week, current_year, filter_opts):
                     st.session_state[form_key_next] = ""
 
                     st.cache_data.clear()
-                    set_flash("progress_save", f"Progress {detail.kode_unik} untuk {get_week_label(current_week, current_year)} berhasil disimpan.")
+                    st.success(f"✅ Progress berhasil disimpan!")
+                    time.sleep(0.5)
                     st.rerun()
                 except Exception as e:
                     st.error(f"❌ Error: {str(e)}")

@@ -2,7 +2,7 @@
 import bcrypt
 import streamlit as st
 from sqlalchemy.orm import Session
-from core.models import User, AuditLog, MasterDropdown, LoginAttempt
+from core.models import User, AuditLog, MasterDropdown
 import datetime
 import hashlib
 import re
@@ -78,45 +78,23 @@ def set_user_password(db: Session, user: User, new_password: str, must_change: b
     db.commit()
 
 
-_DUMMY_HASH = None
-
-
-def _dummy_verify(password: str):
-    """Spend the same bcrypt time for unknown usernames (timing does not reveal existence)."""
-    global _DUMMY_HASH
-    if _DUMMY_HASH is None:
-        _DUMMY_HASH = hash_password(secrets.token_hex(8))
-    verify_password(password or "", _DUMMY_HASH)
-
-
-def _username_key(username: str) -> str:
-    return (username or "").strip().lower()[:100]
-
-
-def _recent_failed_logins(db: Session, key: str, now: datetime.datetime) -> int:
+def _recent_failed_logins(db: Session, user: User) -> int:
+    now = datetime.datetime.now()
     window_start = now - datetime.timedelta(minutes=LOGIN_LOCK_MINUTES)
     last_success = (
-        db.query(LoginAttempt.created_at)
-        .filter(LoginAttempt.username_key == key, LoginAttempt.success.is_(True),
-                LoginAttempt.created_at >= window_start)
-        .order_by(LoginAttempt.created_at.desc())
+        db.query(AuditLog.created_at)
+        .filter(AuditLog.user_id == user.id, AuditLog.action == "LOGIN",
+                AuditLog.created_at >= window_start)
+        .order_by(AuditLog.created_at.desc())
         .first()
     )
-    since = max(window_start, last_success[0]) if last_success else window_start
+    since = max(window_start, last_success[0]) if last_success and last_success[0] else window_start
     return (
-        db.query(LoginAttempt)
-        .filter(LoginAttempt.username_key == key, LoginAttempt.success.is_(False),
-                LoginAttempt.created_at > since)
+        db.query(AuditLog)
+        .filter(AuditLog.user_id == user.id, AuditLog.action == "LOGIN_FAILED",
+                AuditLog.created_at > since)
         .count()
     )
-
-
-def _record_attempt(db: Session, key: str, success: bool, now: datetime.datetime):
-    db.add(LoginAttempt(username_key=key, success=success, created_at=now))
-    if not success:
-        db.query(LoginAttempt).filter(
-            LoginAttempt.created_at < now - datetime.timedelta(days=1)
-        ).delete(synchronize_session=False)
 
 
 def authenticate_user(db: Session, username: str, password: str):
@@ -130,25 +108,16 @@ def authenticate_user(db: Session, username: str, password: str):
 
 def attempt_login(db: Session, username: str, password: str):
     """Authenticate with lockout. Returns (user, error) where error is None,
-    'invalid' or 'locked'.
-
-    Lockout is keyed by the typed username whether or not it exists, and unknown
-    usernames cost the same bcrypt time, so neither the message nor the timing
-    reveals which usernames exist. Timestamps are app-side so the window does not
-    depend on the database server's timezone."""
+    'invalid' or 'locked'. Audit rows use app-side timestamps so the lockout
+    window does not depend on the database server's timezone."""
     username = (username or "").strip()
-    key = _username_key(username)
-    now = datetime.datetime.now()
-    if _recent_failed_logins(db, key, now) >= MAX_FAILED_LOGINS:
-        return None, "locked"
     user = db.query(User).filter(User.username == username).first()
     if not user:
-        _dummy_verify(password)
-        _record_attempt(db, key, False, now)
-        db.commit()
         return None, "invalid"
+    if _recent_failed_logins(db, user) >= MAX_FAILED_LOGINS:
+        return None, "locked"
+    now = datetime.datetime.now()
     if not verify_password(password, user.password_hash):
-        _record_attempt(db, key, False, now)
         db.add(AuditLog(user_id=user.id, action="LOGIN_FAILED", table_name="users",
                         record_id=user.id, created_at=now))
         db.commit()
@@ -158,7 +127,6 @@ def attempt_login(db: Session, username: str, password: str):
         if not is_demo():
             user.must_change_password = True
     user.last_login = now
-    _record_attempt(db, key, True, now)
     db.add(AuditLog(user_id=user.id, action="LOGIN", table_name="users",
                     record_id=user.id, created_at=now))
     db.commit()
@@ -286,19 +254,17 @@ def init_default_users(db: Session):
                         business_unit=bu, kode_pic=kode))
     db.commit()
 
-    # Optional operator shortcut: INITIAL_ADMIN_PASSWORD (env var or Streamlit secret)
-    # creates the first admin. Otherwise the first-run setup screen is used
-    # (core/first_run.py). No password is hardcoded in the source.
-    # It also serves as the deliberate, server-side recovery procedure if every
-    # admin account has been lost, because only someone with access to the
-    # deployment's settings can set it.
-    initial_pw = _get_setting("INITIAL_ADMIN_PASSWORD")
-    if initial_pw and not active_admin_exists(db) and \
-            not db.query(User).filter(User.username == "admin").first():
-        db.add(User(username="admin", password_hash=hash_password(initial_pw), role="admin",
-                    display_name="Administrator", pic_recruiter="Admin",
-                    business_unit="CORP", kode_pic="ADMIN", must_change_password=True))
-        db.commit()
+    # The first admin is only created when INITIAL_ADMIN_PASSWORD is provided
+    # (env var or Streamlit secret); no password is hardcoded in the source.
+    if not db.query(User).filter(User.role == "admin").first():
+        initial_pw = _get_setting("INITIAL_ADMIN_PASSWORD")
+        if initial_pw:
+            db.add(User(username="admin", password_hash=hash_password(initial_pw), role="admin",
+                        display_name="Administrator", pic_recruiter="Admin",
+                        business_unit="CORP", kode_pic="ADMIN", must_change_password=True))
+            db.commit()
+        else:
+            print("[fptk] No admin account exists. Set INITIAL_ADMIN_PASSWORD to create one.")
 
     invalidate_filter_cache()
 
@@ -341,15 +307,6 @@ def get_current_user(db: Session):
     if "user_id" not in st.session_state:
         return None
     return db.query(User).filter(User.id == st.session_state.user_id).first()
-
-
-def active_admin_exists(db: Session) -> bool:
-    """True when at least one admin account can actually log in."""
-    return db.query(User.id).filter(
-        User.role == "admin",
-        User.password_hash != "DISABLED",
-        ~User.username.like("inactive\\_%", escape="\\"),
-    ).first() is not None
 
 
 def is_admin(db: Session):

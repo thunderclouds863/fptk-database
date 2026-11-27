@@ -1,6 +1,5 @@
 # pages/02_upload_compile.py
 import streamlit as st
-from core.ui import set_flash, show_flash
 import pandas as pd
 import re
 import hashlib
@@ -801,8 +800,6 @@ def show_upload_compile():
 
         st.info(f"👤 PIC Login: **{user_pic_name}** | Kode: **{user_pic_code}** | BU: **{user_pic_bu}**")
 
-        show_flash("fptk_manual")
-
         with st.form("fptk_manual_form", clear_on_submit=True):
             st.markdown("### Data FPTK")
 
@@ -1143,21 +1140,18 @@ def show_upload_compile():
                         progress_bar.empty()
 
                         if created_count > 0:
-                            # Shown after the rerun below (previously the rerun wiped these messages).
-                            set_flash("fptk_manual",
-                                      f"{created_count} FPTK disimpan. Kode Unik terakhir: **{last_kode_unik}** · "
-                                      f"Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}** · "
-                                      f"Detail SLA: **{auto_detail_sla}**. Posisi '{posisi}' diperbarui di Kode Posisi.")
+                            st.success(f"✅ {created_count} FPTK berhasil disimpan!")
+                            st.success(f"✅ Posisi '{posisi}' telah ditambahkan/diupdate ke DB Kode Posisi.")
                             if skipped_count > 0:
-                                set_flash("fptk_manual", f"{skipped_count} FPTK dilewati (duplikat).", "warning")
+                                st.warning(f"⚠️ {skipped_count} FPTK dilewati (duplikat)")
+                            st.info(f"📋 Kode Unik terakhir: **{last_kode_unik}**")
+                            st.info(f"📋 Deadline SLA: **{deadline_sla.strftime('%d/%m/%Y') if deadline_sla else '-'}**")
+                            st.info(f"📋 Detail SLA: **{auto_detail_sla}**")
+                            st.balloons()
                             st.cache_data.clear()
                             st.session_state.manual_posisi = ""
                             st.session_state.manual_direktorat = ""
                             st.session_state.manual_position_data = {}
-                            # Reset the inputs too, so the next run does not re-trigger the
-                            # position lookup rerun (which would wipe the flash message).
-                            st.session_state.pop("manual_posisi_input", None)
-                            st.session_state.pop("manual_direktorat_input", None)
                             st.rerun()
                         else:
                             st.warning("⚠️ Tidak ada FPTK yang berhasil disimpan")
